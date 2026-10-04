@@ -36,9 +36,39 @@ CONTEXT_ATTACHMENTS: frozenset[str] = frozenset({
 
 SUBAGENT_MARKER = "<task-notification"
 
+# `cost-state.modelUsage` is keyed by model id; each entry carries camelCase
+# token counters (inputTokens, outputTokens, thinkingTokens,
+# cacheReadInputTokens, cacheCreationInputTokens, webSearchRequests, costUSD).
+# These three are the ones that make up a billed context window, mirroring the
+# `usage` fields summed into `Turn.context`.
+MODEL_USAGE_CONTEXT_FIELDS: tuple[str, ...] = (
+    "inputTokens", "cacheReadInputTokens", "cacheCreationInputTokens",
+)
+
 
 def estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
+
+
+def model_usage_context(model_usage: dict) -> int:
+    """Model-reported total context tokens, summed over every model.
+
+    This is an independent cross-check on the context total this module
+    derives from assistant records. It is not expected to agree exactly: a
+    session that dispatched subagents has their usage counted here, while
+    their turns live in their own transcripts and never appear in this one.
+    Entries that carry no token fields (or junk in them) contribute nothing
+    rather than raising.
+    """
+    total = 0
+    for entry in (model_usage or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        for key in MODEL_USAGE_CONTEXT_FIELDS:
+            value = entry.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                total += value
+    return total
 
 
 @dataclass(frozen=True, slots=True)

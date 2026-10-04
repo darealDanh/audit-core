@@ -69,3 +69,28 @@ def test_render_includes_every_nonzero_component(tmp_path):
     assert "assistant_text" in text
     assert "attachment:total_tokens_reminder" in text
     assert "prefix" in text.lower()
+
+
+def test_report_reconciles_parsed_context_against_model_usage(tmp_path):
+    """I2: `modelUsage` is an authoritative model-reported total that the
+    parser already read and never surfaced. One printed line would have caught
+    both Criticals on the first real run."""
+    p = write(tmp_path,
+              B.assistant([], cache_read=50_000, message_id="m1"),
+              B.assistant([], cache_read=70_000, message_id="m2"),
+              B.cost_state(2.0, {"claude-opus-5": B.model_usage(cache_read=240_000)}))
+    r = budget.analyze(T.parse(p))
+    assert r.stats.sum_context == 120_000
+    assert r.model_usage_context == 240_000
+    text = budget.render(r)
+    assert "reconciliation" in text.lower()
+    assert "240,000" in text
+    assert "0.50x" in text
+    assert "subagent" in text.lower()
+
+
+def test_reconciliation_line_survives_a_missing_model_usage_total(tmp_path):
+    p = write(tmp_path, B.assistant([], cache_read=50_000))
+    r = budget.analyze(T.parse(p))
+    assert r.model_usage_context == 0
+    assert "reconciliation" in budget.render(r).lower()

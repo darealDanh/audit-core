@@ -83,6 +83,22 @@ def attachment(atype, content=None, payload="x"):
     return line(rec)
 
 
-def cost_state(usd=1.25):
+def cost_state(usd=1.25, model_usage=None):
+    """A cost-state record.
+
+    Real `modelUsage` entries are keyed by model id and carry camelCase token
+    fields: inputTokens, outputTokens, thinkingTokens, cacheReadInputTokens,
+    cacheCreationInputTokens, webSearchRequests, costUSD. The default here
+    deliberately carries only `costUSD`, so the cost-only shape stays covered.
+    """
+    if model_usage is None:
+        model_usage = {"claude-opus-5": {"costUSD": usd}}
     return line({"type": "cost-state", "sessionId": "test-session",
-                 "totalCostUSD": usd, "modelUsage": {"claude-opus-5": {"costUSD": usd}}})
+                 "totalCostUSD": usd, "modelUsage": model_usage})
+
+
+def model_usage(input_tokens=0, cache_read=0, cache_creation=0, output=0):
+    return {"inputTokens": input_tokens, "outputTokens": output,
+            "thinkingTokens": 0, "cacheReadInputTokens": cache_read,
+            "cacheCreationInputTokens": cache_creation,
+            "webSearchRequests": 0, "costUSD": 1.0}

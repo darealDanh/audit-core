@@ -4,7 +4,7 @@ from __future__ import annotations
 import statistics
 from dataclasses import dataclass
 
-from audit_core.transcript import Transcript, Turn
+from audit_core.transcript import Transcript, Turn, model_usage_context
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +90,7 @@ class Report:
     tool_result_tokens: int
     tool_input_tokens: int
     tool_calls_by_name: dict[str, int]
+    model_usage_context: int = 0
 
 
 def analyze(t: Transcript) -> Report:
@@ -128,6 +129,7 @@ def analyze(t: Transcript) -> Report:
         tool_result_tokens=sum(c.result_tokens for c in t.tool_calls),
         tool_input_tokens=sum(c.input_tokens for c in t.tool_calls),
         tool_calls_by_name=tool_calls_by_name,
+        model_usage_context=model_usage_context(t.model_usage),
     )
 
 
@@ -147,6 +149,14 @@ def render(r: Report) -> str:
     out.append(f"  prefix term      {r.prefix_term:,} ({_pct(r.prefix_term, s.sum_context)})")
     out.append(f"  accumulation     {r.accumulation_term:,} "
                f"({_pct(r.accumulation_term, s.sum_context)})")
+    ratio = (f"{s.sum_context / r.model_usage_context:.2f}x"
+             if r.model_usage_context else "n/a")
+    out.append(f"  reconciliation   parsed sum_context {s.sum_context:,}  vs  "
+               f"modelUsage {r.model_usage_context:,}  (ratio {ratio})")
+    out.append("                   modelUsage is model-reported and counts "
+               "subagent usage whose turns")
+    out.append("                   are not in this transcript, so a large "
+               "divergence is expected there.")
     out.append("")
     out.append(f"  {'component':40s} {'added':>12s} {'share':>7s} {'attributed':>14s}")
     total_added = sum(r.composition.values())

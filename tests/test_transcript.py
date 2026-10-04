@@ -197,3 +197,26 @@ def test_attachment_tolerates_malformed_rendered_entries(tmp_path):
     t = T.parse(p)
     assert [(a.component, a.tokens) for a in t.additions] == [
         ("attachment:environment", 100)]
+
+
+def test_model_usage_context_sums_input_and_cache_tokens_across_models(tmp_path):
+    """I2: the model-reported context total, for reconciliation."""
+    p = write(tmp_path, B.assistant([], cache_read=1), B.cost_state(1.0, {
+        "claude-opus-5[1m]": B.model_usage(input_tokens=100, cache_read=1000,
+                                           cache_creation=10, output=5000),
+        "claude-haiku-4-5": B.model_usage(input_tokens=7),
+    }))
+    assert T.model_usage_context(T.parse(p).model_usage) == 1117
+
+
+def test_model_usage_context_ignores_entries_without_token_fields(tmp_path):
+    """The default cost-state shape carries only costUSD; it must not raise."""
+    p = write(tmp_path, B.assistant([], cache_read=1), B.cost_state(1.0))
+    assert T.model_usage_context(T.parse(p).model_usage) == 0
+
+
+def test_model_usage_context_tolerates_junk_entries():
+    assert T.model_usage_context({"a": None, "b": "nonsense", "c": [],
+                                  "d": {"inputTokens": "x"},
+                                  "e": {"inputTokens": 5}}) == 5
+    assert T.model_usage_context({}) == 0
