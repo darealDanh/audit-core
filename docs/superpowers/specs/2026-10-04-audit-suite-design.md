@@ -14,29 +14,42 @@ driven by the `codebase-audit` skill.
 
 Nine security-audit sessions under `~/Documents/Offsec/Opswat/Devices/` were
 measured with `audit.py budget --report`. All nine were IoT firmware audits
-driven by the `codebase-audit` skill. Every figure in this section is tool
-output, regenerable by re-running that command; the earlier hand-measured
-version of this section was wrong twice, which is why the tool exists.
+driven by the `codebase-audit` skill. Every figure here is tool output,
+regenerable by re-running that command.
+
+> These figures are the **second** generation of this section. The first
+> hand-measured version was wrong; so was the first tool-measured version,
+> because the parser counted one turn per content block rather than per API
+> call (Claude Code writes one record per block, all sharing a `message.id`
+> and a byte-identical `usage`) and charged attachments their whole JSONL
+> envelope rather than their rendered text. Σ context was 2.37x high and
+> attachments were overstated 3.3x. Both are fixed, and the parser now prints
+> a reconciliation against `modelUsage` so a divergence of that kind is
+> visible on the first run instead of surviving two review passes.
 
 | Quantity | Measured |
 |---|---|
 | Orchestrator cost, 9 sessions | $2,053.64 |
-| Orchestrator turns (billed) | 4,285 |
-| Context tokens re-read | 1,064,400,000 |
+| Orchestrator API calls (billed turns) | 1,812 |
+| Context tokens re-read | 449,900,000 |
 
-Subagent cost is not recorded in these transcripts, so the true total is higher.
+`cost_usd` comes from `cost-state`, a running total covering the whole session
+including subagent dispatches; the context figures are orchestrator-only.
+**Do not divide one by the other** — they measure different populations. On
+tplink, `modelUsage` reports 830.8M context tokens against the orchestrator's
+224.2M, and the gap is subagent work.
 
 | Session | Cost | Turns | Sum ctx | Mean ctx | Prefix floor | Growth/turn | Epochs |
 |---|---|---|---|---|---|---|---|
-| asus-AX1800S | $787.75 | 829 | 196.2M | 236,634 | 43,951 | 944 | 3 |
-| tplink | $658.37 | 1,936 | 521.9M | 269,566 | 40,926 | 1,115 | 7 |
-| unifi (main) | $359.07 | 555 | 195.5M | 352,240 | 52,604 | 1,044 | 1 |
-| asus-AX1800HP | $207.69 | 331 | 72.1M | 217,780 | 52,398 | 1,025 | 1 |
-| unifi (second) | $22.52 | 239 | 35.8M | 149,678 | 41,854 | 1,025 | 1 |
-| Devices (main) | $13.07 | 227 | 31.7M | 139,655 | 42,481 | 923 | 1 |
-| gl-inet | $2.37 | 74 | 5.5M | 74,561 | 46,939 | 715 | 1 |
-| Devices (second) | $1.84 | 68 | 4.4M | 64,371 | 47,112 | 527 | 1 |
-| tenda | $0.96 | 26 | 1.4M | 52,600 | 42,452 | 793 | 1 |
+| asus-AX1800S | $787.75 | 350 | 82.9M | 236,972 | 43,951 | 2,247 | 3 |
+| tplink | $658.37 | 843 | 224.2M | 265,897 | 40,926 | 2,573 | 7 |
+| unifi (main) | $359.07 | 222 | 79.0M | 355,962 | 52,604 | 2,618 | 1 |
+| asus-AX1800HP | $207.69 | 145 | 32.3M | 222,733 | 52,398 | 2,349 | 1 |
+| unifi (second) | $22.52 | 77 | 11.5M | 149,896 | 41,854 | 3,209 | 1 |
+| Devices (main) | $13.07 | 113 | 15.7M | 139,068 | 42,481 | 1,863 | 1 |
+| gl-inet | $2.37 | 28 | 2.1M | 76,304 | 46,939 | 1,934 | 1 |
+| Devices (second) | $1.84 | 23 | 1.5M | 65,671 | 47,112 | 1,605 | 1 |
+| tenda | $0.96 | 11 | 0.6M | 51,528 | 42,452 | 1,981 | 1 |
 
 Cache reads are roughly 70% of the bill. Cost follows
 `Σ over turns of context(turn)`, so a token admitted to the orchestrator's
@@ -49,59 +62,52 @@ that grows within each compaction epoch:
 
 | Term | Tokens | Share |
 |---|---|---|
-| Prefix (system prompt, tool schemas, MCP schemas, skill) | 222.1M | 20.9% |
-| Accumulated message history | 842.3M | 79.1% |
+| Prefix (system prompt, tool schemas, MCP schemas, skill) | 94.1M | 20.9% |
+| Accumulated message history | 355.8M | 79.1% |
 
 Epoch floors measure the prefix directly: 40,926 at the lowest, rising past
-66,000 once MCP servers load. Growth within an epoch runs 527-1,115
-tokens/turn, and scales with how much raw material a session admits.
+66,000 once MCP servers load. Growth within an epoch runs 1,605-3,209
+tokens per API call, and scales with how much raw material a session admits.
 
 Attribution is exact, not proportional: each token added to history is charged
-for the number of turns it actually remained resident, which ends at its
-epoch's last billed turn.
+for the number of turns it actually remained resident, ending at its epoch's
+last billed turn.
 
 | Component | Attributed | Share of total |
 |---|---|---|
-| **All context-injected attachments combined** | **217.5M** | **20.4%** |
-| Thinking blocks retained in history | 191.8M | 18.0% |
-| Tool results | 159.5M | 15.0% |
-| Tool-use inputs (the model's own inline Bash/Python) | 103.2M | 9.7% |
-| — of attachments: `total_tokens_reminder` | 58.4M | 5.5% |
-| — of attachments: skill re-injection (`skill_listing` + `invoked_skills`) | 45.6M | 4.3% |
-| Assistant text | 33.7M | 3.2% |
-| — of attachments: `queued_command` | 25.8M | 2.4% |
-| — of attachments: `deferred_tools_delta` | 22.7M | 2.1% |
-| Subagent results (`<task-notification>`) | 14.6M | 1.4% |
+| Thinking blocks retained in history | 81.2M | 18.0% |
+| Tool results | 68.3M | 15.2% |
+| Tool-use inputs (the model's own inline Bash/Python) | 44.2M | 9.8% |
+| All context-injected attachments combined | 27.5M | 6.1% |
+| Assistant text | 14.2M | 3.2% |
+| Subagent results (`<task-notification>`) | 6.2M | 1.4% |
+| User text | 5.3M | 1.2% |
 
 **Ranked levers, from the measurement:**
 
 1. **Accumulation is 79.1% of cost.** Capping it caps the bill regardless of
    composition. The context ceiling (R3) is the master lever, not any single
    component.
-2. **Context-injected attachments total 20.4%** — more than any single
-   component below them, and a category the first draft of this design missed
-   entirely. Much of it is harness overhead the skill cannot control
-   (`total_tokens_reminder`, `queued_command`), but skill re-injection (4.3%)
-   and deferred-tool deltas (2.1%) are controllable, the latter via R4.
-3. **Retained thinking is 18.0%.** Addressed by model and reasoning-effort
+2. **Retained thinking is 18.0%.** Addressed by model and reasoning-effort
    tiering, and by shorter phases.
-4. **Tool results plus tool-use inputs are 24.7% combined.** Addressed by
+3. **Tool results plus tool-use inputs are 25.0% combined.** Addressed by
    extract-then-fan-out (R1) and by moving reusable logic into `audit.py`
    instead of regenerating inline heredocs (R5).
-5. **Prefix is 20.9%**, and unused MCP tool schemas are a large part of it (R4).
-   Note that MCP tooling is charged twice: once as schemas in the prefix, again
-   as `deferred_tools_delta` records in accumulation.
+4. **Prefix is 20.9%**, and unused MCP tool schemas are a large part of it (R4).
+5. **Attachments are 6.1%**, and most of that is harness overhead the skill
+   cannot control. An earlier draft of this section ranked them first at 20.4%;
+   that was an artefact of charging JSON envelopes, and no rule should be
+   written against it.
 6. **Subagent results are 1.4%.** Return contracts (R2) are worth doing because
    they are free, but they are not a headline lever.
 
 One further measured fact: the skill re-reads itself from disk after
 compaction — `cat SKILL.md` costs 7,140 tokens and each of five workflow files
-3.0k-3.8k — on top of the 4.3% of attributed context that skill re-injection
-attachments already consume.
+3.0k-3.8k.
 
 **Model monoculture.** Opus is ~100% of spend; Haiku totals $0.50 across all
 nine sessions, against a SKILL.md rule mandating the strongest available model
-for every subagent. Lower tiers also emit far less thinking, which is lever 3.
+for every subagent. Lower tiers also emit far less thinking, which is lever 2.
 
 ### 1.3 Quality
 
@@ -425,16 +431,16 @@ acts on return text. Its next action is always an `audit.py` verb reading bounde
 rows from SQL. Prose returned anyway is dead weight for one turn rather than
 permanently resident.
 
-Measured scale: subagent results are 1.4% of total attributed context (14.6M
-of 1,064.4M across all nine sessions; 102 notifications carrying 100,801
+Measured scale: subagent results are 1.4% of total attributed context (6.2M
+of 449.9M across all nine sessions; 102 notifications carrying 100,801
 tokens, largest single result 7,639). R2 is retained because it is free and it keeps the orchestrator's
 reasoning anchored on SQL rather than on agent prose, **not** because it is a
 large saving. It must not be prioritised over R1, R3 or R5.
 
 ### R5 - Reusable logic lives in `audit.py`, never in inline heredocs
 
-Inline Bash and Python is 9.7% of attributed context across the nine sessions
-(103.2M of 1,064.4M; 223,757 raw tokens in tplink alone), much of it
+Inline Bash and Python is 9.8% of attributed context across the nine sessions
+(44.2M of 449.9M; 223,757 raw tokens in tplink alone), much of it
 regenerating the same extraction and parsing logic after each compaction. Any script longer than ~10 lines, or
 written twice, becomes an `audit.py` verb. Invocations then cost one line
 instead of a heredoc.
@@ -523,11 +529,11 @@ Headline metric: **cost per rung-4 finding**.
 
 | Metric | tplink baseline | Target |
 |---|---|---|
-| Σ context re-read | 521.9M | ≤ 60M |
-| Mean orchestrator context | 269,566 | ≤ 80k |
-| Growth rate `g` | 1,115 tok/turn | ≤ 400 tok/turn |
+| Σ context re-read | 224.2M | ≤ 60M |
+| Mean orchestrator context | 265,897 | ≤ 80k |
+| Growth rate `g` | 2,573 tok/turn | ≤ 800 tok/turn |
 | Prefix floor | 40.9k-66.0k | ≤ 45k |
-| Retained thinking, attributed share of total | 23.8% | ≤ 10% |
+| Retained thinking, attributed share of total | 18.0% | ≤ 10% |
 | Tool-use input (inline scripts) | 223,757 | ≤ 40,000 |
 | Cost | $658.37 | ≤ $45 |
 | CRITICALs vs. 19-item reference set | 9 | ≥ 12 |
@@ -551,9 +557,10 @@ rediscovered, matched on root cause and location, not title), precision (rung-4
 findings surviving adversarial review), coverage (analyzed ÷ inventoried), and
 cost per rung-4 finding.
 
-Baseline recorded before any change: tplink = $658.37, 521.9M Σ context,
-269,566 mean context, g 1,115 tok/turn, 7 epochs, 9/19 recall, against a
-transcript pinned at 15,608,662 bytes / sha256 `a33f2f52…`.
+Baseline recorded before any change: tplink = $658.37, 224.2M Σ context,
+843 billed turns, 265,897 mean context, g 2,573 tok/turn, 7 epochs, 9/19
+recall, against a transcript pinned at 15,608,662 bytes / sha256
+`a33f2f52…`. See `docs/baselines/2026-10-05-tplink-baseline.md`.
 
 **Gate: no change merges if recall drops.** Cost targets are subordinate.
 
