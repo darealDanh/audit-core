@@ -44,3 +44,37 @@ two cases where the two reports score the finding at very different
 severities despite describing the same mechanism (this is expected and does
 not disqualify the match — recall scoring is about root-cause identity, not
 severity agreement).
+
+## Adjudication log
+
+### 2026-10-05 — candidates raised by the first scoring run
+
+Running `audit.py bench` against `audit.db` surfaced three candidates by
+location overlap. All three were adjudicated by reading both sides in full.
+
+**REF-19 ~ G5-F1 — ACCEPTED, appended to `matches.json`.** Both describe the
+Telink TLSR9 TBTP BLE reassembler reached through
+`tbtp_handle_characteristic_received`. REF-19 cites `0x2001CA22` and
+`0x2001CA2E`; G5-F1 cites `@0x2001CA2C` in the same callback plus the
+continuation `memcpy` at `0x2001CD0C`. Both are rated CRITICAL and both
+describe unauthenticated remote memory corruption on the lock-controller MCU
+caused by unbounded fragment reassembly into a fixed buffer. REF-19 names the
+trigger (a 2-byte GATT write underflowing the fragment length); G5-F1 names
+the missing bounds check that lets the resulting length run. One defect
+described from two vantages — the same relationship REF-17 and G1-F7 have.
+
+**REF-10 ~ G6-F3 — REJECTED.** A false pair produced by the bare
+three-character token `tss` in REF-10's `locations` matching
+`TssRSASecretKey` / `osal_tss_*`. REF-10 is a degenerate-`strncpy` heap
+overflow in `update_bind_token`; G6-F3 is disclosure of the RSA private key
+over the debug UART via `ATTPGV`. Different defects.
+
+**REF-10 ~ G6-F4 — REJECTED.** The same bare-`tss` false pair. G6-F4 is
+`ATTPSK`/`ATTPSV` overwriting the key store in flash. Different defect.
+
+Two rejections out of three candidates is the mechanism working as designed:
+substring overlap on a short token is deliberately permissive, and nothing
+reaches `matches.json` without this step.
+
+**Effect on the baseline: recall moves from 8/19 to 9/19 (47.4%).** The
+baseline document records the post-adjudication figure.

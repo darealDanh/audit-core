@@ -1655,7 +1655,11 @@ python3 audit.py bench \
   --cost 658.37
 ```
 
-Expected: `recall 8/19 (42.1%)`, 45 findings, cost per matched finding $82.30.
+Expected: `recall 9/19 (47.4%)`, 45 findings, cost per matched finding $73.15.
+Two candidates will also be reported (REF-10 against G6-F3 and G6-F4); both were
+adjudicated and REJECTED as false pairs from a bare three-character `tss` token.
+The scorer keeps no record of rejections, so they reappear on every run — report
+them, do not act on them.
 If `audit.py budget --report` prints a different `cost_usd` for the tplink
 session, that figure is authoritative — use it and note the difference.
 
@@ -1697,10 +1701,10 @@ tool-use inputs 12.9%.
 | Metric | Value |
 |---|---|
 | Reference CRITICALs | 19 |
-| Matched (adjudicated) | 8 |
-| Recall | 42.1% |
+| Matched (adjudicated) | 9 |
+| Recall | 47.4% |
 | Run findings | 45 |
-| Cost per matched finding | $82.30 |
+| Cost per matched finding | $73.15 |
 
 ## Stage 4 gate
 
@@ -1726,6 +1730,6 @@ git commit -m "feat: audit.py bench and the recorded tplink baseline"
 - [ ] `python3 audit.py selftest` exits 0.
 - [ ] `python3 audit.py budget --report` runs over all nine real sessions and tplink reproduces the Task 5 ranges, with `subagent_result` near 32,700 rather than in the millions.
 - [ ] `tests/goldens/tplink-dl110v2-1.0.11/reference.json` holds 19 CRITICAL references with unique ids.
-- [ ] `python3 audit.py bench` reports 8/19 against the historical tplink audit.
+- [ ] `python3 audit.py bench` reports 9/19 against the historical tplink audit.
 - [ ] `docs/baselines/2026-10-04-tplink-baseline.md` records measured values, not the plan's expectations.
 - [ ] Nothing under `SKILL.md`, `workflows/` or `references/` changed.

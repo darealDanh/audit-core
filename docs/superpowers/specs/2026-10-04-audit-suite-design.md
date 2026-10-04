@@ -106,7 +106,7 @@ for every subagent. Lower tiers also emit far less thinking, which is lever 3.
 ### 1.3 Quality
 
 Against an independent 19-item CRITICAL reference set for the same tplink
-firmware, the audit found 8. The session's own post-mortem identified the causes,
+firmware, the audit found 9. The session's own post-mortem identified the causes,
 and they are design gaps rather than analysis failures:
 
 - **Whole layers never opened.** No finding sits below the IP layer; the Wi-Fi
@@ -530,7 +530,7 @@ Headline metric: **cost per rung-4 finding**.
 | Retained thinking, attributed share of total | 23.8% | ≤ 10% |
 | Tool-use input (inline scripts) | 223,757 | ≤ 40,000 |
 | Cost | $658.37 | ≤ $45 |
-| CRITICALs vs. 19-item reference set | 8 | ≥ 12 |
+| CRITICALs vs. 19-item reference set | 9 | ≥ 12 |
 
 The last row is the gate. If cost falls and recall falls with it, the design has
 failed.
@@ -552,7 +552,7 @@ findings surviving adversarial review), coverage (analyzed ÷ inventoried), and
 cost per rung-4 finding.
 
 Baseline recorded before any change: tplink = $658.37, 521.9M Σ context,
-269,566 mean context, g 1,115 tok/turn, 7 epochs, 8/19 recall, against a
+269,566 mean context, g 1,115 tok/turn, 7 epochs, 9/19 recall, against a
 transcript pinned at 15,608,662 bytes / sha256 `a33f2f52…`.
 
 **Gate: no change merges if recall drops.** Cost targets are subordinate.
@@ -614,7 +614,7 @@ revertible.
 **Stage 2 — Structural change.** Benchmark-gated. `audit_core` (db, extract,
 annotations, coverage, sweep, budget); R1; R3; vendored into `codebase-audit`
 with its existing phase semantics unchanged. Gate: tplink re-run twice — cost
-must fall and recall must be ≥ 8/19.
+must fall and recall must be ≥ 9/19.
 
 **Stage 3 — Quality additions.** Each benchmarked separately so attribution is
 possible. Pivot rule, sweep-on-confirm, coverage denominator, identity
