@@ -36,6 +36,16 @@ context at turn N is paid for on every remaining turn.
 
 ### 1.2 Where the context actually goes
 
+> **Correction pending (2026-10-05).** The tplink transcript was still being
+> appended to while this section was first measured, so its cost and turn
+> counts come from a shorter read of the file than its composition figures do.
+> Known-stale: cost $347.68 (actual $658.37) and turns 1,894 (actual 1,936
+> billed, 1,950 records). Confirmed stable: 521.9M sum_context, 7 epochs, and
+> every composition figure below. Stage 0 Task 5 regenerates all nine sessions
+> from `audit.py budget --report` and Task 8 records them; this section is
+> corrected once from that output, not by further hand arithmetic.
+
+
 Measured on tplink (1,894 turns with usage, 521.9M context tokens re-read,
 6 compactions). Context splits into a **prefix** paid on every turn and an
 **accumulation** that grows within each compaction epoch.
