@@ -1,5 +1,5 @@
 import pathlib
-from audit_core import transcript as T
+from audit_core import budget, transcript as T
 from tests.fixtures import build as B
 
 
@@ -94,3 +94,48 @@ def test_every_addition_component_is_declared(tmp_path):
     t = T.parse(p)
     for a in t.additions:
         assert a.component in T.COMPONENTS or a.component.startswith("attachment:")
+
+
+def test_records_sharing_a_message_id_are_one_turn(tmp_path):
+    """C1: Claude Code writes one record per content block, not per API call.
+
+    Every record of such a group repeats the same `message.id` and a
+    byte-identical copy of the same `usage`. Counting a Turn per record
+    inflates Sigma context by the mean group size while leaving mean context
+    and the prefix/accumulation split looking correct. Content blocks are
+    distributed across the group and never repeated, so the block walk must
+    still run on every record.
+    """
+    p = write(tmp_path,
+              B.assistant([{"type": "text", "text": "a" * 400}],
+                          cache_read=1000, output=10, message_id="msg-1"),
+              B.assistant([{"type": "tool_use", "id": "t1", "name": "Bash",
+                            "input": {"command": "x" * 200}}],
+                          cache_read=1000, output=10, message_id="msg-1"))
+    t = T.parse(p)
+    assert len(t.turns) == 1
+    assert [x.index for x in t.turns] == [0]
+    assert budget.stats_of(t).sum_context == 1000
+    components = {a.component for a in t.additions}
+    assert components == {"assistant_text", "tool_use_input"}
+    assert all(a.turn_index == 0 for a in t.additions)
+
+
+def test_records_without_a_message_id_stay_one_turn_each(tmp_path):
+    """C1 fallback: no id to group on means no grouping. None observed in the
+    reference transcript, but the parser must not collapse them into one."""
+    p = write(tmp_path,
+              B.assistant([{"type": "text", "text": "a"}], cache_read=1000),
+              B.assistant([{"type": "text", "text": "b"}], cache_read=2000))
+    t = T.parse(p)
+    assert [x.context for x in t.turns] == [1000, 2000]
+
+
+def test_distinct_message_ids_are_distinct_turns(tmp_path):
+    p = write(tmp_path,
+              B.assistant([{"type": "text", "text": "a"}], cache_read=1000,
+                          message_id="msg-1"),
+              B.assistant([{"type": "text", "text": "b"}], cache_read=2000,
+                          message_id="msg-2"))
+    t = T.parse(p)
+    assert [(x.index, x.context) for x in t.turns] == [(0, 1000), (1, 2000)]

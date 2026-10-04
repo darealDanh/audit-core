@@ -94,6 +94,7 @@ def parse(path: str | pathlib.Path) -> Transcript:
     additions: list[Addition] = []
     tool_calls: list[ToolCall] = []
     pending: dict[str, tuple[str, int]] = {}
+    seen_message_ids: set[str] = set()
     session_id = ""
     cost_usd: float | None = None
     model_usage: dict = {}
@@ -115,17 +116,30 @@ def parse(path: str | pathlib.Path) -> Transcript:
         elif rtype == "assistant":
             msg = rec.get("message") or {}
             usage = msg.get("usage") or {}
-            context = (usage.get("cache_read_input_tokens", 0)
-                       + usage.get("cache_creation_input_tokens", 0)
-                       + usage.get("input_tokens", 0))
-            turn_index += 1
-            turns.append(Turn(
-                index=turn_index,
-                context=context,
-                output=usage.get("output_tokens", 0),
-                thinking=(usage.get("output_tokens_details") or {}).get("thinking_tokens", 0),
-                epoch=epoch,
-            ))
+            # Claude Code writes one record per content block, not one per API
+            # response. Every record of such a group carries the same
+            # `message.id` and a byte-identical copy of the same `usage`, so a
+            # Turn per record would count the same billed call once per block.
+            # A record with no id cannot be grouped and falls back to one turn
+            # per record.
+            mid = msg.get("id")
+            if mid is None or mid not in seen_message_ids:
+                if mid is not None:
+                    seen_message_ids.add(mid)
+                context = (usage.get("cache_read_input_tokens", 0)
+                           + usage.get("cache_creation_input_tokens", 0)
+                           + usage.get("input_tokens", 0))
+                turn_index += 1
+                turns.append(Turn(
+                    index=turn_index,
+                    context=context,
+                    output=usage.get("output_tokens", 0),
+                    thinking=(usage.get("output_tokens_details")
+                              or {}).get("thinking_tokens", 0),
+                    epoch=epoch,
+                ))
+            # The block walk runs on every record: blocks are distributed
+            # across the group and never repeated.
             content = msg.get("content")
             if isinstance(content, list):
                 for block in content:

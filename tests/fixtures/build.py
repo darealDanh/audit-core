@@ -7,21 +7,33 @@ def line(obj) -> str:
     return json.dumps(obj) + "\n"
 
 
-def assistant(content, cache_read=0, cache_creation=0, inp=0, output=0, thinking=0):
+def assistant(content, cache_read=0, cache_creation=0, inp=0, output=0, thinking=0,
+              message_id=None):
+    """One assistant record.
+
+    Claude Code writes one record per content block, not one per API response.
+    Every record of such a group repeats the same `message.id` and a
+    byte-identical copy of the same `usage`. Pass the same `message_id` to two
+    calls to build that shape; the default `None` keeps the one-record-per-turn
+    shape used by the older tests.
+    """
+    message = {
+        "content": content,
+        "usage": {
+            "input_tokens": inp,
+            "cache_read_input_tokens": cache_read,
+            "cache_creation_input_tokens": cache_creation,
+            "output_tokens": output,
+            "output_tokens_details": {"thinking_tokens": thinking},
+        },
+    }
+    if message_id is not None:
+        message["id"] = message_id
     return line({
         "type": "assistant",
         "isSidechain": False,
         "sessionId": "test-session",
-        "message": {
-            "content": content,
-            "usage": {
-                "input_tokens": inp,
-                "cache_read_input_tokens": cache_read,
-                "cache_creation_input_tokens": cache_creation,
-                "output_tokens": output,
-                "output_tokens_details": {"thinking_tokens": thinking},
-            },
-        },
+        "message": message,
     })
 
 
