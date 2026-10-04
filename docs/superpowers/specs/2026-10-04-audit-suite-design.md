@@ -12,23 +12,31 @@ driven by the `codebase-audit` skill.
 
 ### 1.1 Cost
 
+Nine security-audit sessions under `~/Documents/Offsec/Opswat/Devices/` were
+measured with `audit.py budget --report`. All nine were IoT firmware audits
+driven by the `codebase-audit` skill. Every figure in this section is tool
+output, regenerable by re-running that command; the earlier hand-measured
+version of this section was wrong twice, which is why the tool exists.
+
 | Quantity | Measured |
 |---|---|
-| Orchestrator cost, 9 sessions | $1,742.95 |
-| Orchestrator API turns | 4,223 |
-| Context tokens re-read | 1,058,000,000 |
-| Tool-result tokens (new information) | ~800,000 |
-| Output tokens | 7,682,870 |
+| Orchestrator cost, 9 sessions | $2,053.64 |
+| Orchestrator turns (billed) | 4,285 |
+| Context tokens re-read | 1,064,400,000 |
 
 Subagent cost is not recorded in these transcripts, so the true total is higher.
 
-Per-session detail for the three most expensive runs:
-
-| Session | Cost | Turns | Median ctx | p90 ctx | Max ctx | Compactions |
-|---|---|---|---|---|---|---|
-| asus-AX1800S | $787.75 | 842 | 207,564 | 423,483 | 488,354 | 2 |
-| unifi/100fcb | $359.07 | 555 | 353,858 | 580,842 | 631,139 | 0 |
-| tplink | $347.68 | 1,894 | 251,559 | 503,640 | 711,826 | 6 |
+| Session | Cost | Turns | Sum ctx | Mean ctx | Prefix floor | Growth/turn | Epochs |
+|---|---|---|---|---|---|---|---|
+| asus-AX1800S | $787.75 | 829 | 196.2M | 236,634 | 43,951 | 944 | 3 |
+| tplink | $658.37 | 1,936 | 521.9M | 269,566 | 40,926 | 1,115 | 7 |
+| unifi (main) | $359.07 | 555 | 195.5M | 352,240 | 52,604 | 1,044 | 1 |
+| asus-AX1800HP | $207.69 | 331 | 72.1M | 217,780 | 52,398 | 1,025 | 1 |
+| unifi (second) | $22.52 | 239 | 35.8M | 149,678 | 41,854 | 1,025 | 1 |
+| Devices (main) | $13.07 | 227 | 31.7M | 139,655 | 42,481 | 923 | 1 |
+| gl-inet | $2.37 | 74 | 5.5M | 74,561 | 46,939 | 715 | 1 |
+| Devices (second) | $1.84 | 68 | 4.4M | 64,371 | 47,112 | 527 | 1 |
+| tenda | $0.96 | 26 | 1.4M | 52,600 | 42,452 | 793 | 1 |
 
 Cache reads are roughly 70% of the bill. Cost follows
 `Σ over turns of context(turn)`, so a token admitted to the orchestrator's
@@ -36,72 +44,64 @@ context at turn N is paid for on every remaining turn.
 
 ### 1.2 Where the context actually goes
 
-> **Correction pending (2026-10-05).** The tplink transcript was still being
-> appended to while this section was first measured, so its cost and turn
-> counts come from a shorter read of the file than its composition figures do.
-> Known-stale: cost $347.68 (actual $658.37) and turns 1,894 (actual 1,936
-> billed, 1,950 records). Confirmed stable: 521.9M sum_context, 7 epochs, and
-> every composition figure below. Stage 0 Task 5 regenerates all nine sessions
-> from `audit.py budget --report` and Task 8 records them; this section is
-> corrected once from that output, not by further hand arithmetic.
-
-
-Measured on tplink (1,894 turns with usage, 521.9M context tokens re-read,
-6 compactions). Context splits into a **prefix** paid on every turn and an
-**accumulation** that grows within each compaction epoch.
+Context splits into a **prefix** paid on every turn and an **accumulation**
+that grows within each compaction epoch:
 
 | Term | Tokens | Share |
 |---|---|---|
-| Prefix (system prompt, tool schemas, MCP schemas, skill) | ~97M | 19% |
-| Accumulated message history | ~425M | 81% |
+| Prefix (system prompt, tool schemas, MCP schemas, skill) | 222.1M | 20.9% |
+| Accumulated message history | 842.3M | 79.1% |
 
-Epoch floors measure the prefix directly: 40,926 at session start, rising to
-66,010 once MCP servers loaded. Growth rate within an epoch is 909-1,479
-tokens/turn across the six epochs, mean ~1,150.
+Epoch floors measure the prefix directly: 40,926 at the lowest, rising past
+66,000 once MCP servers load. Growth within an epoch runs 527-1,115
+tokens/turn, and scales with how much raw material a session admits.
 
-Total added to message history over the session: 1,730,471 tokens.
+Attribution is exact, not proportional: each token added to history is charged
+for the number of turns it actually remained resident, which ends at its
+epoch's last billed turn.
 
-| Component | Tokens | Share of additions | Est. share of 522M |
-|---|---|---|---|
-| Thinking blocks retained in history | 580,634 | 33.6% | ~27% |
-| Tool results | 401,201 | 23.2% | ~19% |
-| Tool-use inputs (the model's own inline Bash/Python) | 223,757 | 12.9% | ~10% |
-| `total_tokens_reminder` attachments | 139,049 | 8.0% | ~7% |
-| Assistant text | 100,820 | 5.8% | ~5% |
-| Skill re-injection (`invoked_skills` + `skill_listing`) | 82,438 | 4.8% | ~4% |
-| Deferred-tool records and deltas | 65,227 | 3.8% | ~3% |
-| Subagent results (`<task-notification>`) | 32,704 | 1.9% | ~2% |
-| User text | 40,596 | 2.3% | ~2% |
-| Other attachments | 64,045 | 3.7% | ~3% |
-
-The right-hand column distributes the 81% accumulation term in proportion to
-each component's share of additions. That assumes uniform residency, which
-over-weights late additions; it is an estimate, and `audit.py budget --report`
-replaces it with per-turn attribution in Stage 0.
+| Component | Attributed | Share of total |
+|---|---|---|
+| **All context-injected attachments combined** | **217.5M** | **20.4%** |
+| Thinking blocks retained in history | 191.8M | 18.0% |
+| Tool results | 159.5M | 15.0% |
+| Tool-use inputs (the model's own inline Bash/Python) | 103.2M | 9.7% |
+| — of attachments: `total_tokens_reminder` | 58.4M | 5.5% |
+| — of attachments: skill re-injection (`skill_listing` + `invoked_skills`) | 45.6M | 4.3% |
+| Assistant text | 33.7M | 3.2% |
+| — of attachments: `queued_command` | 25.8M | 2.4% |
+| — of attachments: `deferred_tools_delta` | 22.7M | 2.1% |
+| Subagent results (`<task-notification>`) | 14.6M | 1.4% |
 
 **Ranked levers, from the measurement:**
 
-1. **Accumulation is 81% of cost.** Capping it caps the bill regardless of
-   composition. This is why the context ceiling (R3) is the master lever, not
-   any single component.
-2. **Retained thinking is the largest single component (~27%).** Addressed by
-   model and reasoning-effort tiering, and by shorter phases.
-3. **Tool results plus tool-use inputs are ~29% combined.** Addressed by
+1. **Accumulation is 79.1% of cost.** Capping it caps the bill regardless of
+   composition. The context ceiling (R3) is the master lever, not any single
+   component.
+2. **Context-injected attachments total 20.4%** — more than any single
+   component below them, and a category the first draft of this design missed
+   entirely. Much of it is harness overhead the skill cannot control
+   (`total_tokens_reminder`, `queued_command`), but skill re-injection (4.3%)
+   and deferred-tool deltas (2.1%) are controllable, the latter via R4.
+3. **Retained thinking is 18.0%.** Addressed by model and reasoning-effort
+   tiering, and by shorter phases.
+4. **Tool results plus tool-use inputs are 24.7% combined.** Addressed by
    extract-then-fan-out (R1) and by moving reusable logic into `audit.py`
-   instead of regenerating inline heredocs (R5) - the model wrote 223,757
-   tokens of inline scripts in this session.
-4. **Prefix is 19%**, and unused MCP tool schemas are a large part of it (R4).
-5. **Subagent results are ~2%.** Return contracts (R2) are worth doing because
+   instead of regenerating inline heredocs (R5).
+5. **Prefix is 20.9%**, and unused MCP tool schemas are a large part of it (R4).
+   Note that MCP tooling is charged twice: once as schemas in the prefix, again
+   as `deferred_tools_delta` records in accumulation.
+6. **Subagent results are 1.4%.** Return contracts (R2) are worth doing because
    they are free, but they are not a headline lever.
 
-Two further measured facts:
+One further measured fact: the skill re-reads itself from disk after
+compaction — `cat SKILL.md` costs 7,140 tokens and each of five workflow files
+3.0k-3.8k — on top of the 4.3% of attributed context that skill re-injection
+attachments already consume.
 
-- **The skill re-reads itself from disk after compaction.** `cat SKILL.md` costs
-  7,140 tokens; each of five workflow files costs 3.0k-3.8k. Separately, 82,438
-  tokens of skill re-injection attachments appear in the history.
-- **Model monoculture.** Opus is ~100% of spend; Haiku totals $0.50 across all
-  nine sessions, against a SKILL.md rule mandating the strongest available model
-  for every subagent. Lower tiers also emit far less thinking, which is lever 2.
+**Model monoculture.** Opus is ~100% of spend; Haiku totals $0.50 across all
+nine sessions, against a SKILL.md rule mandating the strongest available model
+for every subagent. Lower tiers also emit far less thinking, which is lever 3.
 
 ### 1.3 Quality
 
