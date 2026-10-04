@@ -77,7 +77,7 @@ class Transcript:
 
 
 def _iter_records(path: pathlib.Path):
-    with path.open(errors="replace") as fh:
+    with path.open(encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             raw = raw.strip()
             if not raw:
