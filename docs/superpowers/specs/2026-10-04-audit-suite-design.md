@@ -134,7 +134,7 @@ and they are design gaps rather than analysis failures:
 - **`verify` is structurally unusable for firmware.** It requires a deployed live
   instance. Every firmware session worked around it. tplink's verification tail
   was 103 user prompts of manual analysis inside a 250k-700k context, and that
-  tail is where most of its $347.68 went.
+  tail is where most of its $658.37 went.
 - **Compaction destroyed technical state.** The resume note carries pipeline
   status, not function semantics, structs, or chain state. The user observed
   answers changing between asks.
@@ -425,17 +425,17 @@ acts on return text. Its next action is always an `audit.py` verb reading bounde
 rows from SQL. Prose returned anyway is dead weight for one turn rather than
 permanently resident.
 
-Measured scale: subagent results are ~2% of accumulation (102 notifications,
-100,801 tokens across all nine sessions; 32,704 in tplink; largest single
-result 7,639). R2 is retained because it is free and it keeps the orchestrator's
+Measured scale: subagent results are 1.4% of total attributed context (14.6M
+of 1,064.4M across all nine sessions; 102 notifications carrying 100,801
+tokens, largest single result 7,639). R2 is retained because it is free and it keeps the orchestrator's
 reasoning anchored on SQL rather than on agent prose, **not** because it is a
 large saving. It must not be prioritised over R1, R3 or R5.
 
 ### R5 - Reusable logic lives in `audit.py`, never in inline heredocs
 
-The model wrote 223,757 tokens of inline Bash and Python in tplink (12.9% of
-accumulation, ~10% of total cost), much of it regenerating the same extraction
-and parsing logic after each compaction. Any script longer than ~10 lines, or
+Inline Bash and Python is 9.7% of attributed context across the nine sessions
+(103.2M of 1,064.4M; 223,757 raw tokens in tplink alone), much of it
+regenerating the same extraction and parsing logic after each compaction. Any script longer than ~10 lines, or
 written twice, becomes an `audit.py` verb. Invocations then cost one line
 instead of a heredoc.
 
@@ -524,12 +524,12 @@ Headline metric: **cost per rung-4 finding**.
 | Metric | tplink baseline | Target |
 |---|---|---|
 | Σ context re-read | 521.9M | ≤ 60M |
-| Mean orchestrator context | 267.6k | ≤ 80k |
-| Growth rate `g` | ~1,150 tok/turn | ≤ 400 tok/turn |
+| Mean orchestrator context | 269,566 | ≤ 80k |
+| Growth rate `g` | 1,115 tok/turn | ≤ 400 tok/turn |
 | Prefix floor | 40.9k-66.0k | ≤ 45k |
-| Retained thinking, share of accumulation | 33.6% | ≤ 15% |
+| Retained thinking, attributed share of total | 23.8% | ≤ 10% |
 | Tool-use input (inline scripts) | 223,757 | ≤ 40,000 |
-| Cost | $347.68 | ≤ $45 |
+| Cost | $658.37 | ≤ $45 |
 | CRITICALs vs. 19-item reference set | 8 | ≥ 12 |
 
 The last row is the gate. If cost falls and recall falls with it, the design has
@@ -551,8 +551,9 @@ rediscovered, matched on root cause and location, not title), precision (rung-4
 findings surviving adversarial review), coverage (analyzed ÷ inventoried), and
 cost per rung-4 finding.
 
-Baseline recorded before any change: tplink = $347.68, 521.9M Σ context,
-267.6k mean context, g ~1,150 tok/turn, 8/19 recall.
+Baseline recorded before any change: tplink = $658.37, 521.9M Σ context,
+269,566 mean context, g 1,115 tok/turn, 7 epochs, 8/19 recall, against a
+transcript pinned at 15,608,662 bytes / sha256 `a33f2f52…`.
 
 **Gate: no change merges if recall drops.** Cost targets are subordinate.
 
