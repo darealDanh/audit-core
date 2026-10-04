@@ -1,3 +1,4 @@
+import json
 import pathlib
 from audit_core import budget, transcript as T
 from tests.fixtures import build as B
@@ -66,9 +67,11 @@ def test_tool_calls_pair_input_with_result(tmp_path):
 
 
 def test_attachment_types_are_distinct_components(tmp_path):
+    # Content is explicit since C2: an attachment is charged for what it
+    # renders into context, so one with nothing rendered has no component.
     p = write(tmp_path,
-              B.attachment("total_tokens_reminder"),
-              B.attachment("invoked_skills"))
+              B.attachment("total_tokens_reminder", content="r" * 400),
+              B.attachment("invoked_skills", content="s" * 400))
     t = T.parse(p)
     assert {a.component for a in t.additions} == {
         "attachment:total_tokens_reminder", "attachment:invoked_skills"}
@@ -90,7 +93,7 @@ def test_every_addition_component_is_declared(tmp_path):
                            {"type": "thinking", "thinking": "t"},
                            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]),
               B.user_text("hello"),
-              B.attachment("date"))
+              B.attachment("date", content="2026-10-05" * 40))
     t = T.parse(p)
     for a in t.additions:
         assert a.component in T.COMPONENTS or a.component.startswith("attachment:")
@@ -139,3 +142,58 @@ def test_distinct_message_ids_are_distinct_turns(tmp_path):
                           message_id="msg-2"))
     t = T.parse(p)
     assert [(x.index, x.context) for x in t.turns] == [(0, 1000), (1, 2000)]
+
+
+def test_attachment_charges_rendered_content_not_the_jsonl_envelope(tmp_path):
+    """C2: only `rendered[*].content` reaches the model.
+
+    The record also carries uuid, parentUuid, sessionId, timestamp, cwd,
+    gitBranch, version, userType, entrypoint, isSidechain and slug. Charging
+    `json.dumps(rec)` billed all of that: 8.4x over-charge on
+    `total_tokens_reminder` in the reference transcript, 7.9x on `date`,
+    3.9x on `environment`.
+    """
+    p = write(tmp_path, B.attachment("total_tokens_reminder", content="c" * 400))
+    t = T.parse(p)
+    assert [(a.component, a.tokens) for a in t.additions] == [
+        ("attachment:total_tokens_reminder", 100)]
+
+
+def test_attachment_concatenates_multiple_rendered_blocks(tmp_path):
+    p = tmp_path / "s.jsonl"
+    p.write_text(json.dumps({
+        "type": "attachment", "sessionId": "test-session", "uuid": "u",
+        "attachment": {"type": "environment"},
+        "rendered": [{"content": "a" * 200}, {"content": "b" * 200}],
+    }) + "\n")
+    t = T.parse(p)
+    assert [(a.component, a.tokens) for a in t.additions] == [
+        ("attachment:environment", 100)]
+
+
+def test_attachment_with_no_rendered_content_costs_nothing(tmp_path):
+    """C2: `rendered: null` means nothing was injected.
+
+    `deferred_tools_record` is the costly case: 29,460 tokens charged to
+    message history for content that reaches the model through the system
+    prompt, which is already inside the epoch floor -- so charging it here
+    double-counted it.
+    """
+    p = write(tmp_path,
+              B.attachment("deferred_tools_record"),
+              B.attachment("hook_success"),
+              B.attachment("prompt_snapshot"),
+              B.attachment("command_permissions"))
+    assert T.parse(p).additions == []
+
+
+def test_attachment_tolerates_malformed_rendered_entries(tmp_path):
+    p = tmp_path / "s.jsonl"
+    p.write_text(json.dumps({
+        "type": "attachment", "sessionId": "test-session",
+        "attachment": {"type": "environment"},
+        "rendered": ["a string, not an object", None, {"content": "d" * 400}],
+    }) + "\n")
+    t = T.parse(p)
+    assert [(a.component, a.tokens) for a in t.additions] == [
+        ("attachment:environment", 100)]

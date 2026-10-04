@@ -179,7 +179,18 @@ def parse(path: str | pathlib.Path) -> Transcript:
         elif rtype == "attachment":
             atype = (rec.get("attachment") or {}).get("type", "?")
             if atype in CONTEXT_ATTACHMENTS:
-                add(f"attachment:{atype}", estimate_tokens(json.dumps(rec)))
+                # Only `rendered[*].content` is injected into the model's
+                # context. The rest of the record -- uuid, parentUuid,
+                # sessionId, timestamp, cwd, gitBranch, version, userType,
+                # entrypoint, isSidechain, slug -- is JSONL bookkeeping the
+                # model never sees. A missing or null `rendered` therefore
+                # costs nothing: `deferred_tools_record` and friends reach the
+                # model through the system prompt, which is already inside the
+                # epoch floor, so charging them here would double-count.
+                rendered = rec.get("rendered") or []
+                text = "".join(c.get("content", "") for c in rendered
+                               if isinstance(c, dict))
+                add(f"attachment:{atype}", estimate_tokens(text))
 
     return Transcript(str(path), session_id, turns, additions, tool_calls,
                       cost_usd, model_usage)

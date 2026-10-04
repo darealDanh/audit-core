@@ -64,7 +64,7 @@ def test_tool_totals_are_split_by_direction(tmp_path):
 def test_render_includes_every_nonzero_component(tmp_path):
     p = write(tmp_path,
               B.assistant([{"type": "text", "text": "a" * 400}], cache_read=1000),
-              B.attachment("total_tokens_reminder"))
+              B.attachment("total_tokens_reminder", content="r" * 400))
     text = budget.render(budget.analyze(T.parse(p)))
     assert "assistant_text" in text
     assert "attachment:total_tokens_reminder" in text

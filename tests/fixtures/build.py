@@ -52,9 +52,35 @@ def compact_summary(text="summary"):
                  "sessionId": "test-session", "message": {"content": text}})
 
 
-def attachment(atype, payload="x"):
-    return line({"type": "attachment", "isSidechain": False, "sessionId": "test-session",
-                 "attachment": {"type": atype, "payload": payload}})
+def attachment(atype, content=None, payload="x"):
+    """One attachment record, with the JSONL envelope a real one carries.
+
+    `content` is the text the attachment actually injects into the model's
+    context; it rides in top-level `rendered`, a list of `{"content": str}`.
+    `None` models the types that render nothing at all (`hook_success`,
+    `prompt_snapshot`, `deferred_tools_record`, `command_permissions`), which
+    must cost zero. Nothing else on the record reaches the model, so the
+    envelope fields below exist to be *excluded* from the token estimate.
+    """
+    rec = {
+        "parentUuid": "00000000-0000-0000-0000-00000000dead",
+        "isSidechain": False,
+        "type": "attachment",
+        "uuid": "00000000-0000-0000-0000-00000000beef",
+        "timestamp": "2026-10-05T00:00:00.000Z",
+        "userType": "external",
+        "entrypoint": "cli",
+        "cwd": "/Users/test/some/deeply/nested/working/directory",
+        "sessionId": "test-session",
+        "session_id": "test-session",
+        "version": "9.9.9",
+        "gitBranch": "design/audit-suite",
+        "slug": "a-fairly-long-slug-that-costs-nothing",
+        "attachment": {"type": atype, "payload": payload},
+    }
+    if content is not None:
+        rec["rendered"] = [{"content": content}]
+    return line(rec)
 
 
 def cost_state(usd=1.25):
