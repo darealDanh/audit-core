@@ -34,29 +34,64 @@ Cache reads are roughly 70% of the bill. Cost follows
 `Σ over turns of context(turn)`, so a token admitted to the orchestrator's
 context at turn N is paid for on every remaining turn.
 
-### 1.2 The five measured leaks
+### 1.2 Where the context actually goes
 
-1. **Subagent reports land in the orchestrator context.** 1,156 task
-   notifications carrying 1,441,323 tokens. The largest single return is 36,318
-   tokens; the top 2% of returns carry 43% of the volume. A 36k return arriving
-   at turn 400 of 1,894 is re-read 1,494 times. `references/phase4-deep-audit.md`
-   instructs subagents to return full findings as markdown *and* write them to
-   SQL and artifacts, so the data is paid for twice and the resident copy is the
-   expensive one.
-2. **Reverse engineering ran in the root context.** tplink: 490 Bash calls, 98
-   `mcp__autorev__analyze_function` calls (169k tokens of pseudocode), 6
-   `get_disassembly` calls, all inline and permanently resident.
-3. **Unused MCP tool schemas stay resident.** The session's own `/context`
-   readout records `MCP tools (deferred) | 93.5k | 9.4%`. Turn-1 context is
-   41k-53k; steady state is ~145k. The block loads when the first MCP server is
-   used, not at session start, so in tplink it was resident for an estimated
-   70-90% of 1,894 turns: 93,500 x 1,330-1,700 turns, or roughly 125M-160M
-   cache-read tokens, for servers the audit never calls.
-4. **The skill re-reads itself from disk after compaction.** `cat SKILL.md` costs
-   7,140 tokens; each of five workflow files costs 3.0k-3.8k.
-5. **Model monoculture.** Opus is ~100% of spend; Haiku totals $0.50 across all
-   nine sessions, against a SKILL.md rule mandating the strongest available model
-   for every subagent.
+Measured on tplink (1,894 turns with usage, 521.9M context tokens re-read,
+6 compactions). Context splits into a **prefix** paid on every turn and an
+**accumulation** that grows within each compaction epoch.
+
+| Term | Tokens | Share |
+|---|---|---|
+| Prefix (system prompt, tool schemas, MCP schemas, skill) | ~97M | 19% |
+| Accumulated message history | ~425M | 81% |
+
+Epoch floors measure the prefix directly: 40,926 at session start, rising to
+66,010 once MCP servers loaded. Growth rate within an epoch is 909-1,479
+tokens/turn across the six epochs, mean ~1,150.
+
+Total added to message history over the session: 1,730,471 tokens.
+
+| Component | Tokens | Share of additions | Est. share of 522M |
+|---|---|---|---|
+| Thinking blocks retained in history | 580,634 | 33.6% | ~27% |
+| Tool results | 401,201 | 23.2% | ~19% |
+| Tool-use inputs (the model's own inline Bash/Python) | 223,757 | 12.9% | ~10% |
+| `total_tokens_reminder` attachments | 139,049 | 8.0% | ~7% |
+| Assistant text | 100,820 | 5.8% | ~5% |
+| Skill re-injection (`invoked_skills` + `skill_listing`) | 82,438 | 4.8% | ~4% |
+| Deferred-tool records and deltas | 65,227 | 3.8% | ~3% |
+| Subagent results (`<task-notification>`) | 32,704 | 1.9% | ~2% |
+| User text | 40,596 | 2.3% | ~2% |
+| Other attachments | 64,045 | 3.7% | ~3% |
+
+The right-hand column distributes the 81% accumulation term in proportion to
+each component's share of additions. That assumes uniform residency, which
+over-weights late additions; it is an estimate, and `audit.py budget --report`
+replaces it with per-turn attribution in Stage 0.
+
+**Ranked levers, from the measurement:**
+
+1. **Accumulation is 81% of cost.** Capping it caps the bill regardless of
+   composition. This is why the context ceiling (R3) is the master lever, not
+   any single component.
+2. **Retained thinking is the largest single component (~27%).** Addressed by
+   model and reasoning-effort tiering, and by shorter phases.
+3. **Tool results plus tool-use inputs are ~29% combined.** Addressed by
+   extract-then-fan-out (R1) and by moving reusable logic into `audit.py`
+   instead of regenerating inline heredocs (R5) - the model wrote 223,757
+   tokens of inline scripts in this session.
+4. **Prefix is 19%**, and unused MCP tool schemas are a large part of it (R4).
+5. **Subagent results are ~2%.** Return contracts (R2) are worth doing because
+   they are free, but they are not a headline lever.
+
+Two further measured facts:
+
+- **The skill re-reads itself from disk after compaction.** `cat SKILL.md` costs
+  7,140 tokens; each of five workflow files costs 3.0k-3.8k. Separately, 82,438
+  tokens of skill re-injection attachments appear in the history.
+- **Model monoculture.** Opus is ~100% of spend; Haiku totals $0.50 across all
+  nine sessions, against a SKILL.md rule mandating the strongest available model
+  for every subagent. Lower tiers also emit far less thinking, which is lever 2.
 
 ### 1.3 Quality
 
@@ -380,6 +415,25 @@ acts on return text. Its next action is always an `audit.py` verb reading bounde
 rows from SQL. Prose returned anyway is dead weight for one turn rather than
 permanently resident.
 
+Measured scale: subagent results are ~2% of accumulation (102 notifications,
+100,801 tokens across all nine sessions; 32,704 in tplink; largest single
+result 7,639). R2 is retained because it is free and it keeps the orchestrator's
+reasoning anchored on SQL rather than on agent prose, **not** because it is a
+large saving. It must not be prioritised over R1, R3 or R5.
+
+### R5 - Reusable logic lives in `audit.py`, never in inline heredocs
+
+The model wrote 223,757 tokens of inline Bash and Python in tplink (12.9% of
+accumulation, ~10% of total cost), much of it regenerating the same extraction
+and parsing logic after each compaction. Any script longer than ~10 lines, or
+written twice, becomes an `audit.py` verb. Invocations then cost one line
+instead of a heredoc.
+
+This also removes the skill-re-read cost: `cat SKILL.md` is 7,140 tokens and
+each workflow file 3.0k-3.8k, re-paid after every compaction. Phase logic the
+orchestrator needs after a restart belongs in the resume note and in `audit.py`,
+not in a file it must re-read.
+
 ### R3 — Context ceiling with checkpoint-restart
 
 Ceiling **100k**, checkpoint at 80%. On trip, the orchestrator writes the resume
@@ -437,6 +491,10 @@ Replaces the current "strongest model available" blanket rule.
 | `surface` mapping, L-sink hunt, `fpcheck` batches, report drafting | Sonnet |
 | L-dark hunt, `chain` composition, `dive`, final severity calls | Opus |
 
+Reasoning effort is tiered with the model. Retained thinking is the single
+largest accumulation component (33.6%), so mechanical phases run at low effort
+and only the Opus-tier work runs at high effort.
+
 ### 5.2 `dive` economics
 
 Each question spawns a fresh agent loading the journal index plus at most three
@@ -455,10 +513,12 @@ Headline metric: **cost per rung-4 finding**.
 
 | Metric | tplink baseline | Target |
 |---|---|---|
-| Σ context re-read | 515M | ≤ 60M |
-| Mean orchestrator context | 252k | ≤ 80k |
-| Resident prefix | ~145k | ≤ 55k |
-| p99 single tool result | 36.3k | ≤ 4k |
+| Σ context re-read | 521.9M | ≤ 60M |
+| Mean orchestrator context | 267.6k | ≤ 80k |
+| Growth rate `g` | ~1,150 tok/turn | ≤ 400 tok/turn |
+| Prefix floor | 40.9k-66.0k | ≤ 45k |
+| Retained thinking, share of accumulation | 33.6% | ≤ 15% |
+| Tool-use input (inline scripts) | 223,757 | ≤ 40,000 |
 | Cost | $347.68 | ≤ $45 |
 | CRITICALs vs. 19-item reference set | 8 | ≥ 12 |
 
@@ -481,8 +541,8 @@ rediscovered, matched on root cause and location, not title), precision (rung-4
 findings surviving adversarial review), coverage (analyzed ÷ inventoried), and
 cost per rung-4 finding.
 
-Baseline recorded before any change: tplink = $347.68, 515M Σ context, 8/19
-recall.
+Baseline recorded before any change: tplink = $347.68, 521.9M Σ context,
+267.6k mean context, g ~1,150 tok/turn, 8/19 recall.
 
 **Gate: no change merges if recall drops.** Cost targets are subordinate.
 
@@ -533,9 +593,12 @@ may share a plan since neither changes behaviour that the benchmark measures.
 recorded. Nothing else starts until this exists.
 
 **Stage 1 — Cost wins that cannot touch quality.** Verified by budget report
-alone. R4 preflight; R2 return contracts; model tiering for mechanical work only;
-installer fixes and `selftest`; both installer defects from §3.2. Each
-independently shippable and revertible.
+alone, and ordered by the measured ranking in §1.2: R5 (`audit.py` verbs
+replacing inline heredocs, ~10%); R4 preflight (part of the 19% prefix);
+reasoning-effort and model tiering for mechanical work only (attacks the 27%
+thinking term); R2 return contracts (~2%, free); installer fixes and
+`selftest`; both installer defects from §3.2. Each independently shippable and
+revertible.
 
 **Stage 2 — Structural change.** Benchmark-gated. `audit_core` (db, extract,
 annotations, coverage, sweep, budget); R1; R3; vendored into `codebase-audit`
