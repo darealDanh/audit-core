@@ -1726,7 +1726,7 @@ git commit -m "feat: audit.py bench and the recorded tplink baseline"
 
 ## Done when
 
-- [ ] `python3 -m pytest tests/ -v` is green (45 tests across 8 files — 44 planned plus `test_cost_per_match_with_zero_cost`, added during Task 7's fix round).
+- [ ] `python3 -m pytest tests/ -v` is green (57 tests across 8 files — 44 planned, plus `test_cost_per_match_with_zero_cost` from Task 7's fix round, plus the 12 added by the whole-branch review fix round for C1 turn grouping, C2 attachment rendering and I2 modelUsage reconciliation).
 - [ ] `python3 audit.py selftest` exits 0.
 - [ ] `python3 audit.py budget --report` runs over all nine real sessions and tplink reproduces the Task 5 ranges, with `subagent_result` near 32,700 rather than in the millions.
 - [ ] `tests/goldens/tplink-dl110v2-1.0.11/reference.json` holds 19 CRITICAL references with unique ids.
