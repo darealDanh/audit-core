@@ -18,6 +18,7 @@
 - **Classification is by record type, never by substring.** A component is identified by `type`, `attachment.type`, and content-block `type`. Searching raw line text for a marker is the defect this stage exists to prevent; it produced a 14x error in the spec's first draft.
 - **No network access** in any module or test.
 - **Transcripts are read-only.** Never write to anything under `~/.claude/projects/`.
+- **Baselines pin their source.** A transcript can still be growing while you measure it — the tplink file gained ~2,100 lines mid-analysis, which is how this plan's first cost figure came out wrong. Every economics report carries the source file's byte length and SHA-256, and every baseline document records them.
 - **Real transcript paths** for manual verification: `~/.claude/projects/-Users-danhnguyen-Documents-Offsec-Opswat-Devices*/**.jsonl` (9 files). Tests use synthetic fixtures only.
 
 ## Review Focus
@@ -956,6 +957,8 @@ def test_budget_report_json_is_machine_readable(tmp_path):
     payload = json.loads(r.stdout)
     assert payload[0]["stats"]["sum_context"] == 120_000
     assert payload[0]["cost_usd"] == 2.0
+    assert payload[0]["source_bytes"] == session(tmp_path).stat().st_size
+    assert len(payload[0]["source_sha256"]) == 64
 
 
 def test_missing_file_exits_one(tmp_path):
@@ -975,6 +978,7 @@ Add these imports and functions, and register the subparser:
 
 ```python
 import dataclasses
+import hashlib
 import json
 
 from audit_core import budget as budget_mod       # noqa: E402
@@ -982,18 +986,26 @@ from audit_core import transcript as transcript_mod  # noqa: E402
 
 
 def cmd_budget(args: argparse.Namespace) -> int:
-    reports = []
+    payloads = []
     for raw in args.report:
         path = pathlib.Path(raw).expanduser()
         if not path.is_file():
             print(f"not found: {path}", file=sys.stderr)
             return 1
-        reports.append(budget_mod.analyze(transcript_mod.parse(path)))
+        blob = path.read_bytes()
+        provenance = {
+            "source_bytes": len(blob),
+            "source_sha256": hashlib.sha256(blob).hexdigest(),
+        }
+        payloads.append((budget_mod.analyze(transcript_mod.parse(path)), provenance))
     if args.json:
-        print(json.dumps([dataclasses.asdict(r) for r in reports], indent=2))
+        print(json.dumps(
+            [dataclasses.asdict(r) | p for r, p in payloads], indent=2))
     else:
-        for r in reports:
+        for r, p in payloads:
             print(budget_mod.render(r))
+            print(f"  source_bytes {p['source_bytes']:,}   "
+                  f"source_sha256 {p['source_sha256'][:16]}")
             print()
     return 0
 ```
@@ -1023,9 +1035,17 @@ Expected: PASS, all tests green.
 python3 audit.py budget --report ~/.claude/projects/-Users-danhnguyen-Documents-Offsec-Opswat-Devices*/*.jsonl
 ```
 
+The tplink transcript was still being written while this plan's Section 1
+figures were first taken, so pin it before comparing: expect
+`source_bytes` 15,608,662 and `source_sha256` starting `a33f2f5213961c3b`.
+If either differs the file has changed again — record the new values and
+compare the ratios below rather than the absolute turn count.
+
 Expected for the tplink session (`d87d98a0-…`), within rounding:
 - `sum_context` ≈ 521,900,000
-- `turns` ≈ 1,894
+- `turns` ≈ 1,936 billed (1,950 assistant records)
+- `cost_usd` ≈ 658.37 — `cost-state` is a running total written many times
+  per session (12 records in this file); the last one is the session total
 - `epochs` = 7
 - `prefix_floor` between 40,000 and 67,000
 - `growth` between 900 and 1,500 tok/turn
@@ -1632,10 +1652,12 @@ Expected: PASS, all tests green.
 python3 audit.py bench \
   --golden tests/goldens/tplink-dl110v2-1.0.11 \
   --db ~/Documents/Offsec/Opswat/Devices/tplink/reports/audit-20260928-073457/audit.db \
-  --cost 347.68
+  --cost 658.37
 ```
 
-Expected: `recall 8/19 (42.1%)`, 45 findings, cost per matched finding $43.46.
+Expected: `recall 8/19 (42.1%)`, 45 findings, cost per matched finding $82.30.
+If `audit.py budget --report` prints a different `cost_usd` for the tplink
+session, that figure is authoritative — use it and note the difference.
 
 If recall is not 8, adjudicate the reported candidates by hand against
 `findings.txt` and the audit database, append confirmed pairs to
@@ -1656,11 +1678,12 @@ Audit DB: `Devices/tplink/reports/audit-20260928-073457/audit.db`
 
 | Metric | Value |
 |---|---|
-| Cost | $347.68 |
-| Turns (billed) | 1,894 |
+| Cost | $658.37 |
+| Turns (billed) | 1,936 (1,950 assistant records) |
 | Compaction epochs | 7 |
+| Transcript bytes / sha256 | 15,608,662 / `a33f2f5213961c3b…` |
 | Σ context | 521.9M |
-| Mean context | 267.6k |
+| Mean context | 269.6k |
 | Prefix floor | 40.9k – 66.0k |
 | Growth rate | ~1,150 tok/turn |
 | Prefix term | ~19% |
@@ -1677,7 +1700,7 @@ tool-use inputs 12.9%.
 | Matched (adjudicated) | 8 |
 | Recall | 42.1% |
 | Run findings | 45 |
-| Cost per matched finding | $43.46 |
+| Cost per matched finding | $82.30 |
 
 ## Stage 4 gate
 
