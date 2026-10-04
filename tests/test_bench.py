@@ -52,12 +52,17 @@ def test_cost_per_match_divides_by_matches():
     assert r.cost_per_match == 50.0
 
 
+def test_cost_per_match_with_zero_cost():
+    r = bench.score([R1], [F1], {"REF-1": "F-1"}, cost_usd=0.0)
+    assert r.cost_per_match == 0.0
+
+
 def test_load_findings_from_cba_schema(tmp_path):
     db = tmp_path / "audit.db"
     con = sqlite3.connect(db)
     con.execute("""CREATE TABLE cba_findings (
         id TEXT PRIMARY KEY, group_id TEXT, title TEXT, severity TEXT,
-        confidence INTEGER, cwe TEXT, location TEXT, root_cause TEXT,
+        confidence INTEGER, cwe TEXT, location TEXT NOT NULL, root_cause TEXT,
         impact TEXT, attacker_position TEXT, boundary_crossed TEXT,
         data_flow TEXT, verified TEXT, poc TEXT, remediation TEXT,
         artifact_path TEXT, created_at TEXT)""")

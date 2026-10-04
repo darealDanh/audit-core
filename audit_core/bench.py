@@ -76,12 +76,12 @@ def score(
             if finding.id in matched_findings:
                 continue
             hit = next((loc for loc in ref.locations
-                        if loc and loc.lower() in finding.location.lower()), None)
+                        if loc and loc.lower() in (finding.location or "").lower()), None)
             if hit:
                 candidates.append(Candidate(ref.id, finding.id, f"location overlap: {hit}"))
 
     recall = len(matched) / len(refs) if refs else 0.0
-    cost_per_match = (cost_usd / len(matched)) if (cost_usd and matched) else None
+    cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
 
     return BenchResult(
         recall=recall,
