@@ -74,3 +74,89 @@ def stats_of(t: Transcript) -> Stats:
         prefix_floor=min(e.floor for e in eps),
         growth_per_turn=(weighted / total_turns) if total_turns else 0.0,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Report:
+    session_id: str
+    path: str
+    stats: Stats
+    epochs: list[Epoch]
+    composition: dict[str, int]
+    attribution: dict[str, int]
+    prefix_term: int
+    accumulation_term: int
+    cost_usd: float | None
+    tool_result_tokens: int
+    tool_input_tokens: int
+    tool_calls_by_name: dict[str, int]
+
+
+def analyze(t: Transcript) -> Report:
+    stats = stats_of(t)
+    eps = epochs_of(t)
+
+    # Last billed turn index within each epoch, for residency.
+    last_turn: dict[int, int] = {}
+    for turn in _billed(t.turns):
+        last_turn[turn.epoch] = max(last_turn.get(turn.epoch, 0), turn.index)
+
+    composition: dict[str, int] = {}
+    attribution: dict[str, int] = {}
+    for a in t.additions:
+        composition[a.component] = composition.get(a.component, 0) + a.tokens
+        if a.epoch not in last_turn:
+            continue
+        resident = max(0, last_turn[a.epoch] - a.turn_index + 1)
+        attribution[a.component] = attribution.get(a.component, 0) + a.tokens * resident
+
+    prefix_term = sum(e.floor * e.turns for e in eps)
+    tool_calls_by_name: dict[str, int] = {}
+    for call in t.tool_calls:
+        tool_calls_by_name[call.name] = tool_calls_by_name.get(call.name, 0) + 1
+
+    return Report(
+        session_id=t.session_id,
+        path=t.path,
+        stats=stats,
+        epochs=eps,
+        composition=composition,
+        attribution=attribution,
+        prefix_term=prefix_term,
+        accumulation_term=stats.sum_context - prefix_term,
+        cost_usd=t.cost_usd,
+        tool_result_tokens=sum(c.result_tokens for c in t.tool_calls),
+        tool_input_tokens=sum(c.input_tokens for c in t.tool_calls),
+        tool_calls_by_name=tool_calls_by_name,
+    )
+
+
+def _pct(part: int, whole: int) -> str:
+    return f"{100 * part / whole:5.1f}%" if whole else "    - "
+
+
+def render(r: Report) -> str:
+    s = r.stats
+    out: list[str] = []
+    out.append(f"session {r.session_id}  ({r.path})")
+    cost = f"${r.cost_usd:.2f}" if r.cost_usd is not None else "unknown"
+    out.append(f"  cost {cost}   turns {s.turns}   epochs {len(r.epochs)}")
+    out.append(f"  sum_context {s.sum_context:,}   mean {s.mean_context:,}   "
+               f"median {s.median_context:,}   p90 {s.p90_context:,}   max {s.max_context:,}")
+    out.append(f"  prefix_floor {s.prefix_floor:,}   growth {s.growth_per_turn:,.0f} tok/turn")
+    out.append(f"  prefix term      {r.prefix_term:,} ({_pct(r.prefix_term, s.sum_context)})")
+    out.append(f"  accumulation     {r.accumulation_term:,} "
+               f"({_pct(r.accumulation_term, s.sum_context)})")
+    out.append("")
+    out.append(f"  {'component':40s} {'added':>12s} {'share':>7s} {'attributed':>14s}")
+    total_added = sum(r.composition.values())
+    for name, tokens in sorted(r.composition.items(), key=lambda kv: -kv[1]):
+        out.append(f"  {name:40s} {tokens:12,} {_pct(tokens, total_added)} "
+                   f"{r.attribution.get(name, 0):14,}")
+    out.append("")
+    out.append(f"  {'epoch':>5s} {'turns':>6s} {'floor':>10s} {'peak':>10s} "
+               f"{'mean':>10s} {'g/turn':>9s}")
+    for e in r.epochs:
+        out.append(f"  {e.index:5d} {e.turns:6d} {e.floor:10,} {e.peak:10,} "
+                   f"{e.mean:10,} {e.growth_per_turn:9,.0f}")
+    return "\n".join(out)
