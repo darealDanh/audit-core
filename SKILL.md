@@ -40,6 +40,72 @@ A battle-tested methodology for auditing applications at scale. The workflow div
 
 10. **Stay at the project root — never `cd` into the audit dir**: Keep the orchestrator's working directory at the **project root** for the entire audit. Reference the audit dir (`reports/audit-<ts>/`) and `audit.db` by their path — never `cd` into them. Two reasons: the resume note's resumption commands are relative to the project root, and — critically — **verify forks/branches inherit the orchestrator's current working directory**. Claude's resume picker groups sessions by that directory, so if the cwd has drifted into `reports/audit-<ts>/`, the forks are filed under a *different* project and disappear from the picker (resumable by id, but hard to find), and their relative artifact writes mis-resolve. **Open every fork from the project root.** (See `references/lessons-learned.md` item 17.)
 
+## Economics Contract
+
+Measured across nine real audits: 449.9M context tokens re-read for $2,053.64.
+Cost follows `Σ over turns of context(turn)`, so **a token admitted to the
+orchestrator's context at turn N is paid for on every remaining turn**. The
+orchestrator's context is a budget, not a buffer. The rules below are R2, R4,
+R5 and R6 of the economics contract; R1 (extract-then-fan-out) and R3 (the
+context ceiling) are enforced in the audit workflows rather than here.
+
+### Model and effort tiering
+
+| Work | Model | Reasoning effort |
+|---|---|---|
+| Workspace setup, CVE ingest, pattern sweeps, SQL bookkeeping | script or cheapest tier | low |
+| Report drafting | mid tier | low to medium |
+| Feature mapping, FP-check batches | strongest tier, effort tiered down | low to medium |
+| Deep audit, chain reasoning, final severity calls, adversarial review | strongest tier | high |
+
+Reasoning effort is tiered with the model: retained thinking is the largest
+single component of accumulated context, so only the strongest-tier work runs
+at high effort. Effort is the lever that is safe to pull on its own — it cuts
+retained thinking without changing which model reads the code.
+
+**Feature mapping and FP-check keep the strongest model and tier only their
+effort.** Both decide what gets looked at and what survives, so a model
+downgrade there can cost recall and precision. That change is not free and is
+not Stage 1's to make: it waits until precision is measured before and after.
+
+### R2 — Return contracts
+
+A subagent writes its work to SQL and an artifact, then returns **one line**:
+
+    <unit_id> <DONE|PARTIAL|FAILED> rows=<n> artifact=<relpath> [flags=<csv>]
+
+The orchestrator never acts on the return text. Its next action is an
+`audit.py` verb or a bounded SQL query. Prose returned anyway is dead weight
+for one turn instead of permanently resident.
+
+### R4 — MCP preflight
+
+Before a run, write a project-scoped MCP config naming only what the run
+needs, and relaunch against it:
+
+    python3 __SKILL_DIR__/audit.py preflight --server autorev=<command>
+    claude --strict-mcp-config --mcp-config .audit-mcp.json
+
+The resident prefix is 20.9% of measured cost, and unused MCP tool schemas are
+a large part of it: the prefix floor grows by 11.5k-25.1k tokens mid-session as
+servers load, which on the largest measured session is 38% of the peak prefix.
+Those schemas are then charged a second time in accumulation, as deferred-tool
+records.
+
+### R5 — Reusable logic is an `audit.py` verb, never an inline heredoc
+
+Workspace creation and schema are `audit.py init`. MCP config is
+`audit.py preflight`. Dispatch briefs are `audit.py brief`. A target-specific
+script longer than ~10 lines is written once into the run's `files/`
+directory and invoked by path thereafter — never retyped.
+
+### R6 — Dispatch briefs are files
+
+A subagent's task is rendered to a file with `audit.py brief`; the dispatch
+carries the path plus only what the brief cannot know (where the task fits,
+interfaces from earlier phases, the report-file path). Never paste prior
+phases' summaries into a dispatch.
+
 ## Sub-Command Router
 
 The skill supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans.
@@ -51,7 +117,7 @@ The skill supports six phases (invoke them individually after the prior phase co
 | `recon` | [workflows/recon.md](workflows/recon.md) | Source detection, reconnaissance, **parallel feature mapping**, write resume note | Fresh start (or new target) | `cba_feature_groups`, `cba_attack_surface`, `cba_security_observations` populated; `files/G<n>-mapping.md` per group; resume note ready for compact |
 | `deploy` | [workflows/deploy.md](workflows/deploy.md) | Deploy live instance from source (Docker, build artifact, or local run); document in `/memories/repo/<project>-live-instance.md` | Recon done OR independent setup task | Live instance running; endpoints documented; live-instance note saved to repo memory |
 | `audit` | [workflows/audit.md](workflows/audit.md) | Load prior CVEs/advisories (find patch-bypass surfaces), **parallel deep-audit subagents** per group, write resume note | Recon + deploy done | `cba_known_findings`, `cba_findings` populated; per-group `artifacts/G<n>-findings.md`; resume note updated |
-| `fpcheck` | [workflows/fpcheck.md](workflows/fpcheck.md) | **Parallel FP-check subagents** apply Hard Exclusions / Precedent rules / Marginal Gain Test — **static review only**, no live testing; write resume note | Audit done | `cba_fp_verdicts` populated; per-batch `artifacts/phase5-batch<X>.md`; resume note updated |
+| `fpcheck` | [workflows/fpcheck.md](workflows/fpcheck.md) | **Parallel FP-check subagents** apply Hard Exclusions / Precedent rules / Marginal Gain Test — **static review only**, no live testing; write resume note | Audit done | `cba_fp_verdicts` populated; per-batch `artifacts/phase5-<batch>.md`; resume note updated |
 | `verify` | [workflows/verify.md](workflows/verify.md) | **Runs in a forked conversation**, requires finding-ID list. Per-finding live PoC, **adversarial review** (Step 2), then writes `artifacts/verify-<finding-id>.md` and - for a confirmed finding - runs the report phase in the same fork. Refuses to run without IDs. | FP-check produced TPs; user opened a fork and passed `<ids>`. | `verify-<id>.md` per finding (CONFIRMED / REFUTED / INCONCLUSIVE) + `<id>-vuln-report.md` per confirmed finding. |
 | `report` | [workflows/report.md](workflows/report.md) | Write the vulnerability report(s) in the lean maintainer format (Summary / Root Cause / Steps + PoC / Impact). **Live: per-finding, run IN THE FORK** after verify → `artifacts/<id>-vuln-report.md` with real PoC + captured output. **Source: consolidated, run in the orchestrator** → one `report.md`, Steps = reproduction guide (no run/output). No consolidation, no `disclosure-summary.md`. | Live: a finding confirmed in its verify fork. Source: end of the `source` run. | Live: `artifacts/<id>-vuln-report.md` per confirmed finding + scripts in project-root `poc/`. Source: one consolidated `report.md`. |
 | `source` | [workflows/source.md](workflows/source.md) | **Automated source-only run** (composite): chains recon → audit → fpcheck → report **unattended** — no deploy, no live instance, no verify, **no user gates**. For product teams scanning a codebase before release. CVE ingest best-effort. | Fresh start; source tree present; no human supervision wanted | one consolidated `report.md` + `audit.db`; all findings `verified='source-only'` (not live-verified) |
@@ -85,7 +151,7 @@ The workflows name **capabilities**, not one client's tool IDs. Use your client'
 | Semantic / codebase search | `semantic_search` | agentic search (`Grep`/`Glob` + exploration) | native code search |
 | Manual context compaction | Compact action | `/compact` | `/compact` |
 
-**Two rules hold on every client:** (1) any subagent that writes artifacts, runs SQL inserts, or hits the live instance MUST be a **writable** agent — a read-only agent silently produces nothing; (2) use the **strongest model your client offers** (e.g. the latest Claude Opus on Claude/Copilot; the default high-capability model on Codex).
+**Two rules hold on every client:** (1) any subagent that writes artifacts, runs SQL inserts, or hits the live instance MUST be a **writable** agent — a read-only agent silently produces nothing; (2) choose the model and reasoning effort from the *Model and effort tiering* table below — not the strongest available for everything. Retained thinking is 18.0% of measured context cost, and lower tiers emit far less of it.
 
 ### Workflow-accelerated mode (Claude Code + ultracode)
 
@@ -144,12 +210,14 @@ The automated **`source`** run uses the same diagram **minus deploy and the veri
 ```
 reports/audit-<YYYYMMDD-HHMMSS>/
 ├── audit.db                        # SQLite source of truth
+├── briefs/                         # rendered dispatch briefs (audit.py brief)
+│   └── <phase>-<unit>-brief.md     # one per dispatched subagent
 ├── files/
 │   ├── G<n>-mapping.md             # per-group feature mapping (recon)
 │   └── known-findings.md           # advisories + patch-bypass surface (audit)
 ├── artifacts/
 │   ├── G<n>-findings.md            # per-group deep-audit output (audit)
-│   ├── phase5-batch<X>-*.md        # per-batch FP-check verdicts (fpcheck)
+│   ├── phase5-<batch>.md           # per-batch FP-check verdicts (fpcheck)
 │   ├── verify-<finding-id>.md      # per-finding verification record (verify)
 │   └── <finding-id>-vuln-report.md # per-finding vuln report — LIVE (report, in the fork)
 ├── archived-poc/<finding-id>/      # (user-managed) finalized report + poc, after sending
@@ -169,11 +237,11 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 
 | Phase | Agent type | Model | Count | Task |
 |---|---|---|---|---|
-| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | strongest available (e.g. Claude Opus 4.5+) | 1 per group | Map features → code |
-| audit | **writable** subagent | strongest available | 1 per group | Deep adversarial audit |
-| fpcheck | **writable** subagent | strongest available | 1 per batch of 8-12 findings | Static FP review |
+| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | strongest tier, low effort | 1 per group | Map features → code |
+| audit | **writable** subagent | strongest tier, high effort | 1 per group | Deep adversarial audit |
+| fpcheck | **writable** subagent | strongest tier, medium effort | 1 per batch of 8-12 findings | Static FP review |
 | verify | n/a — forked **root** conversation (or a fresh workflow agent) | — | 1 fork/agent **per finding**, **serial** | Live PoC against deployed instance |
-| verify (review) | **writable** subagent, **fresh** (no fork/audit context) | strongest available | 2-3 per CONFIRMED finding | Adversarial review of each finding/PoC — neutral prompt; real-bug / valid-PoC / intentionally-vulnerable-code lenses (optional interactive multi-agent debate where the client supports it, e.g. a Claude agent-team) |
+| verify (review) | **writable** subagent, **fresh** (no fork/audit context) | strongest tier, high effort | 2-3 per CONFIRMED finding | Adversarial review of each finding/PoC — neutral prompt; real-bug / valid-PoC / intentionally-vulnerable-code lenses (optional interactive multi-agent debate where the client supports it, e.g. a Claude agent-team) |
 
 ## Rationalizations to Reject
 
@@ -194,6 +262,10 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 | "Just patch the target so the bug fires" | For trust-boundary bugs, patch the **attacker** component and keep the **victim** binary 100% stock (verify via `/proc/<pid>/exe`). Modifying the victim proves nothing. |
 | "It obviously hangs / crashes — no need to measure" | Quantify on the real binary: `top -bH` + `/proc/.../stat` for a spin, exit/signal for a crash, N-trial counts. 100% CPU ≠ a blocked wait. Pair with an honest-input control run. |
 | "Call it an infinite loop / say it always crashes" | Use precise, measured wording ("effectively unbounded, expected N iters"; "observed M/N"). Overstatement gets bug-bounty submissions rejected — adversarially verify every claim before shipping. |
+| "Use the strongest model everywhere, it's safer" | Retained thinking is 18.0% of context cost. Tier per the *Model and effort tiering* table; only strongest-tier work runs at high effort. |
+| "I'll paste the task into the dispatch, it's quicker" | Dispatch prompts are the largest single category of tool-call input (1,684 tokens average). Render the brief with `audit.py brief` and send the path. |
+| "I'll just write the SQL inline, it's only a few tables" | `audit.py init` applies the whole schema. Inline DDL is retyped after every compaction. |
+| "The MCP servers are already connected, leave them" | Unused schemas are resident on every turn. Run `audit.py preflight` and relaunch strict. |
 
 ## Lessons Learned (FROM REAL AUDITS — READ BEFORE STARTING)
 
@@ -225,8 +297,9 @@ To begin, route to the appropriate workflow:
 | File | Content |
 |---|---|
 | [references/phase0-source-detection.md](references/phase0-source-detection.md) | Source detection logic, IDA Pro MCP probing, user prompts |
-| [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, subagent prompt, mapping format |
-| [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | Deep audit subagent prompt, finding schema, dedup |
+| [references/briefs/](references/briefs/) | The three dispatch brief templates (`recon-`, `audit-`, `fpcheck-brief.md`) rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
+| [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, the recon brief's `--var` values, mapping format |
+| [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | The audit brief's `--var` values, finding schema, dedup |
 | [references/phase5-fp-check.md](references/phase5-fp-check.md) | Batching strategy, FP rules, verdict schema |
 | [references/phase6-report.md](references/phase6-report.md) | Lean per-finding + consolidated report template (Redis-style) + annotated example |
 | [references/resume-note-template.md](references/resume-note-template.md) | Standard resume-note format for compact survival |

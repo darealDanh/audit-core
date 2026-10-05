@@ -7,19 +7,9 @@
 
 ---
 
-## Step 1 — Create verdicts table
+## Step 1 — Confirm the verdicts schema is applied
 
-```sql
-CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
-    finding_id TEXT PRIMARY KEY,
-    verdict TEXT NOT NULL,        -- TRUE_POSITIVE, FALSE_POSITIVE, DUPLICATE
-    reason TEXT,
-    final_severity TEXT,
-    final_id TEXT,                -- F-N for report (assigned after this phase)
-    merged_into TEXT,             -- canonical finding_id when DUPLICATE
-    reviewed_at TEXT DEFAULT (datetime('now'))
-);
-```
+The `cba_fp_verdicts` table is created by `audit.py init`.
 
 ## Step 2 — Build batches
 
@@ -40,27 +30,45 @@ Before launching FP-check, query for finding pairs that cite the same file:line 
 
 ## Step 4 — Spawn parallel FP-check subagents
 
-**Agent type**: a **writable** subagent — a read-only agent cannot write the SQL inserts, so ALL verdicts would be lost. Use the strongest model your client offers. See SKILL.md → *Cross-client tool mapping*.
+**Agent type**: a **writable** subagent — a read-only agent cannot write the
+SQL inserts, so ALL verdicts would be lost. **Model:** strongest tier, medium
+effort — the effort is tiered down because FP-check applies fixed rules to a
+bounded list, but it decides which findings survive, so the model is not. See
+SKILL.md → *Cross-client tool mapping* and *Model and effort tiering*.
+
+Render each batch's brief and dispatch its path, never its contents
+(spec rule R6). Set these per batch first — `AUDIT_DIR` is the only variable an
+earlier step defined:
+
+    BATCH=A                                       # batch letter from Step 2
+    IDS='G1-F2, G1-F5, G3-F1, G3-F4'              # the findings in this batch
+    SRC='Source tree at the project root; read any file under it.'
+
+    python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit "$BATCH" --run "$AUDIT_DIR" \
+      --var batch_id="$BATCH" --var finding_ids="$IDS" \
+      --var run_dir="$AUDIT_DIR" --var source_access="$SRC" \
+      --var artifact_path="$AUDIT_DIR/artifacts/phase5-$BATCH.md"
+
+Every `--var` above is required, and an empty value is rejected as hard as a
+missing one: the renderer fails loudly rather than handing a subagent a
+half-filled brief.
 
 Spawn ONE subagent per batch, ALL in parallel.
 
-Each subagent must:
+The brief carries the method, the rule references and the return contract. Two
+things it does not carry, which belong in the dispatch or in your own review of
+the batch:
 
-1. Read [../references/phase5-fp-check.md](../references/phase5-fp-check.md) — the full false-positive methodology (bundled in this skill; no external skill required).
-2. Use the canonical 18 Hard Exclusions + 10 Precedent rules from that reference's *Canonical FP Rules Summary*.
-3. For EACH finding in the batch:
-   - **Re-read every cited source file** at the cited lines (Capability Validity rule CV-3 — never trust the artifact's quoted code without re-verifying).
-   - Apply all 18 Hard Exclusions.
-   - Apply all 10 Precedent rules.
-   - Apply the Marginal Gain Test (HE-17) — common FP source for operator-config findings.
-   - Issue verdict: TRUE_POSITIVE / FALSE_POSITIVE / DUPLICATE.
-   - INSERT into `cba_fp_verdicts`.
-4. Write a per-batch artifact at `<AUDIT_DIR>/artifacts/phase5-batch<X>-<scope>.md` documenting each verdict with:
-   - Cited file re-read excerpt
-   - Which exclusion / precedent rule applied (for FPs)
-   - Reason for keeping (for TPs)
-   - Merge target (for DUPs)
-5. Return a verdict tally.
+- The Marginal Gain Test (HE-17) is the most common false-positive source for
+  operator-config findings — if the operator could already do X through
+  documented configuration, a second way to do X is not a vulnerability.
+- The per-batch artifact at `<AUDIT_DIR>/artifacts/phase5-<batch>.md`
+  must document, per verdict: the re-read excerpt of the cited file, which
+  exclusion or precedent rule applied (for false positives), the reason for
+  keeping (for true positives), and the merge target (for duplicates).
+
+Each subagent returns one line; read the verdicts from `cba_fp_verdicts`, not
+from the return text.
 
 **IMPORTANT for this phase**: Subagents must NOT use the live instance, must NOT edit any project files, and must NOT modify `cba_findings`. Static review only. Per-finding live testing is the next phase (`verify`).
 

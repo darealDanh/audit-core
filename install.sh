@@ -10,9 +10,11 @@
 #   - Codex install root:   ~/.agents/skills/codebase-audit/
 #
 # Copilot and Codex auto-discover the skill from their skills dir — no launcher
-# files. Claude launchers contain the literal string __SKILL_DIR__; install.sh
-# sed-substitutes it with the client's own SKILL_DIR so each set of launchers
-# points at its own copy. Installing one client does not touch the others.
+# files. The skill content (SKILL.md, workflows/, references/) and the Claude
+# launchers all contain the literal string __SKILL_DIR__; install.sh
+# sed-substitutes it with the client's own SKILL_DIR on copy, so every
+# `python3 __SKILL_DIR__/audit.py ...` command in the installed skill resolves
+# to that client's own copy. Installing one client does not touch the others.
 #
 # Usage:
 #   ./install.sh                  # install for all clients
@@ -51,8 +53,13 @@ fi
 COPILOT_SKILL_DIR="${HOME}/.copilot/skills/${SKILL_NAME}"
 CLAUDE_SKILL_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
 CLAUDE_COMMANDS_DIR="${HOME}/.claude/commands"
-# Codex discovers user-authored skills from ~/.agents/skills.
-CODEX_SKILL_DIR="${HOME}/.agents/skills/${SKILL_NAME}"
+# Codex discovers user-authored skills from ~/.agents/skills, but a sibling
+# skill installs to $CODEX_HOME/skills instead; install to both since it is
+# not knowable from here which one a given Codex build reads.
+CODEX_SKILL_DIRS=(
+  "${HOME}/.agents/skills/${SKILL_NAME}"
+  "${CODEX_HOME:-${HOME}/.codex}/skills/${SKILL_NAME}"
+)
 
 detect_copilot_prompts_dir() {
   local code_dir
@@ -83,34 +90,79 @@ fi
 # ---- helpers ----
 
 # Copy SKILL.md + workflows/ + references/ from SCRIPT_DIR into $1.
-# Skips if target is the same as SCRIPT_DIR (e.g. cloned directly into install
-# location).
+# Refuses outright if the target IS SCRIPT_DIR (e.g. the repo was cloned
+# directly into the install location): see the error text below.
 install_skill_files() {
   local target="$1"
   mkdir -p "${target}"
-  local abs_target
+  local abs_target sub src rel dst
   abs_target="$(cd "${target}" && pwd -P)"
   if [[ "${SCRIPT_DIR}" == "${abs_target}" ]]; then
-    echo "  (source dir IS install dir; skipping skill file copy)"
-    return
+    echo "ERROR: the source directory IS the install directory:" >&2
+    echo "         ${abs_target}" >&2
+    echo "       The skill content cannot be substituted in place. Substituting" >&2
+    echo "       __SKILL_DIR__ here would rewrite the files of this git checkout," >&2
+    echo "       and skipping the substitution leaves the __SKILL_DIR__ sentinel" >&2
+    echo "       in the installed skill, so every 'python3 __SKILL_DIR__/audit.py'" >&2
+    echo "       command would fail. A tree cannot be both a source checkout and" >&2
+    echo "       an install target." >&2
+    echo "       Install from a separate checkout into a different directory:" >&2
+    echo "         git clone <repo> ~/src/codebase-audit" >&2
+    echo "         ~/src/codebase-audit/install.sh" >&2
+    exit 1
   fi
   echo "  Copying skill content -> ${target}"
-  cp -f "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md"
+  # SKILL.md, workflows/ and references/ all carry `python3 __SKILL_DIR__/audit.py`
+  # commands, so they go through the same substitution as the Claude launchers.
+  # A plain `cp` here ships the sentinel literally and every audit.py command in
+  # the installed skill fails with "can't open file '.../__SKILL_DIR__/audit.py'".
+  substitute_file "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md" "${abs_target}"
+  cp -f "${SCRIPT_DIR}/audit.py" "${target}/audit.py"
   for sub in workflows references; do
-    if [[ -d "${SCRIPT_DIR}/${sub}" ]]; then
-      mkdir -p "${target}/${sub}"
-      cp -f "${SCRIPT_DIR}/${sub}/"*.md "${target}/${sub}/" 2>/dev/null || true
-    fi
+    [[ -d "${SCRIPT_DIR}/${sub}" ]] || continue
+    # Recursive, so references/briefs/ is covered too.
+    while IFS= read -r src; do
+      rel="${src#${SCRIPT_DIR}/${sub}/}"
+      dst="${target}/${sub}/${rel}"
+      mkdir -p "$(dirname "${dst}")"
+      case "${src}" in
+        *.md|*.txt) substitute_file "${src}" "${dst}" "${abs_target}" ;;
+        *)          cp -f "${src}" "${dst}" ;;
+      esac
+    done < <(find "${SCRIPT_DIR}/${sub}" -type f -print)
   done
+  # audit_core carries .py and .sql; copy the package wholesale minus caches.
+  rm -rf "${target}/audit_core"
+  mkdir -p "${target}/audit_core"
+  cp -Rf "${SCRIPT_DIR}/audit_core/." "${target}/audit_core/"
+  find "${target}/audit_core" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+  # The install is not complete until the tool runs from where it landed.
+  local pyver
+  pyver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "none")"
+  if ! python3 "${target}/audit.py" selftest >/dev/null 2>&1; then
+    echo "ERROR: audit.py selftest failed in ${target} — the install is incomplete." >&2
+    echo "       python3 on PATH is ${pyver}; this skill requires 3.10 or newer." >&2
+    echo "       Install a newer python3, or put one earlier on PATH, then re-run." >&2
+    exit 1
+  fi
+  echo "  selftest OK"
 }
 
-# sed-substitute __SKILL_DIR__ in $1 with $3, write result to $2.
-# Uses '|' as sed delimiter so '/' in paths needs no escaping.
-copy_template() {
+# sed-substitute __SKILL_DIR__ in $1 with $3, write result to $2, quietly.
+# Uses '|' as sed delimiter so '/' in paths needs no escaping. sed is
+# line-content oriented, so a CRLF file stays CRLF: only the trailing \n is
+# consumed and re-emitted, and the \r travels inside the line.
+substitute_file() {
   local src="$1" dst="$2" skill_dir="$3"
   mkdir -p "$(dirname "${dst}")"
   sed -e "s|__SKILL_DIR__|${skill_dir}|g" "${src}" > "${dst}"
-  echo "  -> ${dst}"
+}
+
+# substitute_file, plus the per-file line the launcher install prints.
+copy_template() {
+  substitute_file "$1" "$2" "$3"
+  echo "  -> $2"
 }
 
 install_copilot() {
@@ -147,9 +199,11 @@ install_claude() {
 
 install_codex() {
   echo "[codex]"
-  echo "  skill dir:     ${CODEX_SKILL_DIR}"
   # Codex auto-discovers the skill by its SKILL.md description — no launcher.
-  install_skill_files "${CODEX_SKILL_DIR}"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    echo "  skill dir:     ${d}"
+    install_skill_files "${d}"
+  done
 }
 
 uninstall_skill_dir() {
@@ -179,7 +233,9 @@ uninstall_claude() {
 
 uninstall_codex() {
   echo "[codex] uninstalling"
-  uninstall_skill_dir "${CODEX_SKILL_DIR}"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    uninstall_skill_dir "${d}"
+  done
 }
 
 # ---- run ----
@@ -227,5 +283,8 @@ if [[ " ${TARGETS[*]} " == *" codex "* ]]; then
   echo "Codex CLI: restart Codex (or run '/skills'), then invoke with '\$${SKILL_NAME}'."
   echo "  For a specific phase, pass it as an argument: '\$${SKILL_NAME} recon' (or deploy /"
   echo "  audit / fpcheck / verify <ids> / report). Codex also auto-loads the skill from"
-  echo "  ${CODEX_SKILL_DIR}/ based on description triggers."
+  echo "  either of these dirs, based on description triggers:"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    echo "    ${d}/"
+  done
 fi

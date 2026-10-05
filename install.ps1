@@ -12,9 +12,11 @@ Design: each client gets its OWN self-contained copy of the skill.
   - Codex install root:   $HOME\.agents\skills\codebase-audit\
 
 Copilot and Codex auto-discover the skill from their skills dir — no launcher
-files. Claude launchers contain the literal string __SKILL_DIR__; this script
-substitutes it with the client's own skill dir (in forward-slash form, which
-Claude Code accepts on Windows) so each set of launchers points at its own copy.
+files. The skill content (SKILL.md, workflows\, references\) and the Claude
+launchers all contain the literal string __SKILL_DIR__; this script substitutes
+it with the client's own skill dir (in forward-slash form, which Claude Code
+accepts on Windows) so every `python3 __SKILL_DIR__/audit.py ...` command in the
+installed skill resolves to that client's own copy.
 Installing one client does not touch the others.
 
 Usage:
@@ -55,8 +57,14 @@ $Targets = @($Targets | Select-Object -Unique)
 $CopilotSkillDir   = Join-Path $HOME ".copilot\skills\$SkillName"
 $ClaudeSkillDir    = Join-Path $HOME ".claude\skills\$SkillName"
 $ClaudeCommandsDir = Join-Path $HOME ".claude\commands"
-# Codex discovers user-authored skills from ~/.agents/skills.
-$CodexSkillDir     = Join-Path $HOME ".agents\skills\$SkillName"
+# Codex discovers user-authored skills from ~/.agents/skills, but a sibling
+# skill installs to $CODEX_HOME/skills instead; install to both since it is
+# not knowable from here which one a given Codex build reads.
+$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+$CodexSkillDirs = @(
+    (Join-Path $HOME ".agents\skills\$SkillName"),
+    (Join-Path $CodexHome "skills\$SkillName")
+)
 
 function Get-CopilotPromptsDir {
     $codeDir = if ($Insiders) { 'Code - Insiders' } else { 'Code' }
@@ -73,36 +81,82 @@ if (-not (Test-Path (Join-Path $ScriptDir 'SKILL.md'))) {
 # ---- helpers ----
 
 # Copy SKILL.md + workflows\ + references\ from $ScriptDir into $Target.
-# Skips if target is the same as $ScriptDir (cloned directly into install location).
+# Refuses outright if the target IS $ScriptDir (e.g. the repo was cloned
+# directly into the install location): see the error text below.
 function Install-SkillFiles {
     param([string]$Target)
     New-Item -ItemType Directory -Force -Path $Target | Out-Null
     $absTarget = (Resolve-Path $Target).Path
     if ($absTarget -eq $ScriptDir) {
-        Write-Host "  (source dir IS install dir; skipping skill file copy)"
-        return
+        Write-Error "ERROR: the source directory IS the install directory: $absTarget"
+        Write-Error "       The skill content cannot be substituted in place. Substituting"
+        Write-Error "       __SKILL_DIR__ here would rewrite the files of this git checkout,"
+        Write-Error "       and skipping the substitution leaves the __SKILL_DIR__ sentinel"
+        Write-Error "       in the installed skill, so every 'python3 __SKILL_DIR__/audit.py'"
+        Write-Error "       command would fail. A tree cannot be both a source checkout and"
+        Write-Error "       an install target."
+        Write-Error "       Install from a separate checkout into a different directory, e.g."
+        Write-Error "       clone to $HOME\src\codebase-audit and run install.ps1 from there."
+        exit 1
     }
     Write-Host "  Copying skill content -> $Target"
-    Copy-Item -Force (Join-Path $ScriptDir 'SKILL.md') (Join-Path $Target 'SKILL.md')
+    # SKILL.md, workflows\ and references\ all carry `python3 __SKILL_DIR__/audit.py`
+    # commands, so they go through the same substitution as the Claude launchers.
+    # A plain copy here ships the sentinel literally and every audit.py command in
+    # the installed skill fails with "can't open file '...\__SKILL_DIR__\audit.py'".
+    Copy-Template (Join-Path $ScriptDir 'SKILL.md') (Join-Path $Target 'SKILL.md') $absTarget -Quiet
+    Copy-Item -Force (Join-Path $ScriptDir 'audit.py') (Join-Path $Target 'audit.py')
     foreach ($sub in @('workflows', 'references')) {
         $srcSub = Join-Path $ScriptDir $sub
-        if (Test-Path $srcSub) {
-            $dstSub = Join-Path $Target $sub
-            New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
-            Copy-Item -Force (Join-Path $srcSub '*.md') $dstSub -ErrorAction SilentlyContinue
+        if (-not (Test-Path $srcSub)) { continue }
+        $dstSub = Join-Path $Target $sub
+        # Remove-then-copy, as audit_core already does. `Copy-Item -Recurse` of a
+        # directory into an existing same-named directory NESTS it rather than
+        # merging, which would bury references\briefs\ one level too deep - and
+        # briefs.TEMPLATE_DIR resolves there, so every `audit.py brief` would fail.
+        if (Test-Path $dstSub) { Remove-Item -Recurse -Force $dstSub }
+        New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
+        # Recursive, so references\briefs\ is covered too.
+        foreach ($f in Get-ChildItem -Path $srcSub -Recurse -File) {
+            $rel = $f.FullName.Substring($srcSub.Length) -replace '^[\\/]+', ''
+            $dst = Join-Path $dstSub $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+            if ($f.Extension -in @('.md', '.txt')) {
+                Copy-Template $f.FullName $dst $absTarget -Quiet
+            } else {
+                Copy-Item -Force $f.FullName $dst
+            }
         }
+    }
+    $coreSrc = Join-Path $ScriptDir 'audit_core'
+    $coreDst = Join-Path $Target 'audit_core'
+    if (Test-Path $coreDst) { Remove-Item -Recurse -Force $coreDst }
+    New-Item -ItemType Directory -Path $coreDst | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $coreSrc '*') $coreDst
+    Get-ChildItem -Path $coreDst -Recurse -Directory -Filter '__pycache__' |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+    $pyver = & python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>$null
+    if (-not $pyver) { $pyver = 'none' }
+    & python3 (Join-Path $Target 'audit.py') selftest | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "audit.py selftest failed in $Target - the install is incomplete."
+        Write-Error "       python3 on PATH is $pyver; this skill requires 3.10 or newer."
+        Write-Error "       Install a newer python3, or put one earlier on PATH, then re-run."
+        exit 1
     }
 }
 
 # Substitute __SKILL_DIR__ in $Src with $SkillDir (forward-slash form), write to $Dst.
 # UTF-8 without BOM so the launcher's YAML frontmatter is not corrupted.
+# `Get-Content -Raw` keeps the file's bytes verbatim, so a CRLF file stays CRLF.
 function Copy-Template {
-    param([string]$Src, [string]$Dst, [string]$SkillDir)
+    param([string]$Src, [string]$Dst, [string]$SkillDir, [switch]$Quiet)
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Dst) | Out-Null
     $skillDirFwd = $SkillDir -replace '\\', '/'
     $content = (Get-Content -Raw -LiteralPath $Src) -replace '__SKILL_DIR__', $skillDirFwd
     [System.IO.File]::WriteAllText($Dst, $content, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "  -> $Dst"
+    if (-not $Quiet) { Write-Host "  -> $Dst" }
 }
 
 function Install-Copilot {
@@ -135,9 +189,11 @@ function Install-Claude {
 
 function Install-Codex {
     Write-Host "[codex]"
-    Write-Host "  skill dir:     $CodexSkillDir"
     # Codex auto-discovers the skill by its SKILL.md description — no launcher.
-    Install-SkillFiles $CodexSkillDir
+    foreach ($d in $CodexSkillDirs) {
+        Write-Host "  skill dir:     $d"
+        Install-SkillFiles $d
+    }
 }
 
 function Uninstall-SkillDir {
@@ -168,7 +224,9 @@ function Uninstall-Claude {
 
 function Uninstall-Codex {
     Write-Host "[codex] uninstalling"
-    Uninstall-SkillDir $CodexSkillDir
+    foreach ($d in $CodexSkillDirs) {
+        Uninstall-SkillDir $d
+    }
 }
 
 # ---- run ----
@@ -216,5 +274,8 @@ if ($Targets -contains 'codex') {
     Write-Host "Codex CLI: restart Codex (or run '/skills'), then invoke with '`$$SkillName'."
     Write-Host "  For a specific phase, pass it as an argument: '`$$SkillName recon' (or deploy /"
     Write-Host "  audit / fpcheck / verify <ids> / report). Codex also auto-loads the skill from"
-    Write-Host "  $CodexSkillDir based on description triggers."
+    Write-Host "  either of these dirs, based on description triggers:"
+    foreach ($d in $CodexSkillDirs) {
+        Write-Host "    $d"
+    }
 }

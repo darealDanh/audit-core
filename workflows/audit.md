@@ -61,48 +61,67 @@ Patched files: <list>
 - `<file>:<lines>` — <why suspect>
 ```
 
-## Step 3 — Create the findings table
+## Step 3 — Confirm the findings schema is applied
 
-```sql
-CREATE TABLE IF NOT EXISTS cba_findings (
-    id TEXT PRIMARY KEY,                -- e.g., 'G1-F1'
-    group_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    severity TEXT NOT NULL,             -- CRITICAL, HIGH, MEDIUM, LOW
-    confidence INTEGER NOT NULL,        -- 1-10
-    cwe TEXT,
-    location TEXT NOT NULL,
-    root_cause TEXT NOT NULL,
-    impact TEXT NOT NULL,
-    attacker_position TEXT,
-    boundary_crossed TEXT,
-    data_flow TEXT,
-    verified TEXT DEFAULT 'source-only', -- source-only, ida-confirmed, live-poc
-    poc TEXT,
-    remediation TEXT,
-    artifact_path TEXT,                  -- path to per-group artifact section
-    created_at TEXT DEFAULT (datetime('now'))
-);
-```
+The schema is already applied by `audit.py init` (recon Step 1). If you are
+entering this phase against an existing run directory, re-apply it safely
+with `python3 __SKILL_DIR__/audit.py init --root . --timestamp <existing-ts>`.
 
 ## Step 4 — Parallel deep-audit subagents
 
-**Agent type**: a **writable** subagent (must write artifacts + SQL — not a read-only one). Use the strongest model your client offers. See SKILL.md → *Cross-client tool mapping*.
+**Agent type**: a **writable** subagent (must write artifacts + SQL — not a
+read-only one). **Model:** strongest tier, high effort — this is the phase
+where adversarial reasoning earns its cost. See SKILL.md → *Cross-client tool
+mapping* and *Model and effort tiering*.
+
+Render each group's brief and dispatch its path, never its contents
+(spec rule R6). Set these per group first — `AUDIT_DIR` is the only variable an
+earlier step defined:
+
+    G=G1                                          # stable group id
+    NAME='Authentication and session handling'    # the group's name
+    SRC='Source tree at the project root; read any file under it.'
+    # Step 2's patch-bypass intel. CVE ingest is best-effort (see source.md):
+    # if it was skipped, known-findings.md was never written, and an empty
+    # value is rejected — which would hard-fail an unattended run. Fall back
+    # the way recon.md does, so the brief still says what is known.
+    KNOWN="$(cat "$AUDIT_DIR/files/known-findings.md" 2>/dev/null || true)"
+    KNOWN="${KNOWN:-No prior advisories ingested for this target.}"
+    # Live run: the deploy phase's instance details, one line (see
+    # ../references/phase4-deep-audit.md -> Test instance details).
+    TEST_INSTANCE='Test instance: http://127.0.0.1:8080 (proxy) / :8081 (API). Auth: create test accounts via admin/admin123 - do NOT modify the admin account. Config is bind-mounted at .docker_compose/. Available for: HTTP requests, API testing. Not available for: destructive testing, persistence, data exfiltration.'
+
+    python3 __SKILL_DIR__/audit.py brief --phase audit --unit "$G" --run "$AUDIT_DIR" \
+      --var group_id="$G" --var group_name="$NAME" \
+      --var run_dir="$AUDIT_DIR" \
+      --var mapping_path="$AUDIT_DIR/files/$G-mapping.md" \
+      --var artifact_path="$AUDIT_DIR/artifacts/$G-findings.md" \
+      --var source_access="$SRC" --var known_findings="$KNOWN" \
+      --var test_instance="$TEST_INSTANCE"
+
+Every `--var` above is required, and an empty value is rejected as hard as a
+missing one: the renderer fails loudly rather than handing a subagent a
+half-filled brief. *(Automated `source` mode: there is no live instance — pass
+`--var test_instance='No test instance available. Provide source-level
+analysis only.'` See [source.md](source.md).)*
 
 Spawn ONE subagent per feature group, ALL in parallel.
 
-Each subagent prompt (template from [../references/phase4-deep-audit.md](../references/phase4-deep-audit.md)) must include:
+The brief carries the assignment, the hunt list, the rules of engagement, the
+patch-bypass probe instruction, the test-instance conduct rules (including the
+Do NOT list) and the return contract. The dispatch adds only what the brief
+cannot know:
 
-- Group ID + the full content of `files/G<n>-mapping.md`
-- The known-findings list (so they avoid duplicates AND probe the patch-bypass sites)
-- Source access instructions
-- Live instance details (proxy/API URLs, sample credentials, bind-mounted config locations)
-- **Instructions to write a per-group artifact** at `<AUDIT_DIR>/artifacts/G<n>-findings.md` containing each finding in detail (so we can re-read after context compaction)
-- **Instructions to INSERT each finding into `cba_findings`** with `artifact_path` set
-- Live-PoC verification policy: attempt live PoC for HIGH/CRITICAL findings when feasible; mark `verified='live-poc'` if reproduced; otherwise `verified='source-only'`
-- Live-instance hygiene: **back up any config file before editing** (e.g., `cp .docker_compose/rules.json /tmp/rules.json.bak.G<n>`); restore at end *(Automated `source` mode: omit this bullet — no config edits/backup/restore; read-only source analysis only, see [source.md](source.md))*
-- Confidence floor: don't file anything below 8/10
-- Return a compact summary (counts by severity)
+- Live-PoC policy: attempt a live PoC for HIGH/CRITICAL findings where feasible;
+  mark `verified='live-poc'` if reproduced, otherwise `verified='source-only'`
+- Live-instance hygiene: **back up any config file before editing** (e.g.
+  `cp .docker_compose/rules.json /tmp/rules.json.bak.G<n>`) and restore at the
+  end *(Automated `source` mode: omit this — no config edits, read-only source
+  analysis only, see [source.md](source.md))*
+
+Do not paste the mapping file's contents. The brief passes its path and the
+subagent reads it itself. Each subagent returns one line; read the findings
+from `cba_findings`, not from the return text.
 
 ## Step 5 — Subagent failure handling
 

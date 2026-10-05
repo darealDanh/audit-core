@@ -437,11 +437,32 @@ tokens, largest single result 7,639). R2 is retained because it is free and it k
 reasoning anchored on SQL rather than on agent prose, **not** because it is a
 large saving. It must not be prioritised over R1, R3 or R5.
 
+### R6 — Dispatch briefs are files, not prose in the prompt
+
+A subagent's task is written to a file; the dispatch carries the path and only
+the context the file cannot know. Exact values — numbers, signatures, test
+cases, magic strings — appear in the brief, never duplicated into the prompt.
+
+Measured scale: subagent dispatch prompts are the **largest single category of
+tool-call input** across the nine sessions — 196,996 tokens over 117
+dispatches, an average of 1,684 tokens each, 33.1% of all tool-call input and
+roughly 3.2% of total attributed context. R2 governs what an agent returns
+(1.4%); nothing governed what it was sent.
+
+The prompt still carries where the task fits, interfaces from earlier work the
+brief cannot know, and the report-file path. What it stops carrying is the
+task text itself, and above all the accumulated history of prior tasks — a
+real session's dispatch reached 42k characters of which 99% was pasted
+history.
+
 ### R5 - Reusable logic lives in `audit.py`, never in inline heredocs
 
 Inline Bash and Python is 9.8% of attributed context across the nine sessions
-(44.2M of 449.9M; 223,757 raw tokens in tplink alone), much of it
-regenerating the same extraction and parsing logic after each compaction. Any script longer than ~10 lines, or
+(44.2M of 449.9M). Within tool-call input, the shapes R5 targets — python
+heredocs, writing scripts via heredoc, and SQLite boilerplate — are 271,321 of
+595,041 tokens, or **45.6%**, which works out to roughly 4.5% of total
+attributed context. Much of it regenerates the same extraction and parsing
+logic after each compaction. Any script longer than ~10 lines, or
 written twice, becomes an `audit.py` verb. Invocations then cost one line
 instead of a heredoc.
 
@@ -611,12 +632,26 @@ may share a plan since neither changes behaviour that the benchmark measures.
 recorded. Nothing else starts until this exists.
 
 **Stage 1 — Cost wins that cannot touch quality.** Verified by budget report
-alone, and ordered by the measured ranking in §1.2: R5 (`audit.py` verbs
-replacing inline heredocs, ~10%); R4 preflight (part of the 19% prefix);
-reasoning-effort and model tiering for mechanical work only (attacks the 27%
-thinking term); R2 return contracts (~2%, free); installer fixes and
-`selftest`; both installer defects from §3.2. Each independently shippable and
-revertible.
+alone, in this order, which is the measured ranking from §1.2 and §1.1 rather
+than the order these rules were written in:
+
+| | Lever | Measured target |
+|---|---|---|
+| 1 | Model and reasoning-effort tiering for mechanical work only | 18.0% — the thinking term |
+| 2 | R4 MCP preflight | the MCP share of the 20.9% prefix |
+| 3 | R5 `audit.py` verbs replacing inline heredocs | ~4.5% |
+| 4 | R6 dispatch briefs as files | ~3.2% |
+| 5 | R2 return contracts | 1.4% |
+
+Two sequencing facts. **The installer defects from §3.2 are a hard dependency
+of R5, not an independent item** — `install.sh` copies only `SKILL.md`,
+`workflows/` and `references/`, so the moment a workflow invokes `audit.py`
+every installed copy breaks. And **Stage 1 is the first stage to edit the
+shipped skill**; Stage 0 left `SKILL.md` and `workflows/` byte-identical
+deliberately, so every change here is visible to anyone who has the skill
+installed.
+
+Each lever is independently shippable and revertible.
 
 **Stage 2 — Structural change.** Benchmark-gated. `audit_core` (db, extract,
 annotations, coverage, sweep, budget); R1; R3; vendored into `codebase-audit`

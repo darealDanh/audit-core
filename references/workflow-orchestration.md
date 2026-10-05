@@ -65,7 +65,7 @@ phase('FP-check')
 const fp = await agent(`${ref} Read ${SK}/workflows/fpcheck.md + references/phase5-fp-check.md. Create cba_fp_verdicts in ${AUDIT}/audit.db and build static FP-check batches (8–12 findings each) from cba_findings. Return the batches (arrays of finding ids). Do NOT run the FP subagents.`, { phase:'FP-check', schema: BATCHES })
 
 await parallel(fp.batches.map((b, i) => () =>                    // fan-out: one writable agent per batch
-  agent(`${ref} Read ${SK}/workflows/fpcheck.md + references/phase5-fp-check.md. FP-check batch ${i+1} (findings: ${b.join(',')}) — STATIC review only: 18 Hard Exclusions + 10 Precedent rules + Marginal Gain Test. Write cba_fp_verdicts + ${AUDIT}/artifacts/phase5-batch${i+1}.md.`,
+  agent(`${ref} Read ${SK}/workflows/fpcheck.md + references/phase5-fp-check.md. FP-check batch ${i+1} (findings: ${b.join(',')}) — STATIC review only: 18 Hard Exclusions + 10 Precedent rules + Marginal Gain Test. Write cba_fp_verdicts + ${AUDIT}/artifacts/phase5-B${i+1}.md.`,
     { label:`fp:batch${i+1}`, phase:'FP-check' })))
 
 phase('Report')

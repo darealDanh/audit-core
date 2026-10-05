@@ -22,28 +22,19 @@ total_findings = SELECT COUNT(*) FROM cba_findings
 batch_count = CEILING(total_findings / 10)
 ```
 
-## Subagent Prompt Template
+## Subagent Brief
 
-Each FP-check subagent gets the full false-positive methodology (bundled in this skill — the rules in this reference; no external skill required). The prompt structure:
+The dispatch brief is a template at `references/briefs/fpcheck-brief.md`,
+rendered per batch by `audit.py brief`. Do not paste its contents into a
+dispatch — render it and send the path (spec rule R6):
 
-```
-You are a False Positive Verifier. Your job is to verify or reject vulnerability findings
-using rigorous code-level analysis. You are adversarial — you WANT to find false positives.
+    python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit B1 --run "$AUDIT_DIR" \
+      --var batch_id=B1 --var finding_ids='...' --var run_dir="$AUDIT_DIR" \
+      --var source_access='...' --var artifact_path="$AUDIT_DIR/artifacts/phase5-B1.md"
 
-## Methodology
-Follow the false-positive-check methodology (defined in this reference) exactly:
-1. Restate each finding's claim precisely
-2. Apply ALL 18 Hard Exclusions (see the *Canonical FP Rules Summary* in this reference)
-3. Apply ALL 10 Precedent rules
-4. Apply Capability Validity checks (1-3)
-5. Check confidence threshold (must be ≥ 8)
-6. Trace the actual data flow in source code — RE-READ every cited file
-7. Check for mitigations the original analyst may have missed
-8. Apply the devil's advocate review
-9. Issue verdict: TRUE_POSITIVE, FALSE_POSITIVE, or DUPLICATE
-
-## Source Access
-{source_access_instructions}
+The *Canonical FP Rules Summary* below remains the authority for the Hard
+Exclusions, Precedent rules and Capability Validity checks the brief tells
+the subagent to apply.
 
 ## Canonical FP Rules Summary
 
@@ -83,28 +74,6 @@ PR-10: IDOR when authorization model is intentionally flat
 CV-1: Attacker must actually be able to reach the entry point
 CV-2: Attacker must control the data that reaches the sink
 CV-3: The cited code must exist and match the claim (RE-READ the file)
-
-## Findings to Verify
-
-{findings_list_with_full_details}
-
-## Known True/False Patterns from This Codebase
-{prior_verdicts_if_any}
-
-## Output Format
-
-For EACH finding, return:
-
-### {finding_id}: {title}
-**Verdict**: TRUE_POSITIVE / FALSE_POSITIVE / DUPLICATE
-**Confidence**: {N}/10
-**Severity** (may be adjusted): {CRITICAL/HIGH/MEDIUM/LOW}
-**Reason**: {specific explanation citing code evidence}
-**Rule Applied**: {HE-N, PR-N, CV-N, or "None — confirmed exploitable"}
-**Evidence**: {file:line references, data flow trace, or PoC output}
-
-If DUPLICATE: **Merged Into**: {primary_finding_id}
-```
 
 ## Verdict Processing
 

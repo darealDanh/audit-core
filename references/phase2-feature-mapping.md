@@ -42,59 +42,27 @@ Adapt names to the target application. Not all groups will exist for every targe
 
 If a group exceeds the maximum, split it. If below the minimum, merge with a related group.
 
-## Subagent Prompt Template
+## Subagent Brief
 
-Replace `{placeholders}` with actual values. The entire prompt is passed to the subagent-spawning tool (see SKILL.md → *Cross-client tool mapping*).
+The dispatch brief is a template at `references/briefs/recon-brief.md`,
+rendered per group by `audit.py brief`. Do not paste its contents into a
+dispatch — render it and send the path (spec rule R6):
 
-```
-You are a security researcher mapping features to source code for a security audit.
+    python3 __SKILL_DIR__/audit.py brief --phase recon --unit G7 --run "$AUDIT_DIR" \
+      --var group_id=G7 --var group_name='...' --var group_description='...' \
+      --var key_directories='...' --var run_dir="$AUDIT_DIR" \
+      --var mapping_path="$AUDIT_DIR/files/G7-mapping.md" \
+      --var source_access='...' --var known_findings='...'
 
-## Your Assignment
-Feature group: {group_id} — {group_name}
-Description: {group_description}
-Key directories to focus on: {key_directories}
+The *Mapping Output Storage* below remains the authority for what a mapping
+row must contain.
 
-## Source Access
-{source_access_instructions}
+### Source access instructions (passed as `--var source_access=...`)
 
-For source code: Use your file-search and file-read tools (grep/glob to locate files, then read their contents).
-For IDA Pro: Use ida-pro-mcp tools (decompile, analyze_function, entity_query, find_regex, etc.)
-
-## What to Map
-
-For each feature in this group, document:
-
-1. **Feature name**: What does it do?
-2. **Entry points**: API endpoints, CLI commands, event handlers, scheduled tasks
-3. **Key source files**: The files that implement this feature
-4. **Authentication requirements**: None, user-level, admin-level, internal-only
-5. **Input sources**: HTTP headers, query params, body, file uploads, environment variables, database
-6. **Data flow**: Where does user-controlled data go? Follow from input → processing → output/storage
-7. **Trust boundaries crossed**: Does data cross privilege levels, network boundaries, or process boundaries?
-8. **Security-relevant observations**: Anything that looks like it could be a vulnerability (but don't investigate deeply — just note it)
-
-## Output Format
-
-Return a structured markdown document with one section per feature:
-
-### Feature: {name}
-- **Entry point**: `METHOD /path` or `function_name()` at `file:line`
-- **Files**: `file1.cpp`, `file2.cpp`, ...
-- **Auth**: none / user / admin
-- **Inputs**: list of input sources
-- **Data flow**: source → processing → sink
-- **Trust boundary**: yes/no, which boundary
-- **Observations**: any security-relevant notes
-
-## Thoroughness Level
-Be THOROUGH. Read every file in the assigned directories. Don't skip files because they look boring.
-Follow imports/includes to understand dependencies. Document internal helper functions that handle user data.
-
-## Known Prior Art
-{known_findings_summary}
-```
-
-### Source Access Instructions (fill into template)
+There is no prompt template to fill any more. Pick the variant below that
+matches the detected target and pass it as the `source_access` `--var` on the
+`audit.py brief` command above. The same value is what the audit and fpcheck
+briefs take.
 
 **Source code only:**
 ```
