@@ -40,6 +40,60 @@ A battle-tested methodology for auditing applications at scale. The workflow div
 
 10. **Stay at the project root — never `cd` into the audit dir**: Keep the orchestrator's working directory at the **project root** for the entire audit. Reference the audit dir (`reports/audit-<ts>/`) and `audit.db` by their path — never `cd` into them. Two reasons: the resume note's resumption commands are relative to the project root, and — critically — **verify forks/branches inherit the orchestrator's current working directory**. Claude's resume picker groups sessions by that directory, so if the cwd has drifted into `reports/audit-<ts>/`, the forks are filed under a *different* project and disappear from the picker (resumable by id, but hard to find), and their relative artifact writes mis-resolve. **Open every fork from the project root.** (See `references/lessons-learned.md` item 17.)
 
+## Economics Contract
+
+Measured across nine real audits: 449.9M context tokens re-read for $2,053.64.
+Cost follows `Σ over turns of context(turn)`, so **a token admitted to the
+orchestrator's context at turn N is paid for on every remaining turn**. The
+orchestrator's context is a budget, not a buffer.
+
+### Model and effort tiering
+
+| Work | Model | Reasoning effort |
+|---|---|---|
+| Workspace setup, CVE ingest, pattern sweeps, SQL bookkeeping | script or cheapest tier | low |
+| Feature mapping, FP-check batches, report drafting | mid tier | low to medium |
+| Deep audit, chain reasoning, final severity calls, adversarial review | strongest tier | high |
+
+Reasoning effort is tiered with the model: retained thinking is the largest
+single component of accumulated context, so only the strongest-tier work runs
+at high effort.
+
+### R2 — Return contracts
+
+A subagent writes its work to SQL and an artifact, then returns **one line**:
+
+    <unit_id> <DONE|PARTIAL|FAILED> rows=<n> artifact=<relpath> [flags=<csv>]
+
+The orchestrator never acts on the return text. Its next action is an
+`audit.py` verb or a bounded SQL query. Prose returned anyway is dead weight
+for one turn instead of permanently resident.
+
+### R4 — MCP preflight
+
+Before a run, write a project-scoped MCP config naming only what the run
+needs, and relaunch against it:
+
+    python3 __SKILL_DIR__/audit.py preflight --server autorev=<command>
+    claude --strict-mcp-config --mcp-config .audit-mcp.json
+
+Unused MCP tool schemas sit in the resident prefix (20.9% of cost) and are
+charged again in accumulation as deferred-tool records.
+
+### R5 — Reusable logic is an `audit.py` verb, never an inline heredoc
+
+Workspace creation and schema are `audit.py init`. MCP config is
+`audit.py preflight`. Dispatch briefs are `audit.py brief`. A target-specific
+script longer than ~10 lines is written once into the run's `files/`
+directory and invoked by path thereafter — never retyped.
+
+### R6 — Dispatch briefs are files
+
+A subagent's task is rendered to a file with `audit.py brief`; the dispatch
+carries the path plus only what the brief cannot know (where the task fits,
+interfaces from earlier phases, the report-file path). Never paste prior
+phases' summaries into a dispatch.
+
 ## Sub-Command Router
 
 The skill supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans.
@@ -85,7 +139,7 @@ The workflows name **capabilities**, not one client's tool IDs. Use your client'
 | Semantic / codebase search | `semantic_search` | agentic search (`Grep`/`Glob` + exploration) | native code search |
 | Manual context compaction | Compact action | `/compact` | `/compact` |
 
-**Two rules hold on every client:** (1) any subagent that writes artifacts, runs SQL inserts, or hits the live instance MUST be a **writable** agent — a read-only agent silently produces nothing; (2) use the **strongest model your client offers** (e.g. the latest Claude Opus on Claude/Copilot; the default high-capability model on Codex).
+**Two rules hold on every client:** (1) any subagent that writes artifacts, runs SQL inserts, or hits the live instance MUST be a **writable** agent — a read-only agent silently produces nothing; (2) choose the model and reasoning effort from the *Model and effort tiering* table below — not the strongest available for everything. Retained thinking is 18.0% of measured context cost, and lower tiers emit far less of it.
 
 ### Workflow-accelerated mode (Claude Code + ultracode)
 
@@ -169,11 +223,11 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 
 | Phase | Agent type | Model | Count | Task |
 |---|---|---|---|---|
-| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | strongest available (e.g. Claude Opus 4.5+) | 1 per group | Map features → code |
-| audit | **writable** subagent | strongest available | 1 per group | Deep adversarial audit |
-| fpcheck | **writable** subagent | strongest available | 1 per batch of 8-12 findings | Static FP review |
+| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | mid tier, low effort | 1 per group | Map features → code |
+| audit | **writable** subagent | strongest tier, high effort | 1 per group | Deep adversarial audit |
+| fpcheck | **writable** subagent | mid tier, medium effort | 1 per batch of 8-12 findings | Static FP review |
 | verify | n/a — forked **root** conversation (or a fresh workflow agent) | — | 1 fork/agent **per finding**, **serial** | Live PoC against deployed instance |
-| verify (review) | **writable** subagent, **fresh** (no fork/audit context) | strongest available | 2-3 per CONFIRMED finding | Adversarial review of each finding/PoC — neutral prompt; real-bug / valid-PoC / intentionally-vulnerable-code lenses (optional interactive multi-agent debate where the client supports it, e.g. a Claude agent-team) |
+| verify (review) | **writable** subagent, **fresh** (no fork/audit context) | strongest tier, high effort | 2-3 per CONFIRMED finding | Adversarial review of each finding/PoC — neutral prompt; real-bug / valid-PoC / intentionally-vulnerable-code lenses (optional interactive multi-agent debate where the client supports it, e.g. a Claude agent-team) |
 
 ## Rationalizations to Reject
 
@@ -194,6 +248,10 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 | "Just patch the target so the bug fires" | For trust-boundary bugs, patch the **attacker** component and keep the **victim** binary 100% stock (verify via `/proc/<pid>/exe`). Modifying the victim proves nothing. |
 | "It obviously hangs / crashes — no need to measure" | Quantify on the real binary: `top -bH` + `/proc/.../stat` for a spin, exit/signal for a crash, N-trial counts. 100% CPU ≠ a blocked wait. Pair with an honest-input control run. |
 | "Call it an infinite loop / say it always crashes" | Use precise, measured wording ("effectively unbounded, expected N iters"; "observed M/N"). Overstatement gets bug-bounty submissions rejected — adversarially verify every claim before shipping. |
+| "Use the strongest model everywhere, it's safer" | Retained thinking is 18.0% of context cost. Tier per the *Model and effort tiering* table; only strongest-tier work runs at high effort. |
+| "I'll paste the task into the dispatch, it's quicker" | Dispatch prompts are the largest single category of tool-call input (1,684 tokens average). Render the brief with `audit.py brief` and send the path. |
+| "I'll just write the SQL inline, it's only a few tables" | `audit.py init` applies the whole schema. Inline DDL is retyped after every compaction. |
+| "The MCP servers are already connected, leave them" | Unused schemas are resident on every turn. Run `audit.py preflight` and relaunch strict. |
 
 ## Lessons Learned (FROM REAL AUDITS — READ BEFORE STARTING)
 
