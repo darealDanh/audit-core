@@ -293,11 +293,13 @@ def test_skill_md_states_r1_and_r3():
 
 
 def test_the_anti_rationalization_rule_is_in_the_rejection_table():
-    """Spec R3: 'near the ceiling, skip this group' is answered by
-    checkpoint-and-restart, never by skipping."""
+    """Spec R3: 'near the ceiling — skip this group' is answered by
+    checkpoint-and-restart, never by skipping. The rationalization is quoted
+    here with the em dash SKILL.md actually uses; an earlier draft of this
+    test also allowed a comma form that the table has never contained, so
+    half of it could never have fired."""
     text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-    assert "near the ceiling, skip this group" in text.lower() \
-        or "skip this group" in text
+    assert "near the ceiling — skip this group" in text.lower()
     assert "not_audited(reason='budget')" in text
 
 
@@ -316,8 +318,7 @@ def test_every_documented_audit_py_invocation_parses():
     verb's own CLI tests already run real invocations as subprocesses."""
     import re as _re
     import audit
-    parser = audit.build_parser()
-    pattern = _re.compile(r"audit\.py ([a-z-]+)((?: --[a-z-]+(?:[= ][^\s`]+)?)*)")
+    pattern = _re.compile(r"audit\.py ([a-z-]+)(?: --[a-z-]+(?:[= ][^\s`]+)?)*")
     for path in live_markdown():
-        for verb, _ in pattern.findall(path.read_text(encoding="utf-8")):
+        for verb in pattern.findall(path.read_text(encoding="utf-8")):
             assert verb in audit.HANDLERS, f"{path.name}: unknown verb {verb}"

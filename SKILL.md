@@ -65,10 +65,10 @@ is bounded by nothing. This is the one rule where the cost argument and the
 quality argument are the same argument: work that stays in the orchestrator
 is serial, and serial work is why surfaces went unopened.
 
-The orchestrator's own reads are bounded too. Rows come from
-`audit.py rows`, `audit.py status` and `audit.py coverage`, which cap at 200
-rows; comprehension comes from `audit.py note`, which returns one line per
-key, not the analysis behind it.
+The orchestrator's own reads are bounded too. `audit.py rows` caps at 200
+rows; `audit.py status` and `audit.py coverage` return aggregate counts
+rather than rows; comprehension comes from `audit.py note`, which returns
+one line per key, not the analysis behind it.
 
 ### R3 — Context ceiling with checkpoint-restart
 
@@ -82,8 +82,9 @@ fresh at a ~45k prefix.
 
 Compaction is not the mechanism: it costs a full-context read plus a summary,
 lands at 60k-80k of lossy summary rather than 45k of real prefix, and discards
-the technical state the next step needs. `audit.py budget --project` reports
-the measured prefix and growth and how many turns they leave.
+the technical state the next step needs.
+`audit.py budget --project --report <session.jsonl>` reports the measured
+prefix and growth and how many turns they leave.
 
 **The budget governs where tokens are spent, never whether a surface is
 opened.** A group skipped for budget is a `not_audited(reason='budget')` row
