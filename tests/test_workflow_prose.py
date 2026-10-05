@@ -3,9 +3,13 @@ import re
 
 import pytest
 
+from audit_core import briefs
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOWS = sorted((ROOT / "workflows").glob("*.md"))
 LIVE = [p for p in WORKFLOWS if not p.name.startswith("_")]
+
+PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 @pytest.mark.parametrize("path", LIVE, ids=lambda p: p.name)
@@ -50,3 +54,16 @@ def test_no_live_reference_carries_inline_ddl():
             continue
         assert "CREATE TABLE" not in path.read_text(), (
             f"{path.relative_to(ROOT)} still has inline DDL; use audit.py init")
+
+
+@pytest.mark.parametrize("phase,workflow", [
+    ("recon", "recon.md"), ("audit", "audit.md"), ("fpcheck", "fpcheck.md")])
+def test_workflow_supplies_every_var_its_template_declares(phase, workflow):
+    """A documented `audit.py brief` command missing a --var fails at run time
+    with 'unsubstituted placeholder'. The workflow and the template must agree."""
+    declared = set(PLACEHOLDER.findall(
+        (briefs.TEMPLATE_DIR / f"{phase}-brief.md").read_text()))
+    supplied = set(re.findall(r"--var\s+([A-Za-z_][A-Za-z0-9_]*)=",
+                              (ROOT / "workflows" / workflow).read_text()))
+    assert declared - supplied == set(), (
+        f"{workflow} never supplies {sorted(declared - supplied)}")

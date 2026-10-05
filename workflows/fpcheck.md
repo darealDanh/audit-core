@@ -35,8 +35,16 @@ SQL inserts, so ALL verdicts would be lost. **Model:** mid tier, medium effort
 — FP-check applies fixed rules to a bounded list. See SKILL.md →
 *Cross-client tool mapping* and *Model and effort tiering*.
 
-Render each batch's brief with `audit.py brief --phase fpcheck --unit <batch>`
-and dispatch the path (spec rule R6).
+Render each batch's brief and dispatch its path, never its contents
+(spec rule R6):
+
+    python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit "$BATCH" --run "$AUDIT_DIR" \
+      --var batch_id="$BATCH" --var finding_ids="$IDS" \
+      --var run_dir="$AUDIT_DIR" --var source_access="$SRC" \
+      --var artifact_path="$AUDIT_DIR/artifacts/phase5-$BATCH.md"
+
+Every `--var` above is required: the renderer fails loudly on an unsubstituted
+placeholder rather than handing a subagent a half-filled brief.
 
 Spawn ONE subagent per batch, ALL in parallel.
 

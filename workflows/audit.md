@@ -74,8 +74,18 @@ read-only one). **Model:** strongest tier, high effort — this is the phase
 where adversarial reasoning earns its cost. See SKILL.md → *Cross-client tool
 mapping* and *Model and effort tiering*.
 
-Render each group's brief with `audit.py brief --phase audit --unit <G>` and
-dispatch the path (spec rule R6).
+Render each group's brief and dispatch its path, never its contents
+(spec rule R6):
+
+    python3 __SKILL_DIR__/audit.py brief --phase audit --unit "$G" --run "$AUDIT_DIR" \
+      --var group_id="$G" --var group_name="$NAME" \
+      --var run_dir="$AUDIT_DIR" \
+      --var mapping_path="$AUDIT_DIR/files/$G-mapping.md" \
+      --var artifact_path="$AUDIT_DIR/artifacts/$G-findings.md" \
+      --var source_access="$SRC" --var known_findings="$KNOWN"
+
+Every `--var` above is required: the renderer fails loudly on an unsubstituted
+placeholder rather than handing a subagent a half-filled brief.
 
 Spawn ONE subagent per feature group, ALL in parallel.
 
