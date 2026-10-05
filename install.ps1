@@ -55,8 +55,14 @@ $Targets = @($Targets | Select-Object -Unique)
 $CopilotSkillDir   = Join-Path $HOME ".copilot\skills\$SkillName"
 $ClaudeSkillDir    = Join-Path $HOME ".claude\skills\$SkillName"
 $ClaudeCommandsDir = Join-Path $HOME ".claude\commands"
-# Codex discovers user-authored skills from ~/.agents/skills.
-$CodexSkillDir     = Join-Path $HOME ".agents\skills\$SkillName"
+# Codex discovers user-authored skills from ~/.agents/skills, but a sibling
+# skill installs to $CODEX_HOME/skills instead; install to both since it is
+# not knowable from here which one a given Codex build reads.
+$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+$CodexSkillDirs = @(
+    (Join-Path $HOME ".agents\skills\$SkillName"),
+    (Join-Path $CodexHome "skills\$SkillName")
+)
 
 function Get-CopilotPromptsDir {
     $codeDir = if ($Insiders) { 'Code - Insiders' } else { 'Code' }
@@ -84,13 +90,27 @@ function Install-SkillFiles {
     }
     Write-Host "  Copying skill content -> $Target"
     Copy-Item -Force (Join-Path $ScriptDir 'SKILL.md') (Join-Path $Target 'SKILL.md')
+    Copy-Item -Force (Join-Path $ScriptDir 'audit.py') (Join-Path $Target 'audit.py')
     foreach ($sub in @('workflows', 'references')) {
         $srcSub = Join-Path $ScriptDir $sub
         if (Test-Path $srcSub) {
             $dstSub = Join-Path $Target $sub
             New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
-            Copy-Item -Force (Join-Path $srcSub '*.md') $dstSub -ErrorAction SilentlyContinue
+            Copy-Item -Recurse -Force (Join-Path $srcSub '*') $dstSub -ErrorAction SilentlyContinue
         }
+    }
+    $coreSrc = Join-Path $ScriptDir 'audit_core'
+    $coreDst = Join-Path $Target 'audit_core'
+    if (Test-Path $coreDst) { Remove-Item -Recurse -Force $coreDst }
+    New-Item -ItemType Directory -Path $coreDst | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $coreSrc '*') $coreDst
+    Get-ChildItem -Path $coreDst -Recurse -Directory -Filter '__pycache__' |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+    & python3 (Join-Path $Target 'audit.py') selftest | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "audit.py selftest failed in $Target - the install is incomplete."
+        exit 1
     }
 }
 
@@ -135,9 +155,11 @@ function Install-Claude {
 
 function Install-Codex {
     Write-Host "[codex]"
-    Write-Host "  skill dir:     $CodexSkillDir"
     # Codex auto-discovers the skill by its SKILL.md description — no launcher.
-    Install-SkillFiles $CodexSkillDir
+    foreach ($d in $CodexSkillDirs) {
+        Write-Host "  skill dir:     $d"
+        Install-SkillFiles $d
+    }
 }
 
 function Uninstall-SkillDir {
@@ -168,7 +190,9 @@ function Uninstall-Claude {
 
 function Uninstall-Codex {
     Write-Host "[codex] uninstalling"
-    Uninstall-SkillDir $CodexSkillDir
+    foreach ($d in $CodexSkillDirs) {
+        Uninstall-SkillDir $d
+    }
 }
 
 # ---- run ----
@@ -216,5 +240,8 @@ if ($Targets -contains 'codex') {
     Write-Host "Codex CLI: restart Codex (or run '/skills'), then invoke with '`$$SkillName'."
     Write-Host "  For a specific phase, pass it as an argument: '`$$SkillName recon' (or deploy /"
     Write-Host "  audit / fpcheck / verify <ids> / report). Codex also auto-loads the skill from"
-    Write-Host "  $CodexSkillDir based on description triggers."
+    Write-Host "  either of these dirs, based on description triggers:"
+    foreach ($d in $CodexSkillDirs) {
+        Write-Host "    $d"
+    }
 }

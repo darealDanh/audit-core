@@ -51,8 +51,13 @@ fi
 COPILOT_SKILL_DIR="${HOME}/.copilot/skills/${SKILL_NAME}"
 CLAUDE_SKILL_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
 CLAUDE_COMMANDS_DIR="${HOME}/.claude/commands"
-# Codex discovers user-authored skills from ~/.agents/skills.
-CODEX_SKILL_DIR="${HOME}/.agents/skills/${SKILL_NAME}"
+# Codex discovers user-authored skills from ~/.agents/skills, but a sibling
+# skill installs to $CODEX_HOME/skills instead; install to both since it is
+# not knowable from here which one a given Codex build reads.
+CODEX_SKILL_DIRS=(
+  "${HOME}/.agents/skills/${SKILL_NAME}"
+  "${CODEX_HOME:-${HOME}/.codex}/skills/${SKILL_NAME}"
+)
 
 detect_copilot_prompts_dir() {
   local code_dir
@@ -96,12 +101,25 @@ install_skill_files() {
   fi
   echo "  Copying skill content -> ${target}"
   cp -f "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md"
+  cp -f "${SCRIPT_DIR}/audit.py" "${target}/audit.py"
   for sub in workflows references; do
     if [[ -d "${SCRIPT_DIR}/${sub}" ]]; then
       mkdir -p "${target}/${sub}"
-      cp -f "${SCRIPT_DIR}/${sub}/"*.md "${target}/${sub}/" 2>/dev/null || true
+      cp -Rf "${SCRIPT_DIR}/${sub}/." "${target}/${sub}/"
     fi
   done
+  # audit_core carries .py and .sql; copy the package wholesale minus caches.
+  rm -rf "${target}/audit_core"
+  mkdir -p "${target}/audit_core"
+  cp -Rf "${SCRIPT_DIR}/audit_core/." "${target}/audit_core/"
+  find "${target}/audit_core" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+  # The install is not complete until the tool runs from where it landed.
+  if ! python3 "${target}/audit.py" selftest >/dev/null 2>&1; then
+    echo "ERROR: audit.py selftest failed in ${target} — the install is incomplete." >&2
+    exit 1
+  fi
+  echo "  selftest OK"
 }
 
 # sed-substitute __SKILL_DIR__ in $1 with $3, write result to $2.
@@ -147,9 +165,11 @@ install_claude() {
 
 install_codex() {
   echo "[codex]"
-  echo "  skill dir:     ${CODEX_SKILL_DIR}"
   # Codex auto-discovers the skill by its SKILL.md description — no launcher.
-  install_skill_files "${CODEX_SKILL_DIR}"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    echo "  skill dir:     ${d}"
+    install_skill_files "${d}"
+  done
 }
 
 uninstall_skill_dir() {
@@ -179,7 +199,9 @@ uninstall_claude() {
 
 uninstall_codex() {
   echo "[codex] uninstalling"
-  uninstall_skill_dir "${CODEX_SKILL_DIR}"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    uninstall_skill_dir "${d}"
+  done
 }
 
 # ---- run ----
@@ -227,5 +249,8 @@ if [[ " ${TARGETS[*]} " == *" codex "* ]]; then
   echo "Codex CLI: restart Codex (or run '/skills'), then invoke with '\$${SKILL_NAME}'."
   echo "  For a specific phase, pass it as an argument: '\$${SKILL_NAME} recon' (or deploy /"
   echo "  audit / fpcheck / verify <ids> / report). Codex also auto-loads the skill from"
-  echo "  ${CODEX_SKILL_DIR}/ based on description triggers."
+  echo "  either of these dirs, based on description triggers:"
+  for d in "${CODEX_SKILL_DIRS[@]}"; do
+    echo "    ${d}/"
+  done
 fi
