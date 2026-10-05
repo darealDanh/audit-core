@@ -10,6 +10,8 @@ PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 RETURN_CONTRACT = "rows=<n> artifact="
 
+FP_RULES = pathlib.Path(__file__).resolve().parent.parent / "references" / "phase5-fp-check.md"
+
 
 def test_three_templates_exist():
     names = {p.name for p in TEMPLATES}
@@ -51,3 +53,40 @@ def test_write_brief_resolves_the_real_template_dir_by_default(tmp_path):
     })
     assert path.is_file()
     assert "G7" in path.read_text()
+
+
+def test_fp_rule_counts_are_intact():
+    """The spec names 18 Hard Exclusions, 10 Precedent rules and 3 Capability
+    Validity checks as machinery that must survive any refactor, with a
+    rule-count assertion as its proof. An earlier draft of this task's brief
+    would have deleted all of them with the prompt fence they lived in."""
+    text = FP_RULES.read_text()
+    assert len(re.findall(r"^HE-\d+", text, re.M)) == 18
+    assert len(re.findall(r"^PR-\d+", text, re.M)) == 10
+    assert len(re.findall(r"^CV-\d+", text, re.M)) == 3
+
+
+def test_fp_rules_are_documentation_not_a_prompt_literal():
+    """They must live as real markdown, not frozen inside a fenced block that a
+    later edit could delete as 'the prompt template'."""
+    inside = outside = 0
+    in_fence = False
+    for line in FP_RULES.read_text(newline="").split("\n"):
+        stripped = line.rstrip("\r")
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if re.match(r"^(HE|PR|CV)-\d", stripped):
+            if in_fence:
+                inside += 1
+            else:
+                outside += 1
+    assert inside == 0, f"{inside} FP rule lines are trapped inside a fenced block"
+    assert outside == 31
+
+
+def test_fpcheck_brief_cross_reference_resolves():
+    """fpcheck-brief.md sends the agent to phase5-fp-check.md for the rules."""
+    brief_text = (briefs.TEMPLATE_DIR / "fpcheck-brief.md").read_text()
+    assert "references/phase5-fp-check.md" in brief_text
+    assert FP_RULES.is_file()
