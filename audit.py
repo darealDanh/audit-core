@@ -18,6 +18,7 @@ from audit_core import workspace as workspace_mod  # noqa: E402
 from audit_core import preflight as preflight_mod  # noqa: E402
 from audit_core import briefs as briefs_mod  # noqa: E402
 from audit_core import skill_lint as skill_lint_mod  # noqa: E402
+from audit_core import db as db_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -165,6 +166,105 @@ def cmd_lint_skill(args: argparse.Namespace) -> int:
     return 1
 
 
+def _parse_set(pairs: list[str]) -> dict[str, str] | None:
+    out: dict[str, str] = {}
+    for spec in pairs:
+        name, sep, value = spec.partition("=")
+        if not sep or not name:
+            print(f"bad --set {spec!r}; expected NAME=VALUE", file=sys.stderr)
+            return None
+        out[name] = value
+    return out
+
+
+def _open_db(path: str, read_only: bool = False):
+    try:
+        return db_mod.connect(pathlib.Path(path).expanduser(), read_only=read_only)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return None
+
+
+def cmd_put(args: argparse.Namespace) -> int:
+    row = _parse_set(args.set)
+    if row is None:
+        return 1
+    con = _open_db(args.db)
+    if con is None:
+        return 1
+    try:
+        db_mod.put(con, args.table, row, replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"{args.table}: 1 row")
+    return 0
+
+
+def cmd_rows(args: argparse.Namespace) -> int:
+    where = _parse_set(args.where)
+    if where is None:
+        return 1
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        got = db_mod.rows(con, args.table, where=where or None,
+                          columns=tuple(args.columns.split(",")) if args.columns else None,
+                          limit=args.limit)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dict(r) for r in got], indent=2))
+        return 0
+    for r in got:
+        print("\t".join("" if v is None else str(v) for v in r))
+    print(f"({len(got)} row(s), capped at {db_mod.MAX_ROWS})", file=sys.stderr)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        s = db_mod.status(con)
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(s), indent=2))
+    else:
+        print(db_mod.render_status(s))
+    return 0
+
+
+def cmd_dedup(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        pairs = db_mod.duplicates(con)
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dataclasses.asdict(p) for p in pairs], indent=2))
+        return 0
+    if not pairs:
+        print("dedup: no cross-group duplicate candidates")
+        return 0
+    for p in pairs:
+        print(f"  keep {p.keep}  drop {p.drop}  shared: {', '.join(p.shared_locations)}")
+    print(f"dedup: {len(pairs)} candidate pair(s) - these are proposals. "
+          f"Record a decision with `audit.py put --table cba_fp_verdicts "
+          f"--set finding_id=<drop> --set verdict=DUPLICATE --set merged_into=<keep>`.")
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -176,6 +276,10 @@ HANDLERS = {
     "preflight": cmd_preflight,
     "brief": cmd_brief,
     "lint-skill": cmd_lint_skill,
+    "put": cmd_put,
+    "rows": cmd_rows,
+    "status": cmd_status,
+    "dedup": cmd_dedup,
 }
 
 
@@ -216,6 +320,24 @@ def build_parser() -> argparse.ArgumentParser:
     ls = sub.add_parser("lint-skill", help="check the skill against the economics contract")
     ls.add_argument("--root", default=str(pathlib.Path(__file__).resolve().parent),
                     metavar="DIR")
+    pu = sub.add_parser("put", help="insert one validated row into a run's audit.db")
+    pu.add_argument("--db", required=True, metavar="AUDIT_DB")
+    pu.add_argument("--table", required=True)
+    pu.add_argument("--set", action="append", default=[], metavar="NAME=VALUE")
+    pu.add_argument("--replace", action="store_true")
+    ro = sub.add_parser("rows", help="read bounded rows out of a run's audit.db")
+    ro.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ro.add_argument("--table", required=True)
+    ro.add_argument("--where", action="append", default=[], metavar="NAME=VALUE")
+    ro.add_argument("--columns", default=None, metavar="A,B,C")
+    ro.add_argument("--limit", type=int, default=db_mod.MAX_ROWS)
+    ro.add_argument("--json", action="store_true")
+    st = sub.add_parser("status", help="group, finding and verdict counts for a run")
+    st.add_argument("--db", required=True, metavar="AUDIT_DB")
+    st.add_argument("--json", action="store_true")
+    dd = sub.add_parser("dedup", help="propose cross-group duplicate findings")
+    dd.add_argument("--db", required=True, metavar="AUDIT_DB")
+    dd.add_argument("--json", action="store_true")
     return p
 
 
