@@ -160,3 +160,58 @@ def test_items_lists_what_a_unit_already_holds_so_refresh_can_re_read(tmp_path):
     extract.extract_batch(store, extract.SourceTree(root), "G1", ["a.c", "b.c"])
     assert store.items("G1") == ["a.c", "b.c"]
     assert store.items("G2") == []
+
+
+def test_two_paths_that_flatten_to_one_name_are_refused_not_silently_merged(tmp_path):
+    """R1's premise is that a path the orchestrator hands out resolves to the
+    material it names. `src/osal/tss.c` and `src/osal_tss.c` both flatten to
+    `src_osal_tss.c`, so without this the second write replaces the first
+    file's bytes AND its `source`, and the snapshot count still claims two."""
+    root = tree(tmp_path, **{"src/osal/tss.c": "nested", "src/osal_tss.c": "flat"})
+    store = extract.ExtractStore(tmp_path / "run")
+    with pytest.raises(extract.ExtractError) as exc:
+        extract.extract_batch(store, extract.SourceTree(root), "G1",
+                              ["src/osal/tss.c", "src/osal_tss.c"])
+    msg = str(exc.value)
+    assert "src/osal/tss.c" in msg          # both source paths are named
+    assert "src/osal_tss.c" in msg
+    assert "src_osal_tss.c" in msg          # ...and the name they collide on
+    # Both are in the same batch, so the batch is refused whole: nothing on
+    # disk, and no manifest entry asserting a snapshot that is not there.
+    assert store.manifest() == []
+    assert not (tmp_path / "run" / "extract" / "G1").exists()
+
+
+def test_a_collision_with_an_earlier_run_is_refused_at_the_store(tmp_path):
+    """The cross-run case the batch pre-check cannot see: the colliding name
+    was claimed by a previous `extract` invocation, so it is only in the
+    manifest. `write` is the guard that holds here."""
+    store = extract.ExtractStore(tmp_path / "run")
+    store.write("G1", "src_osal_tss.c", b"nested", source="src/osal/tss.c")
+    with pytest.raises(extract.ExtractError) as exc:
+        store.write("G1", "src_osal_tss.c", b"flat", source="src/osal_tss.c")
+    assert "src/osal/tss.c" in str(exc.value)
+    # The snapshot that was there first is untouched, bytes and provenance.
+    assert (tmp_path / "run" / "extract" / "G1" / "src_osal_tss.c"
+            ).read_bytes() == b"nested"
+    assert store.items("G1") == ["src/osal/tss.c"]
+
+
+def test_re_extracting_the_same_source_under_the_same_name_is_not_a_collision(tmp_path):
+    """`--refresh` re-reads what a unit already holds; changed content must
+    still bump the version rather than trip the collision guard."""
+    store = extract.ExtractStore(tmp_path / "run")
+    first = store.write("G1", "a.c", b"one", source="src/a.c")
+    second = store.write("G1", "a.c", b"two", source="src/a.c")
+    assert (first.version, second.version) == (1, 2)
+
+
+def test_a_collision_inside_one_unit_does_not_constrain_another(tmp_path):
+    """Snapshot names are scoped per unit, so the same flattened name in two
+    units is two different files, not a collision."""
+    root = tree(tmp_path, **{"src/osal/tss.c": "nested"})
+    store = extract.ExtractStore(tmp_path / "run")
+    backend = extract.SourceTree(root)
+    extract.extract_batch(store, backend, "G1", ["src/osal/tss.c"])
+    extract.extract_batch(store, backend, "G2", ["src/osal/tss.c"])
+    assert store.items("G1") == store.items("G2") == ["src/osal/tss.c"]

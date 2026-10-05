@@ -1,4 +1,7 @@
 import sqlite3
+
+import pytest
+
 from audit_core import bench, goldens
 
 R1 = goldens.Reference("REF-1", "overflow in handshake", "CWE-787",
@@ -191,3 +194,13 @@ def test_a_rejection_for_an_adjudicated_reference_suppresses_nothing():
     scored = bench.score([REF19_TBTP], [G5F1_BARE], {"REF-19": "G5-F1"},
                          rejected=frozenset({("REF-19", "G5-F1")}))
     assert scored.suppressed_candidates == 0
+
+
+def test_rejected_and_cost_usd_are_keyword_only(tmp_path):
+    """`rejected` was added ahead of `cost_usd`. A caller that still passed a
+    cost positionally would have it read as a set of rejected pairs, and the
+    cost silently dropped - so neither is positional."""
+    with pytest.raises(TypeError):
+        bench.score([R1], [F1], {"REF-1": "F-1"}, frozenset(), 50.0)
+    assert bench.score([R1], [F1], {"REF-1": "F-1"},
+                       cost_usd=50.0).cost_per_match == 50.0

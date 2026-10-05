@@ -26,6 +26,66 @@ def test_connect_rejects_a_missing_database_with_the_fix_in_the_message(tmp_path
     assert "audit.py init" in str(exc.value)
 
 
+def pre_stage2_db(tmp_path):
+    """A run directory as this branch's predecessor left it.
+
+    Built by truncating the real schema.sql at its own `Stage 2 additions`
+    marker rather than pasting a copy of the old DDL, so the fixture tracks
+    the file instead of drifting from it.
+    """
+    full = workspace.SCHEMA_PATH.read_text()
+    head, marker, _ = full.partition("-- Stage 2 additions")
+    assert marker, "schema.sql no longer carries the Stage 2 marker"
+    path = tmp_path / "old-run" / "audit.db"
+    path.parent.mkdir(parents=True)
+    con = sqlite3.connect(path)
+    try:
+        con.executescript(head)
+        con.commit()
+    finally:
+        con.close()
+    return path
+
+
+def test_connect_rejects_a_pre_stage2_schema_with_the_remedy_in_the_message(tmp_path):
+    """The normal upgrade path: an installed skill moves forward and the next
+    phase of an in-flight audit reaches an existing run directory. Six verbs
+    used to answer that with `sqlite3.OperationalError: no such table`."""
+    with pytest.raises(db.DbError) as exc:
+        db.connect(pre_stage2_db(tmp_path))
+    msg = str(exc.value)
+    assert "cba_inventory" in msg               # names what is missing
+    assert "cba_checkpoints" in msg
+    assert "cba_findings" not in msg            # ...and only what is missing
+    assert "audit.py init" in msg               # names the remedy
+    assert "--timestamp" in msg                 # ...including the flag that
+                                                # re-uses the run directory
+    assert "IF NOT EXISTS" in msg               # ...and why it is safe
+
+
+def test_connect_accepts_a_database_the_current_schema_built(tmp_path):
+    run = workspace.init_run(tmp_path, timestamp="20260105-120000")
+    db.connect(run / "audit.db").close()
+
+
+def test_a_pre_stage2_run_is_repaired_by_init_with_its_own_timestamp(tmp_path):
+    """The remedy the message names has to actually work, and has to keep the
+    rows the earlier phases recorded."""
+    path = pre_stage2_db(tmp_path)
+    con = sqlite3.connect(path)
+    con.execute("INSERT INTO cba_feature_groups (id, name) VALUES ('G1','klap')")
+    con.commit()
+    con.close()
+    workspace.apply_schema(path)
+    repaired = db.connect(path)
+    try:
+        assert [tuple(r) for r in db.rows(repaired, "cba_feature_groups",
+                                          columns=("id", "name"))] == [("G1", "klap")]
+        assert db.rows(repaired, "cba_inventory") == []
+    finally:
+        repaired.close()
+
+
 def test_put_writes_a_row_that_rows_reads_back(con):
     db.put(con, "cba_findings", dict(FINDING))
     got = db.rows(con, "cba_findings", columns=("id", "severity", "location"))

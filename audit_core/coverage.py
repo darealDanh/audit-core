@@ -32,34 +32,61 @@ class CoverageReport:
     def fraction(self) -> float:
         """Analyzed over inventoried. Zero when nothing is inventoried -
         a run with no inventory has no coverage claim to make, in either
-        direction."""
+        direction.
+
+        `analyzed` counts inventoried units, so this cannot exceed 1.0.
+        """
         return (self.analyzed / self.inventoried) if self.inventoried else 0.0
 
 
-def _distinct_units(con: sqlite3.Connection, state: str,
-                    phase: str | None) -> int:
-    sql = "SELECT COUNT(DISTINCT unit) FROM cba_coverage WHERE state = ?"
-    params: list[str] = [state]
+def _states(con: sqlite3.Connection, phase: str | None) -> tuple[int, int, int]:
+    """(analyzed, not_audited, recorded), counted in inventoried units.
+
+    Two rules, and both of them were learned the hard way.
+
+    *Join the inventory.* The denominator is `COUNT(*) FROM cba_inventory`, so
+    a numerator that counts coverage rows for units nobody inventoried reports
+    more than 100% coverage. `unrecorded` already joined; these now do too.
+
+    *One state per unit, and a gap wins.* A unit carries one coverage row per
+    phase, so recon can call it analyzed and audit can record a budget skip on
+    the same unit. Counted independently it lands in both tallies, and the
+    report leads with `100.0% analyzed` on a run whose only unit was skipped -
+    the exact scenario R3 exists for. So a unit is `analyzed` only if some
+    phase analyzed it and no phase recorded a gap, and the two counts cannot
+    double-count a unit. The phase-scoped call is unaffected and still reports
+    exactly what that phase did.
+
+    Both tests are explicit rather than complementary, so a state that is
+    neither - only reachable by writing the table behind `db.put`, which
+    rejects anything outside COVERAGE_STATES - falls out of both counts rather
+    than being absorbed into `analyzed`. Overstating coverage is the failure
+    this function exists to prevent; understating it is the safe direction.
+    """
+    sql = ("SELECT SUM(ok AND NOT gap), SUM(gap), COUNT(*) FROM ("
+           "SELECT MAX(c.state = 'analyzed') AS ok, "
+           "MAX(c.state = 'not_audited') AS gap "
+           "FROM cba_coverage c JOIN cba_inventory i ON i.unit = c.unit")
+    params: list[str] = []
     if phase is not None:
-        sql += " AND phase = ?"
+        sql += " WHERE c.phase = ?"
         params.append(phase)
-    return con.execute(sql, params).fetchone()[0]
+    sql += " GROUP BY c.unit)"
+    analyzed, not_audited, recorded = con.execute(sql, params).fetchone()
+    return int(analyzed or 0), int(not_audited or 0), int(recorded or 0)
 
 
 def report(con: sqlite3.Connection, phase: str | None = None) -> CoverageReport:
     inventoried = con.execute("SELECT COUNT(*) FROM cba_inventory").fetchone()[0]
-    analyzed = _distinct_units(con, "analyzed", phase)
-    not_audited = _distinct_units(con, "not_audited", phase)
+    analyzed, not_audited, recorded = _states(con, phase)
 
-    recorded_sql = ("SELECT COUNT(DISTINCT c.unit) FROM cba_coverage c "
-                    "JOIN cba_inventory i ON i.unit = c.unit")
-    params: list[str] = []
-    if phase is not None:
-        recorded_sql += " WHERE c.phase = ?"
-        params.append(phase)
-    recorded = con.execute(recorded_sql, params).fetchone()[0]
-
-    reason_sql = ("SELECT reason, COUNT(*) FROM cba_coverage "
+    # Deliberately NOT joined to the inventory, and counted in distinct units
+    # rather than rows. A `not_audited(budget)` row for something nobody
+    # remembered to inventory is the loudest version of this failure, and must
+    # still raise the warning; a unit skipped in two phases is still one unit.
+    # It follows that the reasons can sum past `not_audited` above, which is
+    # that breakdown telling you something the top line cannot.
+    reason_sql = ("SELECT reason, COUNT(DISTINCT unit) FROM cba_coverage "
                   "WHERE state = 'not_audited' AND reason IS NOT NULL")
     rparams: list[str] = []
     if phase is not None:

@@ -76,10 +76,32 @@ def flatten(path: str) -> str:
     `src/handlers/klap.c` becomes `src_handlers_klap.c`: the snapshot tree is
     one directory per unit, so a reader finding a name knows the unit without
     walking, and a `..` in the input cannot survive the substitution.
+
+    The mapping is deliberately not injective - a literal `_` survives, so
+    `src/osal/tss.c` and `src/osal_tss.c` both land on `src_osal_tss.c`.
+    Making it injective would mean inventing a name the caller never asked
+    for. `ExtractStore.write` detects the collision instead and refuses it.
     """
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", path.strip("/\\"))
     cleaned = cleaned.strip("._-")
     return cleaned or "unnamed"
+
+
+def _collision(unit: str, name: str, incoming: str, existing: str) -> ExtractError:
+    """The error raised when two source paths want one snapshot name.
+
+    R1's whole premise is that the orchestrator hands out *paths* instead of
+    material. Letting the second write win would make a path resolve to
+    another file's bytes - with no error, no warning, and a snapshot count
+    that actively asserts both were captured. Fail loudly, the way `_safe`
+    does: a name the caller did not ask for is a name the caller cannot look
+    up, so a disambiguating suffix would be worse than the error.
+    """
+    return ExtractError(
+        f"snapshot name collision in unit {unit!r}: {incoming!r} and "
+        f"{existing!r} both flatten to {name!r}. Extract them into separate "
+        f"units, or rename one at the source; audit.py will not guess which "
+        f"one a reader meant.")
 
 
 def _now() -> str:
@@ -123,6 +145,9 @@ class ExtractStore:
         index = self._load()
         key = f"{unit}/{name}"
         prior = index.get(key)
+        origin = source if source is not None else name
+        if prior is not None and prior.get("source") != origin:
+            raise _collision(unit, name, origin, str(prior.get("source")))
         if prior is None:
             version = 1
         elif prior.get("sha256") == digest:
@@ -133,7 +158,7 @@ class ExtractStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         rec = Record(unit=unit, name=name, relpath=f"extract/{unit}/{name}",
-                     source=source if source is not None else name,
+                     source=origin,
                      sha256=digest, bytes=len(data), version=version,
                      truncated=truncated, backend=backend, extracted_at=_now())
         index[key] = asdict(rec)
@@ -172,9 +197,11 @@ def extract_batch(store: ExtractStore, backend: Backend, unit: str,
                   batch_size: int = BATCH_SIZE) -> list[Record]:
     """Snapshot `items`, asserting one-writer at every batch boundary.
 
-    Every item of a batch is read before any of them is written, so a backend
-    that fails mid-batch leaves no partial batch on disk. A caller re-running
-    after a failure therefore sees whole batches or nothing, never half of one.
+    Every item of a batch is read, and every snapshot name it claims checked
+    for a collision, before any of them is written - so neither a backend that
+    fails mid-batch nor two paths that flatten alike leaves a partial batch on
+    disk. A caller re-running after a failure sees whole batches or nothing,
+    never half of one.
     """
     pending = list(items)
     out: list[Record] = []
@@ -188,6 +215,16 @@ def extract_batch(store: ExtractStore, backend: Backend, unit: str,
                 f"backend {backend.name!r} is not ready at batch {index} "
                 f"(items {start}..{start + len(chunk) - 1}): {exc}") from exc
         staged = [(item, backend.read(item)) for item in chunk]
+        # Names already taken in this unit by earlier batches and earlier
+        # runs, plus the ones this batch is about to claim. `write` enforces
+        # the same rule on its own - this only moves the failure ahead of the
+        # first byte written, so the whole-batch property holds for it too.
+        taken = {r.name: r.source for r in store.manifest() if r.unit == unit}
+        for item, _ in staged:
+            name = flatten(item)
+            owner = taken.setdefault(name, item)
+            if owner != item:
+                raise _collision(unit, name, item, owner)
         for item, data in staged:
             out.append(store.write(unit, flatten(item), data,
                                    source=item, backend=backend.name))

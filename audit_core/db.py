@@ -142,6 +142,19 @@ TABLE_SPECS: dict[str, TableSpec] = {
 
 
 def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.Connection:
+    """Open a run's audit.db, or say exactly what is wrong with it.
+
+    The missing-*file* case was already covered. The missing-*schema* case was
+    not, and it is the normal upgrade path: a user upgrades an installed skill
+    and the next phase of an in-flight audit opens a run directory created
+    before these tables existed. Every verb that touched one answered with
+    `sqlite3.OperationalError: no such table` and a raw traceback.
+
+    The check is here rather than in each verb because every verb reaches the
+    database through this function - except `bench`, which opens `cba_findings`
+    read-only on its own and must keep working against exactly the old run
+    directories this gate rejects.
+    """
     path = pathlib.Path(db_path)
     if not path.is_file():
         raise DbError(f"no audit.db at {path}; run `audit.py init` first")
@@ -150,6 +163,23 @@ def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.
     else:
         con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
+    try:
+        present = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    except sqlite3.DatabaseError as exc:
+        con.close()
+        raise DbError(f"{path} is not a readable SQLite database: {exc}") from exc
+    missing = sorted(set(TABLE_SPECS) - present)
+    if missing:
+        con.close()
+        raise DbError(
+            f"{path} is missing table(s): {', '.join(missing)}. This run "
+            f"directory predates the current schema. Re-apply it in place "
+            f"with `audit.py init --root <project> --timestamp <ts>`, where "
+            f"<ts> is the timestamp already in the run directory name - "
+            f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS, so "
+            f"this adds the missing tables and destroys no rows. Without "
+            f"--timestamp, `init` creates a new run directory instead.")
     return con
 
 

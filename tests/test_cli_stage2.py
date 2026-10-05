@@ -1,6 +1,10 @@
+import json
 import pathlib
+import sqlite3
 import subprocess
 import sys
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -228,3 +232,136 @@ def test_registering_an_uncompilable_pattern_exits_one(tmp_path):
             "--set", "name=bad", "--set", "regex=([a-z")
     assert r.returncode == 1
     assert "compile" in r.stderr
+
+
+def pre_stage2_run(tmp_path):
+    """A run directory as it looked before this branch: Stage 1 tables only."""
+    sql, marker, _ = (ROOT / "audit_core" / "schema.sql"
+                      ).read_text().partition("-- Stage 2 additions")
+    assert marker, "schema.sql no longer carries the Stage 2 marker"
+    run = tmp_path / "reports" / "audit-20260105-120000"
+    run.mkdir(parents=True)
+    con = sqlite3.connect(run / "audit.db")
+    try:
+        con.executescript(sql)
+        con.commit()
+    finally:
+        con.close()
+    return run
+
+
+PRE_STAGE2_INVOCATIONS = (
+    ("coverage",),
+    ("status",),
+    ("dedup",),
+    ("put", "--table", "cba_inventory", "--set", "unit=a.c", "--set", "kind=file"),
+    ("rows", "--table", "cba_checkpoints"),
+    ("sweep", "--pattern", "P1", "--root", "."),
+    ("checkpoint", "--phase", "audit", "--reason", "manual"),
+)
+
+
+@pytest.mark.parametrize("argv", PRE_STAGE2_INVOCATIONS,
+                         ids=[a[0] for a in PRE_STAGE2_INVOCATIONS])
+def test_verbs_against_a_pre_stage2_db_exit_one_with_the_remedy(tmp_path, argv):
+    """The upgrade path: an installed skill moves forward, the next phase of an
+    in-flight audit opens an existing run directory. Every one of these used to
+    print `sqlite3.OperationalError: no such table: ...` and a traceback.
+
+    `status` and `dedup` are in this list deliberately. They read only Stage 1
+    tables, so they *worked* against a pre-Stage-2 database before this gate -
+    and that is the trade: a run directory where half the verbs work is worse
+    to debug than one clear message naming the one idempotent command that
+    fixes all of them. `test_a_repaired_run_directory_keeps_its_rows_and_opens_cleanly`
+    pins that the remedy costs nothing.
+    """
+    db = str(pre_stage2_run(tmp_path) / "audit.db")
+    r = run(argv[0], "--db", db, *argv[1:])
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert "cba_inventory" in r.stderr
+    assert "audit.py init" in r.stderr and "--timestamp" in r.stderr
+
+
+def test_bench_still_reads_a_pre_stage2_db(tmp_path):
+    """`bench` reads `cba_findings` and nothing else, and must keep working on
+    a run directory that predates the Stage 2 tables - the schema gate is on
+    `db.connect`, which `bench` does not go through."""
+    run_dir = pre_stage2_run(tmp_path)
+    con = sqlite3.connect(run_dir / "audit.db")
+    con.execute(
+        "INSERT INTO cba_findings (id, group_id, title, severity, confidence, "
+        "location, root_cause, impact) VALUES "
+        "('F-1','G1','overflow','CRITICAL',9,'sub_E0941B4','k','i')")
+    con.commit(); con.close()
+
+    golden = tmp_path / "golden"
+    golden.mkdir()
+    (golden / "reference.json").write_text(json.dumps([{
+        "id": "REF-1", "title": "overflow", "cwe": "CWE-787",
+        "locations": ["sub_E0941B4"], "root_cause_key": "k",
+        "severity": "CRITICAL"}]))
+    (golden / "matches.json").write_text(json.dumps({"REF-1": "F-1"}))
+
+    r = run("bench", "--golden", str(golden), "--db", str(run_dir / "audit.db"))
+    assert r.returncode == 0, r.stderr
+    assert "1/1" in r.stdout
+
+
+def test_a_repaired_run_directory_keeps_its_rows_and_opens_cleanly(tmp_path):
+    """`audit.py init --timestamp <ts>` is what the message tells the operator
+    to run; it has to re-apply the schema without destroying a row."""
+    run_dir = pre_stage2_run(tmp_path)
+    con = sqlite3.connect(run_dir / "audit.db")
+    con.execute("INSERT INTO cba_feature_groups (id, name) VALUES ('G1','klap')")
+    con.commit(); con.close()
+
+    assert run("init", "--root", str(tmp_path),
+               "--timestamp", "20260105-120000").returncode == 0
+    r = run("status", "--db", str(run_dir / "audit.db"))
+    assert r.returncode == 0, r.stderr
+    assert "G1" in r.stdout
+    assert run("coverage", "--db", str(run_dir / "audit.db")).returncode == 0
+
+
+def test_extract_with_a_zero_batch_size_exits_one_rather_than_raising(tmp_path):
+    """`range(start, stop, 0)` is a ValueError. Every other bad input on this
+    verb gets a message on stderr and exit 1; this one got a traceback."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("alpha")
+    r = run("extract", "--run", str(tmp_path / "run"), "--root", str(src),
+            "--unit", "G1", "--path", "a.c", "--batch-size", "0")
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert "--batch-size" in r.stderr
+    assert not (tmp_path / "run").exists()
+
+
+def test_extract_refuses_two_paths_that_flatten_to_one_snapshot_name(tmp_path):
+    """C1 at the CLI: without this the second file overwrote the first and the
+    summary still said `2 snapshot(s)`."""
+    src = tmp_path / "src"
+    (src / "src" / "osal").mkdir(parents=True)
+    (src / "src" / "osal" / "tss.c").write_text("nested")
+    (src / "src" / "osal_tss.c").write_text("flat")
+    run_dir = tmp_path / "run"
+    r = run("extract", "--run", str(run_dir), "--root", str(src), "--unit", "G1",
+            "--path", "src/osal/tss.c", "--path", "src/osal_tss.c")
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert "src_osal_tss.c" in r.stderr
+    assert not list((run_dir / "extract").rglob("*.c"))
+
+
+def test_rows_reports_the_cap_on_stderr_for_json_consumers_too(tmp_path):
+    """A consumer piping stdout to `jq` got no signal that the result set was
+    bounded, because the notice came after the --json return."""
+    db = str(new_run(tmp_path) / "audit.db")
+    run("put", "--db", db, "--table", "cba_findings", *FINDING_ARGS)
+    text = run("rows", "--db", db, "--table", "cba_findings")
+    js = run("rows", "--db", db, "--table", "cba_findings", "--json")
+    notice = "(1 row(s), capped at 200)"
+    assert notice in text.stderr
+    assert notice in js.stderr
+    assert json.loads(js.stdout)[0]["id"] == "G1-F1"     # stdout stays clean

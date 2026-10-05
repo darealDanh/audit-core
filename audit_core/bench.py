@@ -64,10 +64,15 @@ def score(
     refs: list[Reference],
     findings: list[RunFinding],
     adjudicated: dict[str, str],
+    *,
     rejected: frozenset[tuple[str, str]] = frozenset(),
     cost_usd: float | None = None,
 ) -> BenchResult:
     """Score `findings` against `refs`.
+
+    `rejected` and `cost_usd` are keyword-only: `rejected` was added ahead of
+    `cost_usd`, so a positional fourth argument that used to be a cost would
+    now be read as a set of rejected pairs and silently drop the cost figure.
 
     `adjudicated` is the only source of matches. `rejected` holds pairs a
     human already looked at and turned down; they are suppressed from the

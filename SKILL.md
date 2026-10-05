@@ -87,8 +87,11 @@ the technical state the next step needs.
 prefix and growth and how many turns they leave.
 
 **The budget governs where tokens are spent, never whether a surface is
-opened.** A group skipped for budget is a `not_audited(reason='budget')` row
-and fails the quality gate.
+opened.** A group skipped for budget is a `not_audited(reason='budget')` row.
+In Stage 2 that row is recorded and reported, not enforced: it is excluded
+from the analyzed total and `audit.py coverage` prints a WARNING naming it.
+Gating on coverage is a Stage 3 change, benchmarked on its own so that if
+recall moves we know which change moved it.
 
 ### Model and effort tiering
 
@@ -316,7 +319,7 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 | "I'll paste the task into the dispatch, it's quicker" | Dispatch prompts are the largest single category of tool-call input (1,684 tokens average). Render the brief with `audit.py brief` and send the path. |
 | "I'll just write the SQL inline, it's only a few tables" | `audit.py init` applies the whole schema. Inline DDL is retyped after every compaction. |
 | "The MCP servers are already connected, leave them" | Unused schemas are resident on every turn. Run `audit.py preflight` and relaunch strict. |
-| "Near the ceiling — skip this group" | Checkpoint and restart. A group skipped for budget is a `not_audited(reason='budget')` row and fails the quality gate. The budget governs where tokens are spent, never whether a surface is opened. |
+| "Near the ceiling — skip this group" | Checkpoint and restart. A group skipped for budget is a `not_audited(reason='budget')` row: in Stage 2 it is counted out of the analyzed total and raises a WARNING from `audit.py coverage`; gating on it is a Stage 3 change. The budget governs where tokens are spent, never whether a surface is opened. |
 | "I'll just read the file into my own context to check one thing" | R1. Snapshot it with `audit.py extract` and send a subagent the path, or read the rows with `audit.py rows`. A token admitted at turn N is paid for on every remaining turn. |
 | "We confirmed the pattern here; the other call sites are probably fine" | A confirmed finding is a hypothesis about every other call site. Register it with `audit.py put --table cba_patterns` and sweep. |
 

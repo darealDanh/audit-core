@@ -291,12 +291,15 @@ def cmd_rows(args: argparse.Namespace) -> int:
         return 1
     finally:
         con.close()
+    # On stderr, and before the JSON return: a consumer piping stdout to `jq`
+    # otherwise gets a silently truncated result set with no signal that it
+    # was truncated. The notice is the only place the bound is stated.
+    print(f"({len(got)} row(s), capped at {db_mod.MAX_ROWS})", file=sys.stderr)
     if args.json:
         print(json.dumps([dict(r) for r in got], indent=2))
         return 0
     for r in got:
         print("\t".join("" if v is None else str(v) for v in r))
-    print(f"({len(got)} row(s), capped at {db_mod.MAX_ROWS})", file=sys.stderr)
     return 0
 
 
@@ -306,6 +309,9 @@ def cmd_status(args: argparse.Namespace) -> int:
         return 1
     try:
         s = db_mod.status(con)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     finally:
         con.close()
     if args.json:
@@ -321,6 +327,9 @@ def cmd_dedup(args: argparse.Namespace) -> int:
         return 1
     try:
         pairs = db_mod.duplicates(con)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     finally:
         con.close()
     if args.json:
@@ -343,6 +352,9 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         return 1
     try:
         r = coverage_mod.report(con, phase=args.phase)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     finally:
         con.close()
     if args.json:
@@ -353,6 +365,12 @@ def cmd_coverage(args: argparse.Namespace) -> int:
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
+    if args.batch_size < 1:
+        # `range(start, stop, 0)` is a ValueError, and a traceback is not the
+        # clean stderr/exit-1 path every other bad input on this verb gets.
+        print(f"--batch-size must be at least 1, not {args.batch_size}",
+              file=sys.stderr)
+        return 1
     store = extract_mod.ExtractStore(pathlib.Path(args.run).expanduser())
     backend = extract_mod.SourceTree(pathlib.Path(args.root).expanduser())
     items = list(args.path)
