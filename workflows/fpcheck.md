@@ -74,16 +74,13 @@ from the return text.
 
 ## Step 5 — Sanity-check verdict completeness
 
-```sql
-SELECT
-    (SELECT COUNT(*) FROM cba_findings) AS findings,
-    (SELECT COUNT(*) FROM cba_fp_verdicts) AS verdicts,
-    (SELECT COUNT(*) FROM cba_fp_verdicts WHERE verdict='TRUE_POSITIVE') AS tp,
-    (SELECT COUNT(*) FROM cba_fp_verdicts WHERE verdict='FALSE_POSITIVE') AS fp,
-    (SELECT COUNT(*) FROM cba_fp_verdicts WHERE verdict='DUPLICATE') AS dup;
+```bash
+python3 __SKILL_DIR__/audit.py status --db ${AUDIT_DIR}/audit.db
 ```
 
 If `findings != verdicts`, identify the missing batch and re-spawn just that one. (Common cause: agent stalled — see [../references/lessons-learned.md](../references/lessons-learned.md).)
+
+`status` prints `unverdicted`, which is that difference.
 
 ## Step 6 — Assign final IDs
 

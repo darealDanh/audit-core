@@ -92,7 +92,7 @@ const LIVE = dep.live   // if false, the audit + report stay source-only and Ver
 
 phase('Verify')   // STRICTLY SERIAL — one finding at a time
 if (LIVE) {
-  const tps = await agent(`${ref} SELECT finding_id FROM cba_fp_verdicts WHERE verdict='TRUE_POSITIVE' in ${AUDIT}/audit.db. Return the ids.`, { phase:'Verify', schema: IDS })
+  const tps = await agent(`${ref} Run: python3 ${SK}/audit.py rows --db ${AUDIT}/audit.db --table cba_fp_verdicts --where verdict=TRUE_POSITIVE --columns finding_id. Return the ids.`, { phase:'Verify', schema: IDS })
   for (const id of tps.ids) {                                    // plain for-await => concurrency 1; do NOT wrap in parallel()
     const v = await agent(
       `${ref} Read ${SK}/workflows/verify.md + the live-instance note. LIVE-verify finding ${id} ONLY, against ${dep.baseUrl} (liveness: ${dep.livenessCmd}). Build the PoC, capture \`curl -i\`, decide CONFIRMED/REFUTED/INCONCLUSIVE, write ${AUDIT}/artifacts/verify-${id}.md. Back up any config before editing and restore at end. You are the ONLY verifier touching the instance right now.`,

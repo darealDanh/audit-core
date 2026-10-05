@@ -18,6 +18,35 @@ BLANKET_MANDATE = "strongest model your client offers"
 # every surviving occurrence is a command the shipped skill cannot run.
 SKILL_DIR_SENTINEL = "__SKILL_DIR__"
 
+# Query shapes the Stage 2 verbs replaced. Each was retyped by the
+# orchestrator after every compaction restart, which is what R5 costs.
+# These are literal strings on purpose. A rule that tried to recognize
+# hand-written SQL in general would fire on legitimate prose about the
+# schema, and a linter that cries wolf gets switched off. The honest scope
+# statement is that a clean run means these four specific mistakes are
+# absent - not that the skill works.
+RETIRED_QUERIES = (
+    "SELECT id,name,status FROM cba_feature_groups",
+    "SELECT group_id,severity,COUNT(*) FROM cba_findings",
+    "SELECT verdict,COUNT(*) FROM cba_fp_verdicts",
+    "SELECT COUNT(*) FROM cba_fp_verdicts WHERE verdict",
+)
+
+_WS = re.compile(r"\s+")
+
+
+def _squash(value: str) -> str:
+    """Remove whitespace entirely, not just collapse runs of it.
+
+    `SELECT id, name` and `SELECT id,name` must match: the comma is followed
+    by one space in one and zero in the other, which collapsing runs of 2+
+    whitespace characters down to one does not normalize - only removal does.
+    Do not simplify this to `_WS.sub(" ", value)`; that reintroduces exactly
+    the 0-vs-1-space mismatch this function exists to erase, and silently
+    disarms the rule.
+    """
+    return _WS.sub("", value).lower()
+
 
 class SkillLintError(Exception):
     """The root given to the linter is not a skill tree."""
@@ -95,6 +124,14 @@ def lint(root: str | pathlib.Path, known_verbs: set[str]) -> list[Finding]:
                 "unsubstituted-skill-dir", rel,
                 f"literal {SKILL_DIR_SENTINEL} survived install; "
                 f"every audit.py command in this file is unrunnable"))
+
+        squashed = _squash(text)
+        for query in RETIRED_QUERIES:
+            if _squash(query) in squashed:
+                findings.append(Finding(
+                    "hand-typed-status-sql", rel,
+                    f"prose carries the retired query {query!r}; "
+                    f"`audit.py status` prints it"))
 
     briefs = root / "references" / "briefs"
     if briefs.is_dir():

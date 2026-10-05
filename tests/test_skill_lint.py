@@ -4,10 +4,15 @@ import sys
 
 import pytest
 
+import audit
 from audit_core import skill_lint
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-KNOWN = {"selftest", "budget", "bench", "init", "preflight", "brief", "lint-skill"}
+# The set `audit.py lint-skill` itself passes (cmd_lint_skill: set(HANDLERS)).
+# This was a hand-copied literal and went stale the moment Stage 2 added a
+# verb: every real verb the shipped prose started naming was reported as "not
+# a real verb" by the test while the shipped command accepted it.
+KNOWN = set(audit.HANDLERS)
 
 
 def test_shipped_skill_passes_its_own_lint():
@@ -172,3 +177,56 @@ def test_cli_lint_skill_exits_one_when_findings_exist(tmp_path):
         capture_output=True, text=True)
     assert r.returncode == 1
     assert "inline-ddl" in r.stdout
+
+
+def test_a_retired_status_query_in_prose_is_a_finding(tmp_path):
+    """One rule, one specific past mistake: the three SELECTs the resume-note
+    template carried, retyped after every compaction restart. This does NOT
+    try to detect hand-written SQL in general - a fuzzy linter over English
+    produces false positives on legitimate text and gets disabled."""
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        'sqlite3 audit.db "SELECT group_id, severity, COUNT(*) FROM cba_findings '
+        'GROUP BY 1,2;"\n')
+    findings = skill_lint.lint(root, KNOWN)
+    assert [f.rule for f in findings] == ["hand-typed-status-sql"]
+    assert "audit.py status" in findings[0].detail
+
+
+def test_the_rule_ignores_whitespace_differences(tmp_path):
+    """The literal in RETIRED_QUERIES is `SELECT id,name,status FROM
+    cba_feature_groups` - no space after the commas. This fixture adds spaces
+    after every comma, which a mere `_WS.sub(" ", ...)` collapse (as opposed
+    to removal) would NOT normalize away, since a 0-vs-1-space difference is
+    already a single space either side. A fixture identical to the literal
+    would pass under a plain substring check too and prove nothing about
+    whitespace-insensitivity at all."""
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "SELECT id, name, status FROM cba_feature_groups\n")
+    assert [f.rule for f in skill_lint.lint(root, KNOWN)] == \
+        ["hand-typed-status-sql"]
+
+
+def test_an_audit_py_status_invocation_is_not_a_finding(tmp_path):
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "python3 /x/audit.py status --db audit.db\n")
+    assert skill_lint.lint(root, KNOWN) == []
+
+
+def test_mentioning_a_table_name_in_prose_is_not_a_finding(tmp_path):
+    """The scope statement, enforced: this rule pins four literal queries, not
+    the idea of SQL."""
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "Rows land in `cba_findings`; counts come from `cba_fp_verdicts`.\n")
+    assert skill_lint.lint(root, KNOWN) == []

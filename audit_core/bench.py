@@ -10,6 +10,7 @@ import pathlib
 import sqlite3
 from dataclasses import dataclass
 
+from audit_core import text
 from audit_core.goldens import Reference
 
 
@@ -38,6 +39,14 @@ class BenchResult:
     reference_count: int
     finding_count: int
     cost_per_match: float | None
+    suppressed_candidates: int = 0
+    """Pairs that would have been raised as candidates but were rejected.
+
+    Counted inside the candidate loop, so it is the number of adjudications
+    this run actually saved - not the number of rows in rejections.json. The
+    two differ whenever a rejected pair no longer overlaps at all, which is
+    the case for both tplink pairs now that `tss` is under the token floor.
+    """
 
 
 def load_findings_from_db(db_path: str | pathlib.Path) -> list[RunFinding]:
@@ -55,8 +64,21 @@ def score(
     refs: list[Reference],
     findings: list[RunFinding],
     adjudicated: dict[str, str],
+    *,
+    rejected: frozenset[tuple[str, str]] = frozenset(),
     cost_usd: float | None = None,
 ) -> BenchResult:
+    """Score `findings` against `refs`.
+
+    `rejected` and `cost_usd` are keyword-only: `rejected` was added ahead of
+    `cost_usd`, so a positional fourth argument that used to be a cost would
+    now be read as a set of rejected pairs and silently drop the cost figure.
+
+    `adjudicated` is the only source of matches. `rejected` holds pairs a
+    human already looked at and turned down; they are suppressed from the
+    candidate list so a second run does not re-charge the same adjudication.
+    A rejection never touches the match path - matches.json wins.
+    """
     by_id = {f.id: f for f in findings}
 
     matched: list[tuple[str, str]] = []
@@ -69,16 +91,27 @@ def score(
     matched_findings = {f for _, f in matched}
 
     candidates: list[Candidate] = []
+    suppressed = 0
     for ref in refs:
         if ref.id in matched_refs:
+            continue
+        ref_tokens: frozenset[str] = frozenset()
+        for loc in ref.locations:
+            ref_tokens |= text.location_tokens(loc)
+        if not ref_tokens:
             continue
         for finding in findings:
             if finding.id in matched_findings:
                 continue
-            hit = next((loc for loc in ref.locations
-                        if loc and loc.lower() in (finding.location or "").lower()), None)
-            if hit:
-                candidates.append(Candidate(ref.id, finding.id, f"location overlap: {hit}"))
+            shared = ref_tokens & text.location_tokens(finding.location)
+            if not shared:
+                continue
+            if (ref.id, finding.id) in rejected:
+                suppressed += 1
+                continue
+            candidates.append(Candidate(
+                ref.id, finding.id,
+                "location overlap: " + ", ".join(sorted(shared))))
 
     recall = len(matched) / len(refs) if refs else 0.0
     cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
@@ -91,4 +124,5 @@ def score(
         reference_count=len(refs),
         finding_count=len(findings),
         cost_per_match=cost_per_match,
+        suppressed_candidates=suppressed,
     )

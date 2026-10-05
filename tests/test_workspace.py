@@ -8,9 +8,10 @@ from audit_core import workspace
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 EXPECTED_TABLES = [
-    "cba_attack_surface", "cba_feature_groups", "cba_findings",
-    "cba_fp_verdicts", "cba_known_findings", "cba_security_observations",
-    "cba_sources",
+    "cba_attack_surface", "cba_checkpoints", "cba_coverage",
+    "cba_feature_groups", "cba_findings", "cba_fp_verdicts", "cba_inventory",
+    "cba_known_findings", "cba_pattern_hits", "cba_patterns",
+    "cba_security_observations", "cba_sources",
 ]
 
 

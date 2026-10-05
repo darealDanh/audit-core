@@ -1,0 +1,149 @@
+import os
+
+import pytest
+
+from audit_core import db, sweep, workspace
+
+
+def tree(root, **files):
+    for name, body in files.items():
+        p = root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(body if isinstance(body, bytes) else body.encode())
+    return root
+
+
+@pytest.fixture()
+def con(tmp_path):
+    run = workspace.init_run(tmp_path / "ws", timestamp="20260105-120000")
+    c = db.connect(run / "audit.db")
+    db.put(c, "cba_patterns", {"id": "P1", "name": "degenerate strncpy",
+                               "regex": r"strncpy\([^,]+,[^,]+,\s*strlen\("})
+    yield c
+    c.close()
+
+
+def test_a_pattern_whose_regex_does_not_compile_is_refused(con):
+    """A stored pattern that cannot compile is a sweep that silently never
+    runs - the worst outcome for a mechanism whose whole value is breadth."""
+    with pytest.raises(db.DbError) as exc:
+        db.put(con, "cba_patterns", {"id": "P2", "name": "bad", "regex": "([a-z"})
+    assert "compile" in str(exc.value)
+
+
+def test_run_finds_hits_with_path_line_and_excerpt(tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "int f(void){\n  strncpy(dst, src, strlen(src));\n}\n",
+        "b.c": "int g(void){ return 0; }\n",
+    })
+    r = sweep.run(root, r"strncpy\([^,]+,[^,]+,\s*strlen\(", pattern_id="P1")
+    assert len(r.hits) == 1
+    assert r.hits[0].path == "a.c"
+    assert r.hits[0].line == 2
+    assert "strncpy" in r.hits[0].excerpt
+    assert r.files_scanned == 2
+    assert r.truncated is False
+
+
+def test_suffixes_narrow_the_scan(tmp_path):
+    root = tree(tmp_path / "src", **{"a.c": "needle\n", "a.md": "needle\n"})
+    r = sweep.run(root, "needle", suffixes=(".c",))
+    assert [h.path for h in r.hits] == ["a.c"]
+
+
+def test_skip_dirs_are_not_walked(tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "needle\n", "node_modules/pkg/b.js": "needle\n",
+        ".git/objects/c": "needle\n",
+    })
+    r = sweep.run(root, "needle")
+    assert [h.path for h in r.hits] == ["a.c"]
+
+
+def test_a_binary_file_is_skipped_and_counted_not_decoded(tmp_path):
+    """Review Focus 3. A firmware tree is mostly binary; decoding it is slow
+    and the hits are noise."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n",
+                                     "fw.bin": b"needle\x00\x01\x02needle"})
+    r = sweep.run(root, "needle")
+    assert [h.path for h in r.hits] == ["a.c"]
+    assert r.files_skipped_binary == 1
+
+
+def test_an_oversized_file_is_skipped_and_counted(tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "needle\n",
+        "bundle.js": "needle " + "x" * (sweep.MAX_FILE_BYTES + 1),
+    })
+    r = sweep.run(root, "needle")
+    assert [h.path for h in r.hits] == ["a.c"]
+    assert r.files_skipped_large == 1
+
+
+def test_a_directory_symlink_loop_does_not_hang(tmp_path):
+    """Review Focus 3. os.walk(followlinks=False) is the guard; this test is
+    what proves it is still there after a refactor."""
+    root = tree(tmp_path / "src", **{"sub/a.c": "needle\n"})
+    try:
+        os.symlink(root, root / "sub" / "loop", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform does not allow directory symlinks")
+    r = sweep.run(root, "needle")
+    assert [h.path for h in r.hits] == [os.path.join("sub", "a.c")]
+
+
+def test_hits_are_capped_and_the_truncation_is_reported(tmp_path):
+    """An uncapped sweep dumping ten thousand hits into the orchestrator is
+    the exact failure R1 exists to prevent."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n" * (sweep.MAX_HITS + 50)})
+    r = sweep.run(root, "needle")
+    assert len(r.hits) == sweep.MAX_HITS
+    assert r.truncated is True
+    assert "truncated" in sweep.render(r)
+
+
+def test_a_custom_cap_is_honoured(tmp_path):
+    root = tree(tmp_path / "src", **{"a.c": "needle\n" * 20})
+    r = sweep.run(root, "needle", max_hits=5)
+    assert (len(r.hits), r.truncated) == (5, True)
+
+
+def test_an_excerpt_is_bounded(tmp_path):
+    root = tree(tmp_path / "src", **{"a.c": "needle " + "y" * 900 + "\n"})
+    r = sweep.run(root, "needle")
+    assert len(r.hits[0].excerpt) <= sweep.EXCERPT_CHARS
+
+
+def test_undecodable_bytes_in_a_text_file_do_not_raise(tmp_path):
+    root = tree(tmp_path / "src", **{"a.c": b"needle \xff\xfe not utf8\n"})
+    r = sweep.run(root, "needle")
+    assert len(r.hits) == 1
+
+
+def test_record_writes_one_row_per_hit_and_rows_reads_them_back(con, tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "strncpy(d, s, strlen(s));\n",
+        "b.c": "strncpy(d, s, strlen(s));\n",
+    })
+    r = sweep.run(root, r"strncpy\([^,]+,[^,]+,\s*strlen\(", pattern_id="P1")
+    assert sweep.record(con, r) == 2
+    got = db.rows(con, "cba_pattern_hits", where={"pattern_id": "P1"},
+                  columns=("path", "line", "triaged"))
+    assert sorted(tuple(x) for x in got) == [("a.c", 1, "pending"),
+                                             ("b.c", 1, "pending")]
+
+
+def test_record_refuses_a_result_with_no_pattern_id(con, tmp_path):
+    root = tree(tmp_path / "src", **{"a.c": "needle\n"})
+    with pytest.raises(db.DbError):
+        sweep.record(con, sweep.run(root, "needle"))
+
+
+def test_render_never_prints_the_hits_themselves(tmp_path):
+    """R1 applied to this tool's own output: the summary says how to read the
+    rows, it does not paste them."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n"})
+    out = sweep.render(sweep.run(root, "needle", pattern_id="P1"))
+    assert "needle" not in out
+    assert "audit.py rows" in out
+    assert "cba_pattern_hits" in out

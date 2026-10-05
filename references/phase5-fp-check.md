@@ -18,8 +18,8 @@ Verify every finding from Phase 4 using the false-positive-check methodology def
 
 ### Batch Count Calculation
 ```
-total_findings = SELECT COUNT(*) FROM cba_findings
-batch_count = CEILING(total_findings / 10)
+total_findings = the `findings` count from `audit.py status`
+batch_count    = CEILING(total_findings / 10)
 ```
 
 ## Subagent Brief
@@ -83,9 +83,11 @@ After all FP-check subagents return:
 Extract structured verdicts from each subagent's output.
 
 ### 2. Insert into SQL
-```sql
-INSERT INTO cba_fp_verdicts (finding_id, verdict, reason, final_severity, final_id, merged_into)
-VALUES (?, ?, ?, ?, ?, ?);
+```bash
+python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_fp_verdicts \
+  --set finding_id=G1-F1 --set verdict=TRUE_POSITIVE \
+  --set reason='<why>' --set final_severity=HIGH --set final_id=F-1 \
+  --set rule_applied='<HE-n / PR-n / CV-n, or none>'
 ```
 
 ### 3. Assign Final IDs

@@ -52,3 +52,50 @@ CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
     merged_into TEXT,
     rule_applied TEXT,
     reviewed_at TEXT DEFAULT (datetime('now')));
+
+-- Stage 2 additions. Every statement below is IF NOT EXISTS for the same
+-- reason the block above is: `audit.py init` runs again at the start of each
+-- phase, and re-running a phase must never destroy a row an earlier phase
+-- recorded.
+
+CREATE TABLE IF NOT EXISTS cba_inventory (
+    unit TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    group_id TEXT,
+    size INTEGER,
+    added_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_coverage (
+    unit TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (unit, phase));
+
+CREATE TABLE IF NOT EXISTS cba_patterns (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    regex TEXT NOT NULL,
+    origin_finding TEXT,
+    language TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_pattern_hits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    excerpt TEXT,
+    triaged TEXT DEFAULT 'pending',
+    swept_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    turns INTEGER,
+    projected_context INTEGER,
+    resume_note TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));

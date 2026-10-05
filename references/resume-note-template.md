@@ -30,11 +30,10 @@ Rewrite this file **at the end of every major phase**. Goal: a fresh orchestrato
 | G1 | … | `files/G1-mapping.md` | mapped/audited |
 | … | … | … | … |
 
-## SQL re-orient queries (paste-and-run)
+## Re-orient after a restart (paste-and-run)
 ```bash
-sqlite3 reports/audit-<ts>/audit.db "SELECT id,name,status FROM cba_feature_groups;"
-sqlite3 reports/audit-<ts>/audit.db "SELECT group_id,severity,COUNT(*) FROM cba_findings GROUP BY 1,2 ORDER BY 1,2;"
-sqlite3 reports/audit-<ts>/audit.db "SELECT verdict,COUNT(*) FROM cba_fp_verdicts GROUP BY verdict;"
+python3 __SKILL_DIR__/audit.py status --db reports/audit-<ts>/audit.db
+python3 __SKILL_DIR__/audit.py coverage --db reports/audit-<ts>/audit.db
 ```
 
 ## Phase-2 observation counts  (after recon)

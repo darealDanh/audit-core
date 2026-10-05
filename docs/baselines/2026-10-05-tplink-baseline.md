@@ -227,3 +227,110 @@ design. They are recorded here, not acted on, and `matches.json` is unchanged.
 
 Recall ≥ 12/19 at ≤ $45 total, with the asus golden also passing. Unchanged —
 the gate is a recall-and-cost gate and neither moved.
+
+## R3 ceiling projection (Task 5, `audit_core/ceiling.py`)
+
+Run against the same pinned transcript and confirmed before recording:
+`source_bytes` **15,608,662** and `source_sha256` starting **`a33f2f52`** —
+both match the figures above, so this is the same input, not a re-measurement
+of a changed file.
+
+Command:
+
+```bash
+python3 audit.py budget --project --report \
+  ~/.claude/projects/-Users-danhnguyen-Documents-Offsec-Opswat-Devices-tplink/d87d98a0-1430-4218-a31e-9ae93a9ba275.jsonl
+```
+
+Projection block (verbatim):
+
+```
+  ceiling 100,000   checkpoint at 80,000 (80%)
+  measured prefix 40,926   growth 2,573 tok/turn
+  turns to checkpoint 15   turns to ceiling 22
+```
+
+Linearity table (verbatim, every epoch):
+
+```
+  epoch  turns  measured mean  predicted mean  deviation
+      0     31         82,214          81,195       1.2%
+      1     94        209,890         209,447       0.2%
+      2    264        379,418         382,619       0.8%
+      3    155        237,509         238,185       0.3%
+      4    172        271,223         258,652       4.6%
+      5     77        173,396         172,339       0.6%
+      6     50         97,810          95,152       2.7%
+```
+
+The worst deviation is 4.6% (epoch 4), well under the 30% threshold this step
+watches for; across all 7 epochs the linear model `context(n) = floor +
+g*(turns-1)/2` predicts the measured mean within single digits of percent, so
+the turns-to-checkpoint figure (15 turns against a 100k ceiling, at this
+session's measured prefix and growth) is a reliable read for this transcript,
+not an artifact of a mismatched model.
+
+## Correction appended 2026-10-05 — the candidate block above is no longer reproducible
+
+**Appended, not edited.** This file's policy is that a baseline is never
+rewritten in place; a correction gets appended so the superseded text and the
+reason it was superseded both stay visible in git history. The "Verbatim tool
+output" block and the paragraph under it are left exactly as recorded.
+
+**What is wrong with them.** The block ends with two candidate lines:
+
+```
+  REF-10 ~ G6-F3  (location overlap: tss)
+  REF-10 ~ G6-F4  (location overlap: tss)
+```
+
+and the paragraph below it says "The scorer keeps no record of rejected
+candidates, so they reappear on every bench run by design." Both statements
+were true of the scorer that produced the block and are false of the scorer on
+this branch. An operator running the Stage 2 gate diffs their output against
+this file — `2026-10-05-stage2-gate.md` §2 says the comparison is against this
+file "and only against that file" — so the two lines would read as a
+disappearance that needs explaining. They are not. Two independent changes
+removed them, each sufficient on its own:
+
+1. **Candidates are proposed from whole tokens, with a four-character floor.**
+   `audit_core/text.MIN_LOCATION_TOKEN` is 4, and `text.location_tokens` drops
+   anything shorter before the intersection is taken. REF-10's bare `tss` is
+   three characters, so it is gone before either pair can be formed — the
+   pairs are removed at source, not suppressed. The old rule tested substring
+   containment, which is what let `tss` reach `TssRSASecretKey` and
+   `osal_tss_init` in the first place.
+2. **The two adjudications are recorded durably.** `rejections.json` in the
+   golden now carries both pairs with the reasons from the adjudication log,
+   and `bench` loads it and suppresses a rejected pair from the candidate
+   list. The claim that the scorer keeps no record of rejected candidates
+   describes a gap that has since been closed.
+
+Because `tss` no longer survives tokenization, the two pairs never overlap at
+all, so `rejections.json` suppresses nothing on this run and the
+`N candidate(s) suppressed` line does not print either. The file is kept
+deliberately: the four-character floor is a *heuristic* that could be tuned or
+reverted, whereas the adjudication is a *fact* about those two pairs that
+stays true however the heuristic changes.
+
+**What did not move.** Recall **9/19 (47.4%)**, run findings **45**, cost per
+matched finding **$73.15** — identical to the recorded block. Candidate
+generation feeds adjudication only; the match path reads `matches.json` and
+nothing else, so no change to it can move recall. The recall table above and
+the Stage 4 gate stand as written.
+
+So the reproducible output of the recorded command on this branch is the same
+block with its last three lines absent:
+
+```
+golden   tplink-dl110v2-1.0.11
+recall   9/19 (47.4%)
+findings 45
+cost per matched finding  $73.15
+missed:     REF-1, REF-2, REF-4, REF-7, REF-8, REF-9, REF-10, REF-11, REF-15, REF-18
+```
+
+`tests/goldens/tplink-dl110v2-1.0.11/README.md` is the full account: the
+adjudication log for both pairs, the `rejections.json` contract, the token
+rule and the five generic word tokens that survive the floor and remain
+latent.

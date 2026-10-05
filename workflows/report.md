@@ -63,8 +63,10 @@ The report inlines the script for reading AND points at `poc/<name>` for running
 The `source` run has no live instance and no forks. Write ONE `reports/audit-<ts>/report.md` covering all true positives.
 
 1. Pull the TPs:
-   ```sql
-   SELECT finding_id, final_severity FROM cba_fp_verdicts WHERE verdict = 'TRUE_POSITIVE';
+   ```bash
+   python3 __SKILL_DIR__/audit.py rows --db ${AUDIT_DIR}/audit.db \
+     --table cba_fp_verdicts --where verdict=TRUE_POSITIVE \
+     --columns finding_id,final_severity
    ```
    Read each finding's detail from `artifacts/G<n>-findings.md` + `cba_findings`.
 2. Write `report.md`: a short header (target, version/commit, audit date), then **one section per finding** ordered by severity, each using the six headings above (`#`/`##` per finding, `##`/`###` for its sub-sections - keep it consistent and skimmable).

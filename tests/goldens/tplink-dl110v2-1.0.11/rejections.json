@@ -1,0 +1,14 @@
+[
+  {
+    "reference_id": "REF-10",
+    "finding_id": "G6-F3",
+    "reason": "False pair from the bare three-character token `tss` matching TssRSASecretKey / osal_tss_*. REF-10 is a degenerate-strncpy heap overflow in update_bind_token; G6-F3 is disclosure of the RSA private key over the debug UART via ATTPGV. Different defects.",
+    "adjudicated": "2026-10-05"
+  },
+  {
+    "reference_id": "REF-10",
+    "finding_id": "G6-F4",
+    "reason": "The same bare-`tss` false pair. G6-F4 is ATTPSK/ATTPSV overwriting the key store in flash. Different defect.",
+    "adjudicated": "2026-10-05"
+  }
+]

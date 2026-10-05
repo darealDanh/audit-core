@@ -205,3 +205,120 @@ def test_no_workflow_var_reads_a_file_without_a_fallback():
                 offenders.append(f"{path.name}: {line.strip()}")
     assert offenders == [], (
         "file-sourced shell vars with no fallback: " + "; ".join(offenders))
+
+
+# --- Stage 2: R1/R3 in the shipped prose, by replacement not rewrite ---------
+
+
+def live_markdown():
+    """Every markdown file an install ships: SKILL.md, the live workflows and
+    the references. Archived drafts (a leading `_`) are excluded, as in LIVE."""
+    out = [ROOT / "SKILL.md"]
+    out.extend(LIVE)
+    out.extend(sorted(p for p in (ROOT / "references").rglob("*.md")
+                      if not p.name.startswith("_")))
+    return out
+
+
+def normalize_ws(text: str) -> str:
+    """Whitespace removed, not just collapsed: the same query is hand-typed as
+    `COUNT(*) FROM` in one file and `COUNT(*)  FROM` in the next, and
+    `verdict = 'X'` in one and `verdict='X'` in the next."""
+    return re.sub(r"\s+", "", text)
+
+
+def test_every_retired_query_is_gone_from_shipped_prose():
+    """The five hand-typed SQL shapes Stage 2 replaced. Each was retyped
+    after every compaction restart, which is R5's target exactly."""
+    retired = [
+        "SELECT id,name,status FROM cba_feature_groups",
+        "SELECT group_id,severity,COUNT(*) FROM cba_findings",
+        "SELECT verdict,COUNT(*) FROM cba_fp_verdicts",
+        "FROM cba_fp_verdicts WHERE verdict = 'TRUE_POSITIVE'",
+        "INSERT INTO cba_findings",
+        "INSERT INTO cba_fp_verdicts",
+        "INSERT INTO cba_attack_surface",
+        "INSERT INTO cba_security_observations",
+        "INSERT INTO cba_known_findings",
+    ]
+    for path in live_markdown():
+        text = normalize_ws(path.read_text(encoding="utf-8"))
+        for query in retired:
+            assert normalize_ws(query) not in text, f"{path.name}: {query}"
+
+
+def test_every_instruction_the_replaced_blocks_sat_inside_survives():
+    """Stage 1's finding: five reviews each caught a different absence and
+    none caught all of them. These are the surrounding instructions, not the
+    SQL - the thing a replacement must not take with it."""
+    expect = {
+        "workflows/audit.md": [
+            "Patch-bypass mining",
+            "were they the ONLY sites of the vulnerable pattern",
+            "Top patch-bypass discoveries",
+        ],
+        "workflows/fpcheck.md": [
+            "identify the missing batch and re-spawn just that one",
+            "Order TPs by severity",
+        ],
+        "workflows/report.md": [
+            "Steps to reproduce is a reproduction GUIDE only",
+            "do NOT run a PoC and do NOT paste captured output",
+            "NOT live-verified",
+        ],
+        "references/phase2-feature-mapping.md": [
+            "Save each group's full output to",
+        ],
+        "references/phase4-deep-audit.md": [
+            "keep the one with higher confidence",
+        ],
+        "references/phase5-fp-check.md": [
+            "Mix severities within batches",
+            "If Finding A's truth value depends on Finding B",
+        ],
+    }
+    for rel, needles in expect.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle in text, f"{rel} lost: {needle}"
+
+
+def test_skill_md_states_r1_and_r3():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    assert "### R1 " in text
+    assert "### R3 " in text
+    assert "audit.py extract" in text
+    assert "audit.py checkpoint" in text
+    assert "100k" in text or "100,000" in text
+
+
+def test_the_anti_rationalization_rule_is_in_the_rejection_table():
+    """Spec R3: 'near the ceiling — skip this group' is answered by
+    checkpoint-and-restart, never by skipping. The rationalization is quoted
+    here with the em dash SKILL.md actually uses; an earlier draft of this
+    test also allowed a comma form that the table has never contained, so
+    half of it could never have fired."""
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    assert "near the ceiling — skip this group" in text.lower()
+    assert "not_audited(reason='budget')" in text
+
+
+def test_skill_md_lists_the_five_new_tables():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for table in ("cba_inventory", "cba_coverage", "cba_patterns",
+                  "cba_pattern_hits", "cba_checkpoints"):
+        assert table in text
+
+
+def test_every_documented_audit_py_invocation_parses():
+    """Stage 1 shipped a documented command that exited 1. Every verb named in
+    the shipped prose is checked against audit.HANDLERS, so a verb that was
+    renamed or never existed fails here. The flags are not parsed: wrapped
+    lines and inline backticks make that a false-failure generator, and each
+    verb's own CLI tests already run real invocations as subprocesses."""
+    import re as _re
+    import audit
+    pattern = _re.compile(r"audit\.py ([a-z-]+)(?: --[a-z-]+(?:[= ][^\s`]+)?)*")
+    for path in live_markdown():
+        for verb in pattern.findall(path.read_text(encoding="utf-8")):
+            assert verb in audit.HANDLERS, f"{path.name}: unknown verb {verb}"
