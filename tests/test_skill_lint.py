@@ -196,11 +196,18 @@ def test_a_retired_status_query_in_prose_is_a_finding(tmp_path):
 
 
 def test_the_rule_ignores_whitespace_differences(tmp_path):
+    """The literal in RETIRED_QUERIES is `SELECT id,name,status FROM
+    cba_feature_groups` - no space after the commas. This fixture adds spaces
+    after every comma, which a mere `_WS.sub(" ", ...)` collapse (as opposed
+    to removal) would NOT normalize away, since a 0-vs-1-space difference is
+    already a single space either side. A fixture identical to the literal
+    would pass under a plain substring check too and prove nothing about
+    whitespace-insensitivity at all."""
     root = tmp_path / "skill"
     (root / "workflows").mkdir(parents=True)
     (root / "SKILL.md").write_text("# skill\n")
     (root / "workflows" / "x.md").write_text(
-        "SELECT id,name,status FROM cba_feature_groups\n")
+        "SELECT id, name, status FROM cba_feature_groups\n")
     assert [f.rule for f in skill_lint.lint(root, KNOWN)] == \
         ["hand-typed-status-sql"]
 

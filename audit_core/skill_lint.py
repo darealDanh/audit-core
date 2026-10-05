@@ -36,7 +36,15 @@ _WS = re.compile(r"\s+")
 
 
 def _squash(value: str) -> str:
-    """Collapse whitespace so `SELECT id, name` and `SELECT id,name` match."""
+    """Remove whitespace entirely, not just collapse runs of it.
+
+    `SELECT id, name` and `SELECT id,name` must match: the comma is followed
+    by one space in one and zero in the other, which collapsing runs of 2+
+    whitespace characters down to one does not normalize - only removal does.
+    Do not simplify this to `_WS.sub(" ", value)`; that reintroduces exactly
+    the 0-vs-1-space mismatch this function exists to erase, and silently
+    disarms the rule.
+    """
     return _WS.sub("", value).lower()
 
 

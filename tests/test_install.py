@@ -16,7 +16,8 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
     then dies at the first audit.py call. The install must fail loudly."""
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "claude"],
         capture_output=True, text=True,
@@ -46,7 +47,8 @@ def test_installed_skill_content_has_no_unsubstituted_skill_dir(tmp_path):
     "can't open file '.../__SKILL_DIR__/audit.py'"."""
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "claude"],
         capture_output=True, text=True, env=env, cwd=str(ROOT),
@@ -77,7 +79,8 @@ def test_install_preserves_crlf_in_the_files_that_use_it(tmp_path):
     Three files ship with CRLF and must keep it."""
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "claude"],
         capture_output=True, text=True, env=env, cwd=str(ROOT),
@@ -130,7 +133,8 @@ def test_install_sh_refuses_when_the_source_dir_is_the_install_dir(tmp_path):
     shutil.copytree(ROOT, target,
                     ignore=shutil.ignore_patterns(".git", "__pycache__",
                                                   ".pytest_cache"))
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(target / "install.sh"), "claude"],
         capture_output=True, text=True, env=env, cwd=str(target),
@@ -150,7 +154,8 @@ def test_install_removes_a_workflow_deleted_from_the_repo(tmp_path):
     file deleted from the repo lingered in a .sh-installed tree forever."""
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "claude"],
         capture_output=True, text=True, env=env, cwd=str(ROOT),
