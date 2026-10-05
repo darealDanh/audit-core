@@ -10,9 +10,11 @@
 #   - Codex install root:   ~/.agents/skills/codebase-audit/
 #
 # Copilot and Codex auto-discover the skill from their skills dir — no launcher
-# files. Claude launchers contain the literal string __SKILL_DIR__; install.sh
-# sed-substitutes it with the client's own SKILL_DIR so each set of launchers
-# points at its own copy. Installing one client does not touch the others.
+# files. The skill content (SKILL.md, workflows/, references/) and the Claude
+# launchers all contain the literal string __SKILL_DIR__; install.sh
+# sed-substitutes it with the client's own SKILL_DIR on copy, so every
+# `python3 __SKILL_DIR__/audit.py ...` command in the installed skill resolves
+# to that client's own copy. Installing one client does not touch the others.
 #
 # Usage:
 #   ./install.sh                  # install for all clients
@@ -93,20 +95,31 @@ fi
 install_skill_files() {
   local target="$1"
   mkdir -p "${target}"
-  local abs_target
+  local abs_target sub src rel dst
   abs_target="$(cd "${target}" && pwd -P)"
   if [[ "${SCRIPT_DIR}" == "${abs_target}" ]]; then
     echo "  (source dir IS install dir; skipping skill file copy)"
     return
   fi
   echo "  Copying skill content -> ${target}"
-  cp -f "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md"
+  # SKILL.md, workflows/ and references/ all carry `python3 __SKILL_DIR__/audit.py`
+  # commands, so they go through the same substitution as the Claude launchers.
+  # A plain `cp` here ships the sentinel literally and every audit.py command in
+  # the installed skill fails with "can't open file '.../__SKILL_DIR__/audit.py'".
+  substitute_file "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md" "${abs_target}"
   cp -f "${SCRIPT_DIR}/audit.py" "${target}/audit.py"
   for sub in workflows references; do
-    if [[ -d "${SCRIPT_DIR}/${sub}" ]]; then
-      mkdir -p "${target}/${sub}"
-      cp -Rf "${SCRIPT_DIR}/${sub}/." "${target}/${sub}/"
-    fi
+    [[ -d "${SCRIPT_DIR}/${sub}" ]] || continue
+    # Recursive, so references/briefs/ is covered too.
+    while IFS= read -r src; do
+      rel="${src#${SCRIPT_DIR}/${sub}/}"
+      dst="${target}/${sub}/${rel}"
+      mkdir -p "$(dirname "${dst}")"
+      case "${src}" in
+        *.md|*.txt) substitute_file "${src}" "${dst}" "${abs_target}" ;;
+        *)          cp -f "${src}" "${dst}" ;;
+      esac
+    done < <(find "${SCRIPT_DIR}/${sub}" -type f -print)
   done
   # audit_core carries .py and .sql; copy the package wholesale minus caches.
   rm -rf "${target}/audit_core"
@@ -126,13 +139,20 @@ install_skill_files() {
   echo "  selftest OK"
 }
 
-# sed-substitute __SKILL_DIR__ in $1 with $3, write result to $2.
-# Uses '|' as sed delimiter so '/' in paths needs no escaping.
-copy_template() {
+# sed-substitute __SKILL_DIR__ in $1 with $3, write result to $2, quietly.
+# Uses '|' as sed delimiter so '/' in paths needs no escaping. sed is
+# line-content oriented, so a CRLF file stays CRLF: only the trailing \n is
+# consumed and re-emitted, and the \r travels inside the line.
+substitute_file() {
   local src="$1" dst="$2" skill_dir="$3"
   mkdir -p "$(dirname "${dst}")"
   sed -e "s|__SKILL_DIR__|${skill_dir}|g" "${src}" > "${dst}"
-  echo "  -> ${dst}"
+}
+
+# substitute_file, plus the per-file line the launcher install prints.
+copy_template() {
+  substitute_file "$1" "$2" "$3"
+  echo "  -> $2"
 }
 
 install_copilot() {

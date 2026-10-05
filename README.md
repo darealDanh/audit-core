@@ -140,9 +140,9 @@ Each client gets its **own self-contained copy** of the skill — installing one
 | **Claude Code CLI** | `~/.claude/skills/codebase-audit/` *(Claude auto-discovers via description triggers)* | `~/.claude/commands/codebase-audit.md` and `~/.claude/commands/codebase-audit/*.md` |
 | **Codex CLI** | `~/.agents/skills/codebase-audit/` *(Codex auto-discovers via description triggers)* | _none_ — invoked as `$codebase-audit` (like Copilot, no launcher) |
 
-### How the Claude launchers find the skill
+### How the skill and its launchers find themselves
 
-Claude launcher files live in [`claude/commands/`](claude/commands/) as templates containing the literal string `__SKILL_DIR__`. `install.sh` `sed`-substitutes it with the per-client skill dir on copy, so the launchers always point at `~/.claude/skills/codebase-audit/...`.
+The literal string `__SKILL_DIR__` is an installer sentinel. It appears in the Claude launcher templates under [`claude/commands/`](claude/commands/) **and** in the skill content itself — `SKILL.md`, `workflows/*.md` and `references/**/*.md` all document `python3 __SKILL_DIR__/audit.py ...` commands. `install.sh` (and `install.ps1`) `sed`-substitutes every occurrence with the per-client skill dir on copy, so the launchers point at `~/.claude/skills/codebase-audit/...` and every `audit.py` command in the installed skill resolves to that same copy. Nothing in an installed tree should contain `__SKILL_DIR__`; `audit.py lint-skill` fails an installed tree that does.
 
 You can `./install.sh claude` on a machine that has no VS Code, and nothing ever touches `~/.copilot/`.
 
@@ -259,7 +259,7 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 codebase-audit/                 # this repo (the clone)
 ├── SKILL.md                    # entrypoint; sub-command router; lessons summary
 ├── README.md
-├── install.sh                  # per-client installer (sed-substitutes __SKILL_DIR__)
+├── install.sh                  # per-client installer (sed-substitutes __SKILL_DIR__ everywhere)
 ├── install.ps1                 # same installer for Windows PowerShell
 ├── LICENSE
 ├── workflows/                  # one per phase (the actual audit logic)
@@ -279,7 +279,7 @@ codebase-audit/                 # this repo (the clone)
 │   ├── resume-note-template.md
 │   ├── live-instance-template.md
 │   └── lessons-learned.md
-└── claude/commands/            # Claude launcher templates (use __SKILL_DIR__)
+└── claude/commands/            # Claude launcher templates (also use __SKILL_DIR__)
     ├── codebase-audit.md
     └── codebase-audit/
         ├── recon.md
@@ -303,7 +303,7 @@ After `./install.sh` (all targets), the *installed* state looks like:
 
 ## Customizing the launchers
 
-The launcher templates in `claude/commands/` are tracked in git and free to edit. Every occurrence of the literal string `__SKILL_DIR__` is substituted at install time with the per-client install path. After edits, re-run `./install.sh` to copy the updates into place.
+The launcher templates in `claude/commands/` are tracked in git and free to edit. Every occurrence of the literal string `__SKILL_DIR__` — in those templates and in the skill content (`SKILL.md`, `workflows/`, `references/`) — is substituted at install time with the per-client install path. After edits, re-run `./install.sh` to copy the updates into place.
 
 ## Key design choices
 

@@ -12,9 +12,11 @@ Design: each client gets its OWN self-contained copy of the skill.
   - Codex install root:   $HOME\.agents\skills\codebase-audit\
 
 Copilot and Codex auto-discover the skill from their skills dir — no launcher
-files. Claude launchers contain the literal string __SKILL_DIR__; this script
-substitutes it with the client's own skill dir (in forward-slash form, which
-Claude Code accepts on Windows) so each set of launchers points at its own copy.
+files. The skill content (SKILL.md, workflows\, references\) and the Claude
+launchers all contain the literal string __SKILL_DIR__; this script substitutes
+it with the client's own skill dir (in forward-slash form, which Claude Code
+accepts on Windows) so every `python3 __SKILL_DIR__/audit.py ...` command in the
+installed skill resolves to that client's own copy.
 Installing one client does not touch the others.
 
 Usage:
@@ -89,14 +91,32 @@ function Install-SkillFiles {
         return
     }
     Write-Host "  Copying skill content -> $Target"
-    Copy-Item -Force (Join-Path $ScriptDir 'SKILL.md') (Join-Path $Target 'SKILL.md')
+    # SKILL.md, workflows\ and references\ all carry `python3 __SKILL_DIR__/audit.py`
+    # commands, so they go through the same substitution as the Claude launchers.
+    # A plain copy here ships the sentinel literally and every audit.py command in
+    # the installed skill fails with "can't open file '...\__SKILL_DIR__\audit.py'".
+    Copy-Template (Join-Path $ScriptDir 'SKILL.md') (Join-Path $Target 'SKILL.md') $absTarget -Quiet
     Copy-Item -Force (Join-Path $ScriptDir 'audit.py') (Join-Path $Target 'audit.py')
     foreach ($sub in @('workflows', 'references')) {
         $srcSub = Join-Path $ScriptDir $sub
-        if (Test-Path $srcSub) {
-            $dstSub = Join-Path $Target $sub
-            New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
-            Copy-Item -Recurse -Force (Join-Path $srcSub '*') $dstSub -ErrorAction SilentlyContinue
+        if (-not (Test-Path $srcSub)) { continue }
+        $dstSub = Join-Path $Target $sub
+        # Remove-then-copy, as audit_core already does. `Copy-Item -Recurse` of a
+        # directory into an existing same-named directory NESTS it rather than
+        # merging, which would bury references\briefs\ one level too deep - and
+        # briefs.TEMPLATE_DIR resolves there, so every `audit.py brief` would fail.
+        if (Test-Path $dstSub) { Remove-Item -Recurse -Force $dstSub }
+        New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
+        # Recursive, so references\briefs\ is covered too.
+        foreach ($f in Get-ChildItem -Path $srcSub -Recurse -File) {
+            $rel = $f.FullName.Substring($srcSub.Length) -replace '^[\\/]+', ''
+            $dst = Join-Path $dstSub $rel
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
+            if ($f.Extension -in @('.md', '.txt')) {
+                Copy-Template $f.FullName $dst $absTarget -Quiet
+            } else {
+                Copy-Item -Force $f.FullName $dst
+            }
         }
     }
     $coreSrc = Join-Path $ScriptDir 'audit_core'
@@ -120,13 +140,14 @@ function Install-SkillFiles {
 
 # Substitute __SKILL_DIR__ in $Src with $SkillDir (forward-slash form), write to $Dst.
 # UTF-8 without BOM so the launcher's YAML frontmatter is not corrupted.
+# `Get-Content -Raw` keeps the file's bytes verbatim, so a CRLF file stays CRLF.
 function Copy-Template {
-    param([string]$Src, [string]$Dst, [string]$SkillDir)
+    param([string]$Src, [string]$Dst, [string]$SkillDir, [switch]$Quiet)
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Dst) | Out-Null
     $skillDirFwd = $SkillDir -replace '\\', '/'
     $content = (Get-Content -Raw -LiteralPath $Src) -replace '__SKILL_DIR__', $skillDirFwd
     [System.IO.File]::WriteAllText($Dst, $content, (New-Object System.Text.UTF8Encoding($false)))
-    Write-Host "  -> $Dst"
+    if (-not $Quiet) { Write-Host "  -> $Dst" }
 }
 
 function Install-Copilot {
