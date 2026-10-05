@@ -61,7 +61,7 @@ Patched files: <list>
 - `<file>:<lines>` — <why suspect>
 ```
 
-## Step 3 — Create the findings table
+## Step 3 — Confirm the findings schema is applied
 
 The schema is already applied by `audit.py init` (recon Step 1). If you are
 entering this phase against an existing run directory, re-apply it safely
@@ -75,25 +75,38 @@ where adversarial reasoning earns its cost. See SKILL.md → *Cross-client tool
 mapping* and *Model and effort tiering*.
 
 Render each group's brief and dispatch its path, never its contents
-(spec rule R6):
+(spec rule R6). Set these per group first — `AUDIT_DIR` is the only variable an
+earlier step defined:
+
+    G=G1                                          # stable group id
+    NAME='Authentication and session handling'    # the group's name
+    SRC='Source tree at the project root; read any file under it.'
+    KNOWN="$(cat "$AUDIT_DIR/files/known-findings.md")"   # Step 2's patch-bypass intel
+    # Live run: the deploy phase's instance details, one line (see
+    # ../references/phase4-deep-audit.md -> Test instance details).
+    TEST_INSTANCE='Test instance: http://127.0.0.1:8080 (proxy) / :8081 (API). Auth: create test accounts via admin/admin123 - do NOT modify the admin account. Config is bind-mounted at .docker_compose/. Available for: HTTP requests, API testing. Not available for: destructive testing, persistence, data exfiltration.'
 
     python3 __SKILL_DIR__/audit.py brief --phase audit --unit "$G" --run "$AUDIT_DIR" \
       --var group_id="$G" --var group_name="$NAME" \
       --var run_dir="$AUDIT_DIR" \
       --var mapping_path="$AUDIT_DIR/files/$G-mapping.md" \
       --var artifact_path="$AUDIT_DIR/artifacts/$G-findings.md" \
-      --var source_access="$SRC" --var known_findings="$KNOWN"
+      --var source_access="$SRC" --var known_findings="$KNOWN" \
+      --var test_instance="$TEST_INSTANCE"
 
-Every `--var` above is required: the renderer fails loudly on an unsubstituted
-placeholder rather than handing a subagent a half-filled brief.
+Every `--var` above is required, and an empty value is rejected as hard as a
+missing one: the renderer fails loudly rather than handing a subagent a
+half-filled brief. *(Automated `source` mode: there is no live instance — pass
+`--var test_instance='No test instance available. Provide source-level
+analysis only.'` See [source.md](source.md).)*
 
 Spawn ONE subagent per feature group, ALL in parallel.
 
-The brief carries the assignment, the hunt list, the rules of engagement and
-the return contract. The dispatch adds only what the brief cannot know:
+The brief carries the assignment, the hunt list, the rules of engagement, the
+patch-bypass probe instruction, the test-instance conduct rules (including the
+Do NOT list) and the return contract. The dispatch adds only what the brief
+cannot know:
 
-- Live instance details — proxy and API URLs, sample credentials, bind-mounted
-  config locations
 - Live-PoC policy: attempt a live PoC for HIGH/CRITICAL findings where feasible;
   mark `verified='live-poc'` if reproduced, otherwise `verified='source-only'`
 - Live-instance hygiene: **back up any config file before editing** (e.g.

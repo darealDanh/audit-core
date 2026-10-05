@@ -36,12 +36,17 @@ dispatch — render it and send the path (spec rule R6):
       --var group_id=G7 --var group_name='...' --var run_dir="$AUDIT_DIR" \
       --var mapping_path="$AUDIT_DIR/files/G7-mapping.md" \
       --var artifact_path="$AUDIT_DIR/artifacts/G7-findings.md" \
-      --var source_access='...' --var known_findings='...'
+      --var source_access='...' --var known_findings='...' \
+      --var test_instance='...'
 
 The *Finding Schema* below remains the authority for what a finding row must
 contain.
 
-### Test Instance Details (fill into template if available)
+### Test instance details (passed as `--var test_instance=...`)
+
+There is no prompt template to fill any more. This value is a `--var` on the
+`audit.py brief` command above; the brief's *Test instance* section renders it
+verbatim, together with the live-verification steps and their Do NOT list.
 
 ```
 Test instance: {url}
@@ -50,7 +55,8 @@ Available for: HTTP requests, API testing
 Not available for: Destructive testing, persistence, data exfiltration
 ```
 
-If no test instance: `No test instance available. Provide source-level analysis only.`
+If no test instance, pass exactly:
+`--var test_instance='No test instance available. Provide source-level analysis only.'`
 
 ## Post-Collection Processing
 

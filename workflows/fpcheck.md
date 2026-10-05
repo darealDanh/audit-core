@@ -7,7 +7,7 @@
 
 ---
 
-## Step 1 — Create verdicts table
+## Step 1 — Confirm the verdicts schema is applied
 
 The `cba_fp_verdicts` table is created by `audit.py init`.
 
@@ -31,20 +31,27 @@ Before launching FP-check, query for finding pairs that cite the same file:line 
 ## Step 4 — Spawn parallel FP-check subagents
 
 **Agent type**: a **writable** subagent — a read-only agent cannot write the
-SQL inserts, so ALL verdicts would be lost. **Model:** mid tier, medium effort
-— FP-check applies fixed rules to a bounded list. See SKILL.md →
-*Cross-client tool mapping* and *Model and effort tiering*.
+SQL inserts, so ALL verdicts would be lost. **Model:** strongest tier, medium
+effort — the effort is tiered down because FP-check applies fixed rules to a
+bounded list, but it decides which findings survive, so the model is not. See
+SKILL.md → *Cross-client tool mapping* and *Model and effort tiering*.
 
 Render each batch's brief and dispatch its path, never its contents
-(spec rule R6):
+(spec rule R6). Set these per batch first — `AUDIT_DIR` is the only variable an
+earlier step defined:
+
+    BATCH=A                                       # batch letter from Step 2
+    IDS='G1-F2, G1-F5, G3-F1, G3-F4'              # the findings in this batch
+    SRC='Source tree at the project root; read any file under it.'
 
     python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit "$BATCH" --run "$AUDIT_DIR" \
       --var batch_id="$BATCH" --var finding_ids="$IDS" \
       --var run_dir="$AUDIT_DIR" --var source_access="$SRC" \
       --var artifact_path="$AUDIT_DIR/artifacts/phase5-$BATCH.md"
 
-Every `--var` above is required: the renderer fails loudly on an unsubstituted
-placeholder rather than handing a subagent a half-filled brief.
+Every `--var` above is required, and an empty value is rejected as hard as a
+missing one: the renderer fails loudly rather than handing a subagent a
+half-filled brief.
 
 Spawn ONE subagent per batch, ALL in parallel.
 
@@ -55,7 +62,7 @@ the batch:
 - The Marginal Gain Test (HE-17) is the most common false-positive source for
   operator-config findings — if the operator could already do X through
   documented configuration, a second way to do X is not a vulnerability.
-- The per-batch artifact at `<AUDIT_DIR>/artifacts/phase5-batch<X>-<scope>.md`
+- The per-batch artifact at `<AUDIT_DIR>/artifacts/phase5-<batch>.md`
   must document, per verdict: the re-read excerpt of the cited file, which
   exclusion or precedent rule applied (for false positives), the reason for
   keeping (for true positives), and the merge target (for duplicates).

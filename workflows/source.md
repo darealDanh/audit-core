@@ -34,7 +34,10 @@ Execute [recon.md](recon.md) with these overrides:
 
 Execute [audit.md](audit.md) with these overrides:
 - **CVE / patch-bypass ingest:** best-effort (rule 4) — attempt it; run `gh` **non-interactively** (ensure `GH_TOKEN` is set, or skip if `gh auth status` fails) so it can never open an auth prompt; on any auth/network error, record "CVE ingest skipped: network/auth unavailable" in the resume note + report and continue. Never abort or pause.
-- **Deep-audit subagents — source-only template:** when filling the [phase4-deep-audit.md](../references/phase4-deep-audit.md) prompt template, **omit all live-instance details** and set its *Test Instance* section to the documented fallback — **"No test instance available. Provide source-level analysis only."** **Delete the live-verification (curl / requests / raw-sockets) instructions.** The only legal `verified` value a subagent may write is **`source-only`** — never `live-poc`.
+- **Deep-audit briefs — source-only:** render each group's brief exactly as audit.md Step 4 says, but pass the documented no-instance fallback:
+  `--var test_instance='No test instance available. Provide source-level analysis only.'`
+  The brief's test-instance block is conditional on an instance existing, so that value turns the live-verification steps (curl / requests / raw sockets) off by itself — do not supply URLs, credentials or any other live-instance detail.
+- **`verified` is constrained (dispatch line, state it explicitly):** add to every deep-audit dispatch — *"There is no live instance. The only legal value for `cba_findings.verified` is `source-only`; never write `live-poc`."* Nobody is watching this run, so this constraint has to travel with the dispatch rather than rely on the subagent inferring it.
 - **No mutation (rule 2):** **drop audit.md Step 4's "Live-instance hygiene" bullet entirely** — subagents must NOT edit, back up, or restore any project/config file. Read-only source analysis only.
 - **USER GATE:** **skip** — continue straight to Step 3.
 

@@ -54,12 +54,19 @@ context ceiling) are enforced in the audit workflows rather than here.
 | Work | Model | Reasoning effort |
 |---|---|---|
 | Workspace setup, CVE ingest, pattern sweeps, SQL bookkeeping | script or cheapest tier | low |
-| Feature mapping, FP-check batches, report drafting | mid tier | low to medium |
+| Report drafting | mid tier | low to medium |
+| Feature mapping, FP-check batches | strongest tier, effort tiered down | low to medium |
 | Deep audit, chain reasoning, final severity calls, adversarial review | strongest tier | high |
 
 Reasoning effort is tiered with the model: retained thinking is the largest
 single component of accumulated context, so only the strongest-tier work runs
-at high effort.
+at high effort. Effort is the lever that is safe to pull on its own — it cuts
+retained thinking without changing which model reads the code.
+
+**Feature mapping and FP-check keep the strongest model and tier only their
+effort.** Both decide what gets looked at and what survives, so a model
+downgrade there can cost recall and precision. That change is not free and is
+not Stage 1's to make: it waits until precision is measured before and after.
 
 ### R2 — Return contracts
 
@@ -110,7 +117,7 @@ The skill supports six phases (invoke them individually after the prior phase co
 | `recon` | [workflows/recon.md](workflows/recon.md) | Source detection, reconnaissance, **parallel feature mapping**, write resume note | Fresh start (or new target) | `cba_feature_groups`, `cba_attack_surface`, `cba_security_observations` populated; `files/G<n>-mapping.md` per group; resume note ready for compact |
 | `deploy` | [workflows/deploy.md](workflows/deploy.md) | Deploy live instance from source (Docker, build artifact, or local run); document in `/memories/repo/<project>-live-instance.md` | Recon done OR independent setup task | Live instance running; endpoints documented; live-instance note saved to repo memory |
 | `audit` | [workflows/audit.md](workflows/audit.md) | Load prior CVEs/advisories (find patch-bypass surfaces), **parallel deep-audit subagents** per group, write resume note | Recon + deploy done | `cba_known_findings`, `cba_findings` populated; per-group `artifacts/G<n>-findings.md`; resume note updated |
-| `fpcheck` | [workflows/fpcheck.md](workflows/fpcheck.md) | **Parallel FP-check subagents** apply Hard Exclusions / Precedent rules / Marginal Gain Test — **static review only**, no live testing; write resume note | Audit done | `cba_fp_verdicts` populated; per-batch `artifacts/phase5-batch<X>.md`; resume note updated |
+| `fpcheck` | [workflows/fpcheck.md](workflows/fpcheck.md) | **Parallel FP-check subagents** apply Hard Exclusions / Precedent rules / Marginal Gain Test — **static review only**, no live testing; write resume note | Audit done | `cba_fp_verdicts` populated; per-batch `artifacts/phase5-<batch>.md`; resume note updated |
 | `verify` | [workflows/verify.md](workflows/verify.md) | **Runs in a forked conversation**, requires finding-ID list. Per-finding live PoC, **adversarial review** (Step 2), then writes `artifacts/verify-<finding-id>.md` and - for a confirmed finding - runs the report phase in the same fork. Refuses to run without IDs. | FP-check produced TPs; user opened a fork and passed `<ids>`. | `verify-<id>.md` per finding (CONFIRMED / REFUTED / INCONCLUSIVE) + `<id>-vuln-report.md` per confirmed finding. |
 | `report` | [workflows/report.md](workflows/report.md) | Write the vulnerability report(s) in the lean maintainer format (Summary / Root Cause / Steps + PoC / Impact). **Live: per-finding, run IN THE FORK** after verify → `artifacts/<id>-vuln-report.md` with real PoC + captured output. **Source: consolidated, run in the orchestrator** → one `report.md`, Steps = reproduction guide (no run/output). No consolidation, no `disclosure-summary.md`. | Live: a finding confirmed in its verify fork. Source: end of the `source` run. | Live: `artifacts/<id>-vuln-report.md` per confirmed finding + scripts in project-root `poc/`. Source: one consolidated `report.md`. |
 | `source` | [workflows/source.md](workflows/source.md) | **Automated source-only run** (composite): chains recon → audit → fpcheck → report **unattended** — no deploy, no live instance, no verify, **no user gates**. For product teams scanning a codebase before release. CVE ingest best-effort. | Fresh start; source tree present; no human supervision wanted | one consolidated `report.md` + `audit.db`; all findings `verified='source-only'` (not live-verified) |
@@ -203,12 +210,14 @@ The automated **`source`** run uses the same diagram **minus deploy and the veri
 ```
 reports/audit-<YYYYMMDD-HHMMSS>/
 ├── audit.db                        # SQLite source of truth
+├── briefs/                         # rendered dispatch briefs (audit.py brief)
+│   └── <phase>-<unit>-brief.md     # one per dispatched subagent
 ├── files/
 │   ├── G<n>-mapping.md             # per-group feature mapping (recon)
 │   └── known-findings.md           # advisories + patch-bypass surface (audit)
 ├── artifacts/
 │   ├── G<n>-findings.md            # per-group deep-audit output (audit)
-│   ├── phase5-batch<X>-*.md        # per-batch FP-check verdicts (fpcheck)
+│   ├── phase5-<batch>.md           # per-batch FP-check verdicts (fpcheck)
 │   ├── verify-<finding-id>.md      # per-finding verification record (verify)
 │   └── <finding-id>-vuln-report.md # per-finding vuln report — LIVE (report, in the fork)
 ├── archived-poc/<finding-id>/      # (user-managed) finalized report + poc, after sending
@@ -228,9 +237,9 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 
 | Phase | Agent type | Model | Count | Task |
 |---|---|---|---|---|
-| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | mid tier, low effort | 1 per group | Map features → code |
+| recon (mapping) | **writable** subagent (writes SQL/artifacts — see *Cross-client tool mapping*) | strongest tier, low effort | 1 per group | Map features → code |
 | audit | **writable** subagent | strongest tier, high effort | 1 per group | Deep adversarial audit |
-| fpcheck | **writable** subagent | mid tier, medium effort | 1 per batch of 8-12 findings | Static FP review |
+| fpcheck | **writable** subagent | strongest tier, medium effort | 1 per batch of 8-12 findings | Static FP review |
 | verify | n/a — forked **root** conversation (or a fresh workflow agent) | — | 1 fork/agent **per finding**, **serial** | Live PoC against deployed instance |
 | verify (review) | **writable** subagent, **fresh** (no fork/audit context) | strongest tier, high effort | 2-3 per CONFIRMED finding | Adversarial review of each finding/PoC — neutral prompt; real-bug / valid-PoC / intentionally-vulnerable-code lenses (optional interactive multi-agent debate where the client supports it, e.g. a Claude agent-team) |
 
@@ -288,8 +297,9 @@ To begin, route to the appropriate workflow:
 | File | Content |
 |---|---|
 | [references/phase0-source-detection.md](references/phase0-source-detection.md) | Source detection logic, IDA Pro MCP probing, user prompts |
-| [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, subagent prompt, mapping format |
-| [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | Deep audit subagent prompt, finding schema, dedup |
+| [references/briefs/](references/briefs/) | The three dispatch brief templates (`recon-`, `audit-`, `fpcheck-brief.md`) rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
+| [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, the recon brief's `--var` values, mapping format |
+| [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | The audit brief's `--var` values, finding schema, dedup |
 | [references/phase5-fp-check.md](references/phase5-fp-check.md) | Batching strategy, FP rules, verdict schema |
 | [references/phase6-report.md](references/phase6-report.md) | Lean per-finding + consolidated report template (Redis-style) + annotated example |
 | [references/resume-note-template.md](references/resume-note-template.md) | Standard resume-note format for compact survival |

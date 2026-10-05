@@ -79,7 +79,16 @@ Insert approved groups into `cba_feature_groups` (status='pending').
 
 Spawn ONE subagent per feature group, ALL in parallel (one subagent-spawn call per group in the same response — see SKILL.md → *Cross-client tool mapping*).
 
-For each group, render the brief and dispatch with its path:
+For each group, render the brief and dispatch with its path. Set these per
+group first — `AUDIT_DIR` is the only variable an earlier step defined, and the
+renderer rejects an empty value, so nothing here can be left unassigned:
+
+    G=G1                                          # stable group id, from cba_feature_groups
+    NAME='Authentication and session handling'    # the group's name
+    DESC='Login, token issue/verify, session store'   # one or two lines
+    DIRS='src/auth, src/session, src/middleware'  # key directories for this group
+    SRC='Source tree at the project root; read any file under it.'
+    KNOWN='None ingested yet - the audit phase loads CVEs/GHSAs.'
 
     python3 __SKILL_DIR__/audit.py brief --phase recon --unit "$G" --run "$AUDIT_DIR" \
       --var group_id="$G" --var group_name="$NAME" \
@@ -88,12 +97,19 @@ For each group, render the brief and dispatch with its path:
       --var known_findings="$KNOWN" \
       --var mapping_path="$AUDIT_DIR/files/$G-mapping.md"
 
+Every `--var` above is required, and an empty value is rejected as hard as a
+missing one — a blank section hands the subagent a brief it has to guess at.
+If a section really is empty, say so in the value (as `KNOWN` does above) or
+pass `--allow-empty`.
+
 The dispatch carries the brief path plus only what the brief cannot know.
 Do not paste the brief's contents into the prompt, and never paste prior
 phases' summaries (spec rule R6).
 
-**Model:** mid tier, low effort — mapping is pattern work against clear
-criteria. See SKILL.md → *Model and effort tiering*.
+**Model:** strongest tier, low effort — the effort is tiered down because
+mapping is pattern work against clear criteria, but mapping decides what the
+audit phase ever looks at, so the model is not. See SKILL.md →
+*Model and effort tiering*.
 
 Each subagent returns one line. Read the results from SQL, not from the
 return text.

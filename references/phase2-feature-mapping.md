@@ -57,7 +57,12 @@ dispatch — render it and send the path (spec rule R6):
 The *Mapping Output Storage* below remains the authority for what a mapping
 row must contain.
 
-### Source Access Instructions (fill into template)
+### Source access instructions (passed as `--var source_access=...`)
+
+There is no prompt template to fill any more. Pick the variant below that
+matches the detected target and pass it as the `source_access` `--var` on the
+`audit.py brief` command above. The same value is what the audit and fpcheck
+briefs take.
 
 **Source code only:**
 ```
