@@ -42,6 +42,31 @@ def test_template_without_return_contract_is_flagged(tmp_path):
     assert any(f.rule == "no-return-contract" for f in findings)
 
 
+def test_blanket_model_mandate_is_flagged(tmp_path):
+    """The only rule the brief's own test list never exercised. The real skill
+    has zero occurrences of the mandate string, so the shipped-skill test
+    cannot cover it either - a typo in BLANKET_MANDATE would ship silently."""
+    (tmp_path / "workflows").mkdir()
+    (tmp_path / "references" / "briefs").mkdir(parents=True)
+    (tmp_path / "SKILL.md").write_text("ok")
+    (tmp_path / "workflows" / "audit.md").write_text(
+        "Use the strongest model your client offers for every subagent.")
+    findings = skill_lint.lint(tmp_path, KNOWN)
+    assert any(f.rule == "blanket-model-mandate" for f in findings)
+
+
+def test_blanket_model_mandate_is_not_flagged_in_skill_md(tmp_path):
+    """SKILL.md is exempt on purpose: it may quote the old mandate in its
+    rejection table. Pin the exemption so a later change cannot silently
+    widen or lose it."""
+    (tmp_path / "workflows").mkdir()
+    (tmp_path / "references" / "briefs").mkdir(parents=True)
+    (tmp_path / "SKILL.md").write_text(
+        'Rejection: "use the strongest model your client offers" - tier it instead.')
+    findings = skill_lint.lint(tmp_path, KNOWN)
+    assert not any(f.rule == "blanket-model-mandate" for f in findings)
+
+
 def test_archived_workflows_are_ignored(tmp_path):
     (tmp_path / "workflows").mkdir()
     (tmp_path / "references" / "briefs").mkdir(parents=True)
