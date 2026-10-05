@@ -17,6 +17,7 @@ from audit_core import goldens as goldens_mod  # noqa: E402
 from audit_core import workspace as workspace_mod  # noqa: E402
 from audit_core import preflight as preflight_mod  # noqa: E402
 from audit_core import briefs as briefs_mod  # noqa: E402
+from audit_core import skill_lint as skill_lint_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -128,6 +129,31 @@ def cmd_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_lint_skill(args: argparse.Namespace) -> int:
+    findings = skill_lint_mod.lint(args.root, set(HANDLERS))
+    if not findings:
+        print("skill lint: clean")
+        return 0
+    for f in findings:
+        print(f"  [{f.rule}] {f.path}: {f.detail}")
+    print(f"skill lint: {len(findings)} finding(s)")
+    return 1
+
+
+# The single source of truth for which verbs exist. `main` dispatches through
+# it and `lint-skill` reads its keys, so a verb cannot exist in one and not
+# the other.
+HANDLERS = {
+    "selftest": cmd_selftest,
+    "budget": cmd_budget,
+    "bench": cmd_bench,
+    "init": cmd_init,
+    "preflight": cmd_preflight,
+    "brief": cmd_brief,
+    "lint-skill": cmd_lint_skill,
+}
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="audit.py")
     sub = p.add_subparsers(dest="verb", required=True)
@@ -153,14 +179,15 @@ def build_parser() -> argparse.ArgumentParser:
     br.add_argument("--run", required=True, metavar="RUN_DIR")
     br.add_argument("--var", action="append", default=[], metavar="NAME=VALUE")
     br.add_argument("--template-dir", default=None, metavar="DIR")
+    ls = sub.add_parser("lint-skill", help="check the skill against the economics contract")
+    ls.add_argument("--root", default=str(pathlib.Path(__file__).resolve().parent),
+                    metavar="DIR")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return {"selftest": cmd_selftest, "budget": cmd_budget,
-            "bench": cmd_bench, "init": cmd_init, "preflight": cmd_preflight,
-            "brief": cmd_brief}[args.verb](args)
+    return HANDLERS[args.verb](args)
 
 
 if __name__ == "__main__":
