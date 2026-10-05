@@ -115,8 +115,12 @@ install_skill_files() {
   find "${target}/audit_core" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
   # The install is not complete until the tool runs from where it landed.
+  local pyver
+  pyver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "none")"
   if ! python3 "${target}/audit.py" selftest >/dev/null 2>&1; then
     echo "ERROR: audit.py selftest failed in ${target} — the install is incomplete." >&2
+    echo "       python3 on PATH is ${pyver}; this skill requires 3.10 or newer." >&2
+    echo "       Install a newer python3, or put one earlier on PATH, then re-run." >&2
     exit 1
   fi
   echo "  selftest OK"

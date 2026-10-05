@@ -1,4 +1,5 @@
 # tests/test_install.py
+import os
 import pathlib
 import shutil
 import subprocess
@@ -15,11 +16,11 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
     then dies at the first audit.py call. The install must fail loudly."""
     home = tmp_path / "home"
     home.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "claude"],
         capture_output=True, text=True,
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/local/bin",
-             "CLAUDE_CONFIG_DIR": str(home / ".claude")},
+        env=env,
         cwd=str(ROOT),
     )
     assert r.returncode == 0, r.stdout + r.stderr
@@ -41,10 +42,11 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
 def test_install_sh_covers_both_codex_directories(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
+    env = {**os.environ, "HOME": str(home), "CODEX_HOME": str(home / ".codex")}
     r = subprocess.run(
         ["bash", str(ROOT / "install.sh"), "codex"],
         capture_output=True, text=True,
-        env={"HOME": str(home), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        env=env,
         cwd=str(ROOT),
     )
     assert r.returncode == 0, r.stdout + r.stderr

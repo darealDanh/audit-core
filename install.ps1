@@ -107,9 +107,13 @@ function Install-SkillFiles {
     Get-ChildItem -Path $coreDst -Recurse -Directory -Filter '__pycache__' |
         Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
+    $pyver = & python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>$null
+    if (-not $pyver) { $pyver = 'none' }
     & python3 (Join-Path $Target 'audit.py') selftest | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Error "audit.py selftest failed in $Target - the install is incomplete."
+        Write-Error "       python3 on PATH is $pyver; this skill requires 3.10 or newer."
+        Write-Error "       Install a newer python3, or put one earlier on PATH, then re-run."
         exit 1
     }
 }
