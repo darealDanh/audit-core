@@ -144,6 +144,35 @@ def test_install_sh_refuses_when_the_source_dir_is_the_install_dir(tmp_path):
     assert "Done." not in out, "the installer still claimed success"
 
 
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_install_removes_a_workflow_deleted_from_the_repo(tmp_path):
+    """Carried from Stage 1: install.ps1 prunes, install.sh did not, so a
+    file deleted from the repo lingered in a .sh-installed tree forever."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    r = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), "claude"],
+        capture_output=True, text=True, env=env, cwd=str(ROOT),
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    target = home / ".claude" / "skills" / "codebase-audit"
+
+    stale = target / "workflows" / "ghost.md"
+    stale.write_text("left over from an older install\n")
+    stale_ref = target / "references" / "ghost.md"
+    stale_ref.write_text("also stale\n")
+
+    r2 = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), "claude"],
+        capture_output=True, text=True, env=env, cwd=str(ROOT),
+    )
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    assert not stale.exists()
+    assert not stale_ref.exists()
+    assert (target / "workflows" / "audit.md").is_file()
+
+
 def test_readme_does_not_document_cloning_into_an_install_dir():
     """README used to present clone-in-place as a supported configuration."""
     text = (ROOT / "README.md").read_text()

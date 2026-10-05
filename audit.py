@@ -6,7 +6,9 @@ import hashlib
 import json
 import pathlib
 import re
+import sqlite3
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -28,7 +30,61 @@ from audit_core import sweep as sweep_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
+    """Verify the vendored core is importable AND internally consistent.
+
+    Printing a version number proves an import. These two checks prove the
+    things that actually break a run six phases in, and each compares two
+    structures that were built independently - per Stage 0's finding that a
+    tool's output is only trustworthy when validated against something it did
+    not produce.
+    """
+    problems: list[str] = []
+
+    # 1. Verbs: HANDLERS against the argument parser's subcommands.
+    parser = build_parser()
+    sub = next((a for a in parser._actions                     # noqa: SLF001
+                if isinstance(a, argparse._SubParsersAction)), None)
+    declared = set(sub.choices) if sub is not None else set()
+    for verb in sorted(set(HANDLERS) - declared):
+        problems.append(f"verb {verb!r} has a handler but no subparser")
+    for verb in sorted(declared - set(HANDLERS)):
+        problems.append(f"verb {verb!r} has a subparser but no handler")
+
+    # 2. Tables: TABLE_SPECS against the database schema.sql actually builds.
+    tables: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = pathlib.Path(tmp) / "selftest.db"
+        try:
+            tables = list(workspace_mod.apply_schema(db_path))
+        except Exception as exc:                       # noqa: BLE001
+            print(f"selftest: schema.sql does not apply: {exc}", file=sys.stderr)
+            return 1
+        con = sqlite3.connect(db_path)
+        try:
+            for table, spec in sorted(db_mod.TABLE_SPECS.items()):
+                if table not in tables:
+                    problems.append(f"{table} is in TABLE_SPECS but not in schema.sql")
+                    continue
+                actual = {r[1] for r in con.execute(
+                    f"PRAGMA table_info({table})")}
+                for column in sorted(set(spec.columns) - actual):
+                    problems.append(f"{table}.{column} is in TABLE_SPECS "
+                                    f"but not in schema.sql")
+                for column in sorted(c for c in spec.required if c not in actual):
+                    problems.append(f"{table}.{column} is required by "
+                                    f"TABLE_SPECS but does not exist")
+        finally:
+            con.close()
+
+    if problems:
+        print(f"selftest: {len(problems)} inconsistenc(ies)", file=sys.stderr)
+        for p in problems:
+            print(f"  {p}", file=sys.stderr)
+        return 1
     print(f"audit_core {audit_core.__version__} ok")
+    print(f"  verbs  {len(HANDLERS)} declared, all dispatchable")
+    print(f"  tables {len(tables)} in schema.sql, "
+          f"{len(db_mod.TABLE_SPECS)} under contract, columns agree")
     return 0
 
 

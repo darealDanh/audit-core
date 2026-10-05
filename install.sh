@@ -118,6 +118,13 @@ install_skill_files() {
   # the installed skill fails with "can't open file '.../__SKILL_DIR__/audit.py'".
   substitute_file "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md" "${abs_target}"
   cp -f "${SCRIPT_DIR}/audit.py" "${target}/audit.py"
+  # Remove before copying, so a file deleted from the repo does not linger in
+  # an installed tree forever. install.ps1 already does this; this is the
+  # matching behaviour. The clone-in-place guard above has already run, so
+  # ${target} is never this checkout.
+  for sub in workflows references; do
+    rm -rf "${target:?}/${sub}"
+  done
   for sub in workflows references; do
     [[ -d "${SCRIPT_DIR}/${sub}" ]] || continue
     # Recursive, so references/briefs/ is covered too.
