@@ -141,8 +141,16 @@ def test_audit_brief_keeps_the_quality_narrowings():
     assert "zero vulnerabilities" in text
     assert "every entry point you reviewed" in text
 
-    # SKILL.md documents cba_findings.artifact_path; something must instruct it.
-    assert "artifact_path" in _section(text, "## Where your output goes")
+    # SKILL.md documents cba_findings.artifact_path; something must instruct the
+    # agent to WRITE that column. Asserting on the bare token "artifact_path"
+    # could never fail: the section already said "the detailed write-up to
+    # {artifact_path}" before the instruction was restored. Pin the restored
+    # sentence's own words instead.
+    # Whitespace-normalised: the sentence wraps mid-phrase in the template.
+    output = " ".join(_section(text, "## Where your output goes").split())
+    assert "Set each row's `artifact_path` column to" in output, (
+        "audit-brief.md no longer tells the agent to populate "
+        "cba_findings.artifact_path")
 
 
 def test_audit_brief_carries_the_patch_bypass_probe_instruction():
