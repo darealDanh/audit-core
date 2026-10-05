@@ -151,8 +151,9 @@ def cmd_bench(args: argparse.Namespace) -> int:
         print("candidates needing adjudication:")
         for c in result.candidates:
             print(f"  {c.reference_id} ~ {c.finding_id}  ({c.reason})")
-    if rejected:
-        print(f"({len(rejected)} previously rejected pair(s) suppressed)")
+    if result.suppressed_candidates:
+        print(f"({result.suppressed_candidates} candidate(s) suppressed by "
+              f"rejections.json)")
     return 0
 
 

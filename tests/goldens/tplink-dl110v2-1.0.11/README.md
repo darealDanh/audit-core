@@ -115,18 +115,52 @@ This changes which *candidates* are proposed and nothing else. The match path
 reads `matches.json` only, so recall cannot move because of it, and did not:
 `9/19 (47.4%)` before and after.
 
-Two consequences worth naming:
+Consequences worth naming:
 
 - REF-10's bare `tss` is three characters and is now dropped entirely. It is
   left in `locations` as documentation of the object name the source report
   uses; it no longer proposes anything.
-- REF-14's bare `test` is exactly four characters and is *kept*, but it can
-  now only match a location whose own token is exactly `test`. It no longer
-  pairs with every location containing `latest` or `attestation`.
+- **Five generic word tokens survive the floor and remain latent.**
+  Tokenizing the whole golden for short all-alphabetic tokens yields exactly
+  these:
+
+  | Token | Carried by | Comes from |
+  |---|---|---|
+  | `test` | REF-14 | the literal `"test"` |
+  | `link` | REF-14 | `test@tp-link.net`, split on `@`, `-` and `.` |
+  | `lock` | REF-16 | `/service/lock`, split on `/` |
+  | `service` | REF-12, REF-16 | `/service/passthrough`, `/service/lock` |
+  | `wreg` | REF-3 | `AT+WREG`, split on `+` |
+
+  None of them was added by the 2026-10-05 location sweep; all predate it.
+  Whole-token matching is what defuses them: `test` no longer pairs with
+  every location containing `latest` or `attestation`, and `lock` no longer
+  pairs with `unlock`, `lock_status` or `deadbolt_lock_cb`. Each can still
+  pair with a finding whose own location tokenizes to exactly that word, so
+  if one of these references ever becomes unmatched and starts producing
+  noise, these five tokens are the first place to look.
 
 Address strings written as ranges (`0x0E08D9FC-0x0E08D9FE`) tokenize into
 their two endpoints, so a range may be stored exactly as the source report
 writes it.
+
+### What the tokenizer splits on, and the one asymmetry
+
+`text._TOKEN` is `[A-Za-z0-9_]+`: it treats `_` as a word character but
+splits on `-`, `@`, `.`, `/` and `+`. That is why `test@tp-link.net` yields
+four tokens and `sub_E08E554` yields one.
+
+The asymmetry has a real cost in the stricter direction, and it is the price
+this change pays. A future run citing `sub_E08E554_1`, `tbtp_receive_data_cb`
+or `klap_handshake1_handle_v2` shares **no** token with the golden's
+`sub_E08E554`, `tbtp_receive_data` or `klap_handshake1_handle`, because the
+suffix is joined by `_` rather than separated by a delimiter. The old
+substring rule *would* have raised those candidates. This is the intended
+trade — the rule that stops `tss` matching `TssRSASecretKey` is the same rule
+that stops `sub_E08E554` matching `sub_E08E554_1` — but a reference that goes
+unmatched against a run whose tooling renamed symbols with suffixes is a
+plausible way for this scorer to under-propose, and that should be checked
+before concluding a reference was genuinely missed.
 
 ## 2026-10-05 — locations added from the source report
 
@@ -171,6 +205,35 @@ adjudication.
 | REF-17 | `0x0E043470`, `0x0E043268`, `0x0E0437E8` | the two branch targets of the bypass; address form of `sub_E0437E8` |
 | REF-18 | `0x2001CBB8-0x2001CBBC`, `0x2001CF28-0x2001CFEC`, `0x2001CF34-0x2001CF48`, `0x2001CFBE-0x2001CFC6`, `0x2001CFF0-0x2001D010`, `0x2003C066` | window-flush trigger, partial-send builder, big-endian offset store, hard-coded length, window slide, wire-length store |
 | REF-19 | `0x2001CB28` | end of the first-fragment header-size range already half-present |
+
+### Added with a known collision — REF-3's `0x2000B344`
+
+One addition is not cleanly specific to its entry, and is recorded here
+rather than only in the task report.
+
+`0x2000B344` is the SRAM base of the AT dispatch table that holds `"+WREG"`.
+F-3's **Location.** line cites it ("table record `0x2000B344`+10*16 =
+`0x2000B444`") and its root cause turns on it — the entry's thesis is that
+AT+WREG is entry 10 of the 11-entry table at that address. It is a location
+of this defect.
+
+It is also **shared registration infrastructure**. The same base is cited in
+the source report's `# HIGH (38)` section as one of five AT registration
+tables built by `sub_E02365C`, and one run finding in the pinned audit
+(`G4-F3`) already cites `AT table @0x2000B344` for an unrelated OTA-signature
+defect.
+
+It was added rather than left out because the table *is* the defect's
+mechanism, but the collision is real and is named so it is not discovered as
+a surprise. **It is inert today**: REF-3 is adjudicated to G6-F1, and
+adjudicated references are skipped by candidate generation entirely. If REF-3
+ever becomes unmatched, this token will pair it with every AT-table finding.
+That may well be correct — such a finding plausibly *is* REF-3 — but if REF-3
+starts producing candidate noise, this is the token to remove first.
+
+No other addition in the table above has a known collision; `wreg`,
+`service`, `lock` and `link` are discussed under the token rule above and
+were all present before this sweep.
 
 ### Cited but deliberately left out
 

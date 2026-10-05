@@ -39,6 +39,14 @@ class BenchResult:
     reference_count: int
     finding_count: int
     cost_per_match: float | None
+    suppressed_candidates: int = 0
+    """Pairs that would have been raised as candidates but were rejected.
+
+    Counted inside the candidate loop, so it is the number of adjudications
+    this run actually saved - not the number of rows in rejections.json. The
+    two differ whenever a rejected pair no longer overlaps at all, which is
+    the case for both tplink pairs now that `tss` is under the token floor.
+    """
 
 
 def load_findings_from_db(db_path: str | pathlib.Path) -> list[RunFinding]:
@@ -78,6 +86,7 @@ def score(
     matched_findings = {f for _, f in matched}
 
     candidates: list[Candidate] = []
+    suppressed = 0
     for ref in refs:
         if ref.id in matched_refs:
             continue
@@ -89,13 +98,15 @@ def score(
         for finding in findings:
             if finding.id in matched_findings:
                 continue
-            if (ref.id, finding.id) in rejected:
-                continue
             shared = ref_tokens & text.location_tokens(finding.location)
-            if shared:
-                candidates.append(Candidate(
-                    ref.id, finding.id,
-                    "location overlap: " + ", ".join(sorted(shared))))
+            if not shared:
+                continue
+            if (ref.id, finding.id) in rejected:
+                suppressed += 1
+                continue
+            candidates.append(Candidate(
+                ref.id, finding.id,
+                "location overlap: " + ", ".join(sorted(shared))))
 
     recall = len(matched) / len(refs) if refs else 0.0
     cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
@@ -108,4 +119,5 @@ def score(
         reference_count=len(refs),
         finding_count=len(findings),
         cost_per_match=cost_per_match,
+        suppressed_candidates=suppressed,
     )

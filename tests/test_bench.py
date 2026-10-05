@@ -99,9 +99,14 @@ REF19_TBTP = goldens.Reference(
 
 G6F3_TSS = bench.RunFinding("G6-F3", "RSA private key over the debug UART",
                             "CWE-200", "TssRSASecretKey", "CRITICAL")
-G6F3_SHARED = bench.RunFinding("G6-F3", "RSA private key over the debug UART",
-                               "CWE-200", "update_bind_token@0x0E08E554",
-                               "CRITICAL")
+# G6-F3's real location is tp_cmd_TPGV@0x0E041A00, which shares no token with
+# REF-10. This fixture gives it REF-10's own sink instead, synthetically, so
+# that the rejected pair has a live candidate to suppress - the whole point of
+# rejections.json is a pair that overlaps but is not the same defect, and the
+# real G6-F3 no longer overlaps at all once `tss` is under the token floor.
+G6F3_SYNTHETIC_OVERLAP = bench.RunFinding(
+    "G6-F3", "RSA private key over the debug UART", "CWE-200",
+    "update_bind_token@0x0E08E554", "CRITICAL")
 G5F1 = bench.RunFinding("G5-F1", "unbounded fragment reassembly", "CWE-787",
                         "tbtp_handle_characteristic_received@0x2001CA2C",
                         "CRITICAL")
@@ -112,8 +117,8 @@ G5F1_BARE = bench.RunFinding("G5-F1", "unbounded fragment reassembly", "CWE-787"
 
 
 def test_a_rejected_pair_is_not_offered_as_a_candidate_again():
-    assert bench.score([REF10], [G6F3_SHARED], {}).candidates != ()
-    scored = bench.score([REF10], [G6F3_SHARED], {},
+    assert bench.score([REF10], [G6F3_SYNTHETIC_OVERLAP], {}).candidates != ()
+    scored = bench.score([REF10], [G6F3_SYNTHETIC_OVERLAP], {},
                          rejected=frozenset({("REF-10", "G6-F3")}))
     assert scored.candidates == ()
     assert scored.unmatched_references == ("REF-10",)
@@ -155,6 +160,34 @@ def test_rejecting_a_pair_does_not_hide_an_adjudicated_match():
 
 
 def test_a_rejection_for_another_reference_does_not_suppress_this_one():
-    scored = bench.score([REF10], [G6F3_SHARED], {},
+    scored = bench.score([REF10], [G6F3_SYNTHETIC_OVERLAP], {},
                          rejected=frozenset({("REF-11", "G6-F3")}))
     assert len(scored.candidates) == 1
+
+
+def test_suppressed_count_is_skips_not_file_size():
+    """The printed figure is what this run actually saved. A rejection for a
+    pair that no longer overlaps at all suppresses nothing and must not be
+    counted - otherwise the gate record overstates the mechanism."""
+    live = bench.score([REF10], [G6F3_SYNTHETIC_OVERLAP], {},
+                       rejected=frozenset({("REF-10", "G6-F3")}))
+    assert live.suppressed_candidates == 1
+
+    # Same rejection, but G6-F3 at its real location: no overlap, no skip.
+    inert = bench.score([REF10], [G6F3_TSS], {},
+                        rejected=frozenset({("REF-10", "G6-F3")}))
+    assert inert.candidates == ()
+    assert inert.suppressed_candidates == 0
+
+
+def test_suppressed_count_is_zero_without_rejections():
+    assert bench.score([REF10], [G6F3_SYNTHETIC_OVERLAP], {}
+                       ).suppressed_candidates == 0
+
+
+def test_a_rejection_for_an_adjudicated_reference_suppresses_nothing():
+    """A matched reference never reaches the candidate loop, so its rejection
+    cannot be counted as a saved adjudication."""
+    scored = bench.score([REF19_TBTP], [G5F1_BARE], {"REF-19": "G5-F1"},
+                         rejected=frozenset({("REF-19", "G5-F1")}))
+    assert scored.suppressed_candidates == 0

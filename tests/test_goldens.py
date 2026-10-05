@@ -95,3 +95,32 @@ def test_tplink_rejections_do_not_contradict_matches():
     """matches.json wins: a pair cannot be both adjudicated and rejected."""
     adjudicated = set(goldens.load_matches(TPLINK / "matches.json").items())
     assert adjudicated & goldens.load_rejections(TPLINK / "rejections.json") == set()
+
+
+def test_a_rejection_that_is_not_an_object_is_refused(tmp_path):
+    """A list of bare strings must fail as a golden error with a position, not
+    as an AttributeError from item.get()."""
+    p = tmp_path / "rejections.json"
+    p.write_text('["REF-10"]')
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_rejections(p)
+    assert "[0]" in str(exc.value)
+
+
+@pytest.mark.parametrize("missing", ["reference_id", "finding_id", "reason"])
+def test_a_rejection_missing_any_required_key_is_refused(tmp_path, missing):
+    item = {"reference_id": "REF-10", "finding_id": "G6-F3", "reason": "why"}
+    del item[missing]
+    p = tmp_path / "rejections.json"
+    p.write_text(json.dumps([item]))
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_rejections(p)
+    assert missing in str(exc.value)
+
+
+def test_a_blank_reason_is_refused_like_a_missing_one(tmp_path):
+    p = tmp_path / "rejections.json"
+    p.write_text(json.dumps([{"reference_id": "REF-10", "finding_id": "G6-F3",
+                              "reason": "   "}]))
+    with pytest.raises(goldens.GoldenError):
+        goldens.load_rejections(p)
