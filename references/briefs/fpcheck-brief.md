@@ -22,7 +22,9 @@ Audit run directory: {run_dir}
    `references/phase5-fp-check.md`.
 4. Apply Capability Validity checks CV-1 to CV-3.
 5. Check the confidence threshold: the finding must be rated at least 8 of 10.
-6. Re-read every cited file. The cited code must exist and match the claim.
+6. Trace the actual data flow in source code, re-reading every cited file.
+   The cited code must exist and match the claim. HE-1 is "no source-to-sink
+   data flow demonstrated"; this is the step that produces that evidence.
 7. Check for mitigations the original analyst may have missed.
 8. Apply the devil's advocate review: argue the finding is wrong, then see
    whether the argument survives the code.
