@@ -45,7 +45,9 @@ A battle-tested methodology for auditing applications at scale. The workflow div
 Measured across nine real audits: 449.9M context tokens re-read for $2,053.64.
 Cost follows `Σ over turns of context(turn)`, so **a token admitted to the
 orchestrator's context at turn N is paid for on every remaining turn**. The
-orchestrator's context is a budget, not a buffer.
+orchestrator's context is a budget, not a buffer. The rules below are R2, R4,
+R5 and R6 of the economics contract; R1 (extract-then-fan-out) and R3 (the
+context ceiling) are enforced in the audit workflows rather than here.
 
 ### Model and effort tiering
 
@@ -77,8 +79,11 @@ needs, and relaunch against it:
     python3 __SKILL_DIR__/audit.py preflight --server autorev=<command>
     claude --strict-mcp-config --mcp-config .audit-mcp.json
 
-Unused MCP tool schemas sit in the resident prefix (20.9% of cost) and are
-charged again in accumulation as deferred-tool records.
+The resident prefix is 20.9% of measured cost, and unused MCP tool schemas are
+a large part of it: the prefix floor grows by 11.5k-25.1k tokens mid-session as
+servers load, which on the largest measured session is 38% of the peak prefix.
+Those schemas are then charged a second time in accumulation, as deferred-tool
+records.
 
 ### R5 — Reusable logic is an `audit.py` verb, never an inline heredoc
 
