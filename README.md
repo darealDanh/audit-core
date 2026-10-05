@@ -146,9 +146,9 @@ The literal string `__SKILL_DIR__` is an installer sentinel. It appears in the C
 
 You can `./install.sh claude` on a machine that has no VS Code, and nothing ever touches `~/.copilot/`.
 
-### Special case: cloning directly into an install dir
+### Do not clone into an install dir
 
-If you cloned the repo into one of the per-client skill dirs (e.g. directly into `~/.copilot/skills/codebase-audit/`), the installer detects that and skips the skill-file copy for that target — there's nothing to copy onto itself. The launcher install still happens. To get the skill content into the **other** clients' dirs, run `./install.sh` with all targets (default) or just that target.
+Clone the repo somewhere of its own and install **from** there **into** the client skill dirs. If the clone *is* one of the per-client skill dirs (e.g. you cloned directly into `~/.copilot/skills/codebase-audit/`), the installer refuses that target with a non-zero exit, because the `__SKILL_DIR__` substitution cannot run in place: performing it would rewrite the files of your git checkout, and skipping it would leave the sentinel in the installed skill so every `audit.py` command fails. Re-clone to a separate directory and run the installer from there.
 
 ## Usage
 

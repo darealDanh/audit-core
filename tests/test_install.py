@@ -111,3 +111,41 @@ def test_install_sh_covers_both_codex_directories(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     for d in (home / ".agents" / "skills", home / ".codex" / "skills"):
         assert (d / "codebase-audit" / "audit.py").is_file(), f"missing under {d}"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_install_sh_refuses_when_the_source_dir_is_the_install_dir(tmp_path):
+    """Cloning the repo straight into a per-client skill dir used to be
+    documented as supported: the installer printed "(source dir IS install dir;
+    skipping skill file copy)", returned 0 and said "Done." -- while every
+    __SKILL_DIR__ in the tree survived, so all ten documented `audit.py`
+    commands were unrunnable. `lint-skill` could not catch it either, because
+    its unsubstituted-skill-dir rule exempts any tree with install.sh at its
+    root, which a clone-in-place tree has. Substitution cannot run in place
+    without rewriting the checkout, so the configuration is refused instead."""
+    home = tmp_path / "home"
+    target = home / ".claude" / "skills" / "codebase-audit"
+    target.parent.mkdir(parents=True)
+    # A clone-in-place tree: the repo checked out AT the install location.
+    shutil.copytree(ROOT, target,
+                    ignore=shutil.ignore_patterns(".git", "__pycache__",
+                                                  ".pytest_cache"))
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude")}
+    r = subprocess.run(
+        ["bash", str(target / "install.sh"), "claude"],
+        capture_output=True, text=True, env=env, cwd=str(target),
+    )
+    assert r.returncode != 0, (
+        "install.sh accepted a clone-in-place install:\n" + r.stdout + r.stderr)
+    out = r.stdout + r.stderr
+    assert "source directory IS the install directory" in out, out
+    assert "__SKILL_DIR__" in out, out
+    assert "separate checkout" in out, out
+    assert "Done." not in out, "the installer still claimed success"
+
+
+def test_readme_does_not_document_cloning_into_an_install_dir():
+    """README used to present clone-in-place as a supported configuration."""
+    text = (ROOT / "README.md").read_text()
+    assert "skips the skill-file copy" not in text
+    assert "Do not clone into an install dir" in text

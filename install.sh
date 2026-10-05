@@ -90,16 +90,26 @@ fi
 # ---- helpers ----
 
 # Copy SKILL.md + workflows/ + references/ from SCRIPT_DIR into $1.
-# Skips if target is the same as SCRIPT_DIR (e.g. cloned directly into install
-# location).
+# Refuses outright if the target IS SCRIPT_DIR (e.g. the repo was cloned
+# directly into the install location): see the error text below.
 install_skill_files() {
   local target="$1"
   mkdir -p "${target}"
   local abs_target sub src rel dst
   abs_target="$(cd "${target}" && pwd -P)"
   if [[ "${SCRIPT_DIR}" == "${abs_target}" ]]; then
-    echo "  (source dir IS install dir; skipping skill file copy)"
-    return
+    echo "ERROR: the source directory IS the install directory:" >&2
+    echo "         ${abs_target}" >&2
+    echo "       The skill content cannot be substituted in place. Substituting" >&2
+    echo "       __SKILL_DIR__ here would rewrite the files of this git checkout," >&2
+    echo "       and skipping the substitution leaves the __SKILL_DIR__ sentinel" >&2
+    echo "       in the installed skill, so every 'python3 __SKILL_DIR__/audit.py'" >&2
+    echo "       command would fail. A tree cannot be both a source checkout and" >&2
+    echo "       an install target." >&2
+    echo "       Install from a separate checkout into a different directory:" >&2
+    echo "         git clone <repo> ~/src/codebase-audit" >&2
+    echo "         ~/src/codebase-audit/install.sh" >&2
+    exit 1
   fi
   echo "  Copying skill content -> ${target}"
   # SKILL.md, workflows/ and references/ all carry `python3 __SKILL_DIR__/audit.py`

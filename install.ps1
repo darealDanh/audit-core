@@ -81,14 +81,23 @@ if (-not (Test-Path (Join-Path $ScriptDir 'SKILL.md'))) {
 # ---- helpers ----
 
 # Copy SKILL.md + workflows\ + references\ from $ScriptDir into $Target.
-# Skips if target is the same as $ScriptDir (cloned directly into install location).
+# Refuses outright if the target IS $ScriptDir (e.g. the repo was cloned
+# directly into the install location): see the error text below.
 function Install-SkillFiles {
     param([string]$Target)
     New-Item -ItemType Directory -Force -Path $Target | Out-Null
     $absTarget = (Resolve-Path $Target).Path
     if ($absTarget -eq $ScriptDir) {
-        Write-Host "  (source dir IS install dir; skipping skill file copy)"
-        return
+        Write-Error "ERROR: the source directory IS the install directory: $absTarget"
+        Write-Error "       The skill content cannot be substituted in place. Substituting"
+        Write-Error "       __SKILL_DIR__ here would rewrite the files of this git checkout,"
+        Write-Error "       and skipping the substitution leaves the __SKILL_DIR__ sentinel"
+        Write-Error "       in the installed skill, so every 'python3 __SKILL_DIR__/audit.py'"
+        Write-Error "       command would fail. A tree cannot be both a source checkout and"
+        Write-Error "       an install target."
+        Write-Error "       Install from a separate checkout into a different directory, e.g."
+        Write-Error "       clone to $HOME\src\codebase-audit and run install.ps1 from there."
+        exit 1
     }
     Write-Host "  Copying skill content -> $Target"
     # SKILL.md, workflows\ and references\ all carry `python3 __SKILL_DIR__/audit.py`
