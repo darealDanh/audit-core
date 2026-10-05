@@ -22,6 +22,7 @@ from audit_core import db as db_mod  # noqa: E402
 from audit_core import coverage as coverage_mod  # noqa: E402
 from audit_core import extract as extract_mod  # noqa: E402
 from audit_core import annotations as annotations_mod  # noqa: E402
+from audit_core import ceiling as ceiling_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -50,6 +51,11 @@ def cmd_budget(args: argparse.Namespace) -> int:
             print(budget_mod.render(r))
             print(f"  source_bytes {p['source_bytes']:,}   "
                   f"source_sha256 {p['source_sha256'][:16]}")
+            if args.project:
+                print()
+                print(ceiling_mod.render_projection(ceiling_mod.project(
+                    r.stats.prefix_floor, r.stats.growth_per_turn)))
+                print(ceiling_mod.render_linearity(ceiling_mod.linearity(r)))
             print()
     return 0
 
@@ -322,6 +328,39 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_checkpoint(args: argparse.Namespace) -> int:
+    row = {"phase": args.phase, "reason": args.reason}
+    if args.turns is not None:
+        row["turns"] = str(args.turns)
+    if args.resume_note:
+        note = pathlib.Path(args.resume_note).expanduser()
+        if not note.is_file():
+            print(f"resume note not found: {note}; write it before "
+                  f"checkpointing - the note is the restart", file=sys.stderr)
+            return 1
+        row["resume_note"] = str(note)
+    projection = None
+    if args.prefix is not None and args.growth is not None:
+        projection = ceiling_mod.project(args.prefix, args.growth)
+        if args.turns is not None:
+            row["projected_context"] = str(
+                int(args.prefix + args.growth * args.turns))
+    con = _open_db(args.db)
+    if con is None:
+        return 1
+    try:
+        db_mod.put(con, "cba_checkpoints", row)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"checkpoint recorded: phase={args.phase} reason={args.reason}")
+    if projection is not None:
+        print(ceiling_mod.render_projection(projection))
+    return 0
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     if args.text is not None and not (args.key or "").strip():
         print("--text requires --key", file=sys.stderr)
@@ -373,6 +412,7 @@ HANDLERS = {
     "coverage": cmd_coverage,
     "extract": cmd_extract,
     "note": cmd_note,
+    "checkpoint": cmd_checkpoint,
 }
 
 
@@ -383,6 +423,9 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("budget", help="economics report for session transcripts")
     b.add_argument("--report", nargs="+", required=True, metavar="JSONL")
     b.add_argument("--json", action="store_true")
+    b.add_argument("--project", action="store_true",
+                   help="project turns to the R3 checkpoint, with the linear "
+                        "model's fit")
     n = sub.add_parser("bench", help="score a run against a golden reference set")
     n.add_argument("--golden", required=True, metavar="DIR")
     n.add_argument("--db", required=True, metavar="AUDIT_DB")
@@ -454,6 +497,17 @@ def build_parser() -> argparse.ArgumentParser:
     nt.add_argument("--text", default=None, help="append this entry")
     nt.add_argument("--source", default=None, metavar="FILE_OR_ADDR")
     nt.add_argument("--json", action="store_true")
+    ck = sub.add_parser("checkpoint", help="record a phase exit or a ceiling trip")
+    ck.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ck.add_argument("--phase", required=True)
+    ck.add_argument("--reason", required=True,
+                    choices=list(db_mod.CHECKPOINT_REASONS))
+    ck.add_argument("--turns", type=int, default=None)
+    ck.add_argument("--resume-note", default=None, metavar="PATH")
+    ck.add_argument("--prefix", type=int, default=None,
+                    help="measured prefix floor, from `audit.py budget`")
+    ck.add_argument("--growth", type=float, default=None,
+                    help="measured tokens per turn, from `audit.py budget`")
     return p
 
 

@@ -227,3 +227,45 @@ design. They are recorded here, not acted on, and `matches.json` is unchanged.
 
 Recall ≥ 12/19 at ≤ $45 total, with the asus golden also passing. Unchanged —
 the gate is a recall-and-cost gate and neither moved.
+
+## R3 ceiling projection (Task 5, `audit_core/ceiling.py`)
+
+Run against the same pinned transcript and confirmed before recording:
+`source_bytes` **15,608,662** and `source_sha256` starting **`a33f2f52`** —
+both match the figures above, so this is the same input, not a re-measurement
+of a changed file.
+
+Command:
+
+```bash
+python3 audit.py budget --project --report \
+  ~/.claude/projects/-Users-danhnguyen-Documents-Offsec-Opswat-Devices-tplink/d87d98a0-1430-4218-a31e-9ae93a9ba275.jsonl
+```
+
+Projection block (verbatim):
+
+```
+  ceiling 100,000   checkpoint at 80,000 (80%)
+  measured prefix 40,926   growth 2,573 tok/turn
+  turns to checkpoint 15   turns to ceiling 22
+```
+
+Linearity table (verbatim, every epoch):
+
+```
+  epoch  turns  measured mean  predicted mean  deviation
+      0     31         82,214          81,195       1.2%
+      1     94        209,890         209,447       0.2%
+      2    264        379,418         382,619       0.8%
+      3    155        237,509         238,185       0.3%
+      4    172        271,223         258,652       4.6%
+      5     77        173,396         172,339       0.6%
+      6     50         97,810          95,152       2.7%
+```
+
+The worst deviation is 4.6% (epoch 4), well under the 30% threshold this step
+watches for; across all 7 epochs the linear model `context(n) = floor +
+g*(turns-1)/2` predicts the measured mean within single digits of percent, so
+the turns-to-checkpoint figure (15 turns against a 100k ceiling, at this
+session's measured prefix and growth) is a reliable read for this transcript,
+not an artifact of a mismatched model.

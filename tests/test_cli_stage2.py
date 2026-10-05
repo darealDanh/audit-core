@@ -153,3 +153,32 @@ def test_note_index_warns_about_a_corrupt_line_on_stderr(tmp_path):
     r = run("note", "--run", str(run_dir))
     assert r.returncode == 0
     assert "line(s) 2" in r.stderr
+
+
+def test_checkpoint_records_a_row_and_prints_the_projection(tmp_path):
+    run_dir = new_run(tmp_path)
+    db = str(run_dir / "audit.db")
+    note = tmp_path / "resume.md"
+    note.write_text("resume note")
+    r = run("checkpoint", "--db", db, "--phase", "audit", "--reason", "ceiling",
+            "--turns", "58", "--resume-note", str(note),
+            "--prefix", "45000", "--growth", "600")
+    assert r.returncode == 0, r.stderr
+    assert "turns to checkpoint 58" in r.stdout
+    rows = run("rows", "--db", db, "--table", "cba_checkpoints",
+               "--columns", "phase,reason,turns")
+    assert rows.stdout.strip() == "audit\tceiling\t58"
+
+
+def test_checkpoint_refuses_a_missing_resume_note(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("checkpoint", "--db", db, "--phase", "audit", "--reason",
+            "phase-exit", "--resume-note", str(tmp_path / "nope.md"))
+    assert r.returncode == 1
+    assert "the note is the restart" in r.stderr
+
+
+def test_checkpoint_rejects_an_invented_reason(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("checkpoint", "--db", db, "--phase", "audit", "--reason", "tired")
+    assert r.returncode != 0
