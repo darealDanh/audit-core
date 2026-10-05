@@ -67,3 +67,14 @@ def test_workflow_supplies_every_var_its_template_declares(phase, workflow):
                               (ROOT / "workflows" / workflow).read_text()))
     assert declared - supplied == set(), (
         f"{workflow} never supplies {sorted(declared - supplied)}")
+
+
+@pytest.mark.parametrize("name", ["recon.md", "audit.md", "fpcheck.md"])
+def test_dispatching_workflow_never_asks_to_paste_brief_content(name):
+    """R6: a dispatch carries the brief's path, not its contents. An earlier
+    draft told the orchestrator to paste the mapping file's full content four
+    lines below the sentence forbidding exactly that."""
+    text = (ROOT / "workflows" / name).read_text().lower()
+    for banned in ("the full content of", "return a compact summary",
+                   "return a verdict tally"):
+        assert banned not in text, f"{name} still says {banned!r}"

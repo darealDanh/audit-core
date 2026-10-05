@@ -89,18 +89,21 @@ placeholder rather than handing a subagent a half-filled brief.
 
 Spawn ONE subagent per feature group, ALL in parallel.
 
-Each subagent prompt (template from [../references/phase4-deep-audit.md](../references/phase4-deep-audit.md)) must include:
+The brief carries the assignment, the hunt list, the rules of engagement and
+the return contract. The dispatch adds only what the brief cannot know:
 
-- Group ID + the full content of `files/G<n>-mapping.md`
-- The known-findings list (so they avoid duplicates AND probe the patch-bypass sites)
-- Source access instructions
-- Live instance details (proxy/API URLs, sample credentials, bind-mounted config locations)
-- **Instructions to write a per-group artifact** at `<AUDIT_DIR>/artifacts/G<n>-findings.md` containing each finding in detail (so we can re-read after context compaction)
-- **Instructions to INSERT each finding into `cba_findings`** with `artifact_path` set
-- Live-PoC verification policy: attempt live PoC for HIGH/CRITICAL findings when feasible; mark `verified='live-poc'` if reproduced; otherwise `verified='source-only'`
-- Live-instance hygiene: **back up any config file before editing** (e.g., `cp .docker_compose/rules.json /tmp/rules.json.bak.G<n>`); restore at end *(Automated `source` mode: omit this bullet — no config edits/backup/restore; read-only source analysis only, see [source.md](source.md))*
-- Confidence floor: don't file anything below 8/10
-- Return a compact summary (counts by severity)
+- Live instance details — proxy and API URLs, sample credentials, bind-mounted
+  config locations
+- Live-PoC policy: attempt a live PoC for HIGH/CRITICAL findings where feasible;
+  mark `verified='live-poc'` if reproduced, otherwise `verified='source-only'`
+- Live-instance hygiene: **back up any config file before editing** (e.g.
+  `cp .docker_compose/rules.json /tmp/rules.json.bak.G<n>`) and restore at the
+  end *(Automated `source` mode: omit this — no config edits, read-only source
+  analysis only, see [source.md](source.md))*
+
+Do not paste the mapping file's contents. The brief passes its path and the
+subagent reads it itself. Each subagent returns one line; read the findings
+from `cba_findings`, not from the return text.
 
 ## Step 5 — Subagent failure handling
 
