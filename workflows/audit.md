@@ -81,7 +81,12 @@ earlier step defined:
     G=G1                                          # stable group id
     NAME='Authentication and session handling'    # the group's name
     SRC='Source tree at the project root; read any file under it.'
-    KNOWN="$(cat "$AUDIT_DIR/files/known-findings.md")"   # Step 2's patch-bypass intel
+    # Step 2's patch-bypass intel. CVE ingest is best-effort (see source.md):
+    # if it was skipped, known-findings.md was never written, and an empty
+    # value is rejected — which would hard-fail an unattended run. Fall back
+    # the way recon.md does, so the brief still says what is known.
+    KNOWN="$(cat "$AUDIT_DIR/files/known-findings.md" 2>/dev/null || true)"
+    KNOWN="${KNOWN:-No prior advisories ingested for this target.}"
     # Live run: the deploy phase's instance details, one line (see
     # ../references/phase4-deep-audit.md -> Test instance details).
     TEST_INSTANCE='Test instance: http://127.0.0.1:8080 (proxy) / :8081 (API). Auth: create test accounts via admin/admin123 - do NOT modify the admin account. Config is bind-mounted at .docker_compose/. Available for: HTTP requests, API testing. Not available for: destructive testing, persistence, data exfiltration.'

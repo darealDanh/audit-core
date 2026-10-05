@@ -1,5 +1,10 @@
+import os
 import pathlib
 import re
+import shutil
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -148,3 +153,55 @@ def test_documented_commands_define_every_shell_variable_they_use(name, names):
         f"{name} uses undefined shell variables: {sorted(used - assigned)}")
     for n in names:
         assert n in assigned, f"{name} never assigns ${n}"
+
+
+def _documented_shell_block(workflow: str, first_line_startswith: str) -> str:
+    """The indented shell block an orchestrator is told to paste, dedented."""
+    lines = (ROOT / "workflows" / workflow).read_text().splitlines()
+    start = next(n for n, l in enumerate(lines)
+                 if l.strip().startswith(first_line_startswith))
+    out = []
+    for line in lines[start:]:
+        if not line.strip() or line.startswith("    "):
+            out.append(line)
+            continue
+        break
+    return textwrap.dedent("\n".join(out).rstrip())
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_audit_md_renders_when_cve_ingest_was_skipped(tmp_path):
+    """source.md documents CVE ingest as best-effort: the orchestrator records
+    "CVE ingest skipped" and continues, so files/known-findings.md was never
+    written. audit.md assigned KNOWN with a bare `cat`, so the brief renderer's
+    empty-value check then hard-failed the dispatch -- in an unattended run,
+    with nobody watching. Each change passes alone; the composite broke."""
+    run = tmp_path / "run"
+    (run / "files").mkdir(parents=True)
+    assert not (run / "files" / "known-findings.md").exists()
+
+    block = _documented_shell_block("audit.md", "G=G1")
+    assert "known-findings.md" in block, "extracted the wrong block"
+    script = (f'set -euo pipefail\nAUDIT_DIR={run}\n'
+              + block.replace("__SKILL_DIR__", str(ROOT)))
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                       env={**os.environ, "PATH": os.path.dirname(sys.executable)
+                            + os.pathsep + os.environ.get("PATH", "")})
+    assert r.returncode == 0, r.stdout + r.stderr
+    brief = run / "briefs" / "audit-G1-brief.md"
+    assert brief.is_file()
+    assert "No prior advisories ingested for this target." in brief.read_text()
+
+
+def test_no_workflow_var_reads_a_file_without_a_fallback():
+    """Any `--var` value sourced from a file an earlier phase may legitimately
+    not have produced must fall back, or the renderer's empty-value check turns
+    a tolerated skip into a hard failure."""
+    offenders = []
+    for path in LIVE:
+        for line in path.read_text().splitlines():
+            m = re.match(r'\s*([A-Z][A-Z0-9_]*)="?\$\((?:cat|<)', line)
+            if m and "2>/dev/null" not in line:
+                offenders.append(f"{path.name}: {line.strip()}")
+    assert offenders == [], (
+        "file-sourced shell vars with no fallback: " + "; ".join(offenders))
