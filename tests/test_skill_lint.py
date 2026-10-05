@@ -4,10 +4,15 @@ import sys
 
 import pytest
 
+import audit
 from audit_core import skill_lint
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-KNOWN = {"selftest", "budget", "bench", "init", "preflight", "brief", "lint-skill"}
+# The set `audit.py lint-skill` itself passes (cmd_lint_skill: set(HANDLERS)).
+# This was a hand-copied literal and went stale the moment Stage 2 added a
+# verb: every real verb the shipped prose started naming was reported as "not
+# a real verb" by the test while the shipped command accepted it.
+KNOWN = set(audit.HANDLERS)
 
 
 def test_shipped_skill_passes_its_own_lint():

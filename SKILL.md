@@ -45,9 +45,49 @@ A battle-tested methodology for auditing applications at scale. The workflow div
 Measured across nine real audits: 449.9M context tokens re-read for $2,053.64.
 Cost follows `Σ over turns of context(turn)`, so **a token admitted to the
 orchestrator's context at turn N is paid for on every remaining turn**. The
-orchestrator's context is a budget, not a buffer. The rules below are R2, R4,
-R5 and R6 of the economics contract; R1 (extract-then-fan-out) and R3 (the
-context ceiling) are enforced in the audit workflows rather than here.
+orchestrator's context is a budget, not a buffer. The rules below are the
+economics contract in full: R1 and R3 govern what enters the orchestrator's
+context and for how long; R2, R4, R5 and R6 govern each of the ways it gets
+in.
+
+### R1 — The orchestrator never holds raw material
+
+Banned from the orchestrator's context: decompiler pseudocode, disassembly,
+hexdumps, strings dumps, file reads over ~100 lines, and subagent prose.
+
+Snapshot the material once, then read paths:
+
+    python3 __SKILL_DIR__/audit.py extract --run ${AUDIT_DIR} --root . \
+      --unit G1 --from-file ${AUDIT_DIR}/files/G1-paths.txt
+
+Everything downstream reads files out of `${AUDIT_DIR}/extract/`, so fan-out
+is bounded by nothing. This is the one rule where the cost argument and the
+quality argument are the same argument: work that stays in the orchestrator
+is serial, and serial work is why surfaces went unopened.
+
+The orchestrator's own reads are bounded too. Rows come from
+`audit.py rows`, `audit.py status` and `audit.py coverage`, which cap at 200
+rows; comprehension comes from `audit.py note`, which returns one line per
+key, not the analysis behind it.
+
+### R3 — Context ceiling with checkpoint-restart
+
+Ceiling **100k**, checkpoint at 80%. On a trip, write the resume note and the
+journal, record the checkpoint, and end the phase; the next phase starts
+fresh at a ~45k prefix.
+
+    python3 __SKILL_DIR__/audit.py checkpoint --db ${AUDIT_DIR}/audit.db \
+      --phase audit --reason ceiling --turns <n> \
+      --resume-note /memories/session/<project>-audit-resume.md
+
+Compaction is not the mechanism: it costs a full-context read plus a summary,
+lands at 60k-80k of lossy summary rather than 45k of real prefix, and discards
+the technical state the next step needs. `audit.py budget --project` reports
+the measured prefix and growth and how many turns they leave.
+
+**The budget governs where tokens are spent, never whether a surface is
+opened.** A group skipped for budget is a `not_audited(reason='budget')` row
+and fails the quality gate.
 
 ### Model and effort tiering
 
@@ -204,6 +244,11 @@ The automated **`source`** run uses the same diagram **minus deploy and the veri
 | `cba_known_findings` | Prior CVEs/advisories + patch-bypass intel | audit |
 | `cba_findings` | Candidate findings from deep audit (col `artifact_path`) | audit |
 | `cba_fp_verdicts` | FP-check verdicts | fpcheck |
+| `cba_inventory` | One row per analysable unit — the coverage denominator | recon |
+| `cba_coverage` | `analyzed` / `not_audited(reason)` per unit per phase | every phase |
+| `cba_patterns` | Confirmed bug patterns, with the finding they came from | audit |
+| `cba_pattern_hits` | Sweep candidates awaiting triage | audit |
+| `cba_checkpoints` | Phase exits and ceiling trips | every phase |
 
 ### Artifact Layout
 
@@ -212,6 +257,10 @@ reports/audit-<YYYYMMDD-HHMMSS>/
 ├── audit.db                        # SQLite source of truth
 ├── briefs/                         # rendered dispatch briefs (audit.py brief)
 │   └── <phase>-<unit>-brief.md     # one per dispatched subagent
+├── extract/                        # snapshotted material (audit.py extract)
+│   ├── manifest.json               # sha256 + version per snapshot
+│   └── G<n>/<flattened-path>       # one directory per feature group
+├── journal.jsonl                   # annotation journal (audit.py note)
 ├── files/
 │   ├── G<n>-mapping.md             # per-group feature mapping (recon)
 │   └── known-findings.md           # advisories + patch-bypass surface (audit)
@@ -266,6 +315,9 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 | "I'll paste the task into the dispatch, it's quicker" | Dispatch prompts are the largest single category of tool-call input (1,684 tokens average). Render the brief with `audit.py brief` and send the path. |
 | "I'll just write the SQL inline, it's only a few tables" | `audit.py init` applies the whole schema. Inline DDL is retyped after every compaction. |
 | "The MCP servers are already connected, leave them" | Unused schemas are resident on every turn. Run `audit.py preflight` and relaunch strict. |
+| "Near the ceiling — skip this group" | Checkpoint and restart. A group skipped for budget is a `not_audited(reason='budget')` row and fails the quality gate. The budget governs where tokens are spent, never whether a surface is opened. |
+| "I'll just read the file into my own context to check one thing" | R1. Snapshot it with `audit.py extract` and send a subagent the path, or read the rows with `audit.py rows`. A token admitted at turn N is paid for on every remaining turn. |
+| "We confirmed the pattern here; the other call sites are probably fine" | A confirmed finding is a hypothesis about every other call site. Register it with `audit.py put --table cba_patterns` and sweep. |
 
 ## Lessons Learned (FROM REAL AUDITS — READ BEFORE STARTING)
 

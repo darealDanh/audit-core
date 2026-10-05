@@ -33,9 +33,11 @@ gh api repos/<owner>/<repo>/dependabot/alerts --paginate 2>/dev/null
 
 For each advisory, record:
 
-```sql
-INSERT INTO cba_known_findings(id, title, location, source, patched_in, severity, raw)
-VALUES (?,?,?,?,?,?,?);
+```bash
+python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_known_findings \
+  --set id=GHSA-xxxx-yyyy-zzzz --set title='<advisory title>' \
+  --set location='<file or component>' --set source=GHSA \
+  --set patched_in='<version>' --set severity=HIGH
 ```
 
 ## Step 2 — Patch-bypass mining (HIGH-VALUE STEP)
@@ -141,8 +143,8 @@ UPDATE cba_feature_groups SET status='audited' WHERE id IN (...);
 
 Present a finding-count table by group × severity:
 
-```sql
-SELECT group_id, severity, COUNT(*) FROM cba_findings GROUP BY 1,2 ORDER BY 1,2;
+```bash
+python3 __SKILL_DIR__/audit.py status --db ${AUDIT_DIR}/audit.db
 ```
 
 Rewrite the resume note ([../references/resume-note-template.md](../references/resume-note-template.md)) to reflect:

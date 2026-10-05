@@ -65,13 +65,22 @@ After all subagents return:
 1. **Parse findings**: Extract structured data from each subagent's markdown output
 2. **Assign sequential IDs**: Within each group (G1-F1, G1-F2, ..., G2-F1, ...)
 3. **Insert into SQL**:
-   ```sql
-   INSERT INTO cba_findings (id, group_id, title, severity, confidence,
-       location, root_cause, impact, verified, boundary_crossed,
-       attacker_position, cwe)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+   ```bash
+   python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_findings \
+     --set id=G1-F1 --set group_id=G1 --set title='<one line>' \
+     --set severity=HIGH --set confidence=9 --set location='<file>:<line>' \
+     --set root_cause='<mechanism>' --set impact='<consequence>' \
+     --set attacker_position='<where the attacker stands>' \
+     --set boundary_crossed='<trust boundary>' --set cwe=CWE-787 \
+     --set artifact_path=artifacts/G1-findings.md
    ```
 4. **Dedup quick-check**: If two findings from different groups describe the same vulnerability at the same code location, keep the one with higher confidence and note the duplicate.
+
+   ```bash
+   python3 __SKILL_DIR__/audit.py dedup --db ${AUDIT_DIR}/audit.db
+   ```
+
+   These are proposals. Keep the one with higher confidence and record the other as `verdict=DUPLICATE` with `merged_into` set.
 
 ## Quality Signals
 

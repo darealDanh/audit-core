@@ -102,14 +102,17 @@ After all subagents return:
 
 1. **Session files**: Save each group's full output to `files/{group_id}-mapping.md`
 2. **SQL attack surface**:
-   ```sql
-   INSERT INTO cba_attack_surface (group_id, endpoint, method, auth_required, description)
-   VALUES (?, ?, ?, ?, ?);
+   ```bash
+   python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_attack_surface \
+     --set group_id=G1 --set endpoint='<route or entry point>' \
+     --set method='<verb or protocol>' --set auth_required='<yes|no|partial>' \
+     --set description='<what it does>'
    ```
 3. **SQL observations**:
-   ```sql
-   INSERT INTO cba_security_observations (group_id, observation, severity_hint, location)
-   VALUES (?, ?, ?, ?);
+   ```bash
+   python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_security_observations \
+     --set group_id=G1 --set observation='<what was seen>' \
+     --set severity_hint=MEDIUM --set location='<file>:<line>'
    ```
 
 ## Quality Checks
