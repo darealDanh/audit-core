@@ -87,3 +87,67 @@ def test_cli_brief_exits_one_on_missing_variable(tmp_path):
     )
     assert r.returncode == 1
     assert "scope" in (r.stdout + r.stderr)
+
+
+# --- I6: an empty value is as bad as a missing one ---------------------------
+
+
+def test_render_rejects_an_empty_value():
+    """`--var source_access=''` rendered a brief with a blank Source access
+    section and exited 0. The subagent then has to guess where the code is -
+    the same failure as an unfilled placeholder, reported as success."""
+    with pytest.raises(briefs.BriefError) as exc:
+        briefs.render("source: {source_access}", {"source_access": ""})
+    assert "source_access" in str(exc.value)
+
+
+def test_render_rejects_a_whitespace_only_value():
+    with pytest.raises(briefs.BriefError) as exc:
+        briefs.render("known: {known_findings}", {"known_findings": "   \n  "})
+    assert "known_findings" in str(exc.value)
+
+
+def test_render_reports_every_empty_placeholder_at_once():
+    with pytest.raises(briefs.BriefError) as exc:
+        briefs.render("{a} {b} {c}", {"a": "", "b": "ok", "c": " "})
+    message = str(exc.value)
+    assert "a" in message and "c" in message
+
+
+def test_render_allows_empty_when_asked():
+    out = briefs.render("known: {known_findings}", {"known_findings": ""},
+                        allow_empty=True)
+    assert out == "known: "
+
+
+def test_cli_brief_exits_one_on_an_empty_variable(tmp_path):
+    tpl_dir = tmp_path / "templates"
+    tpl_dir.mkdir()
+    (tpl_dir / "audit-brief.md").write_text("audit {group_id} source {source_access}")
+    run = tmp_path / "run"
+    (run / "briefs").mkdir(parents=True)
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "audit.py"), "brief", "--phase", "audit",
+         "--unit", "G7", "--run", str(run), "--var", "group_id=G7",
+         "--var", "source_access=", "--template-dir", str(tpl_dir)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 1
+    assert "source_access" in (r.stdout + r.stderr)
+
+
+def test_cli_brief_allow_empty_renders_the_empty_section(tmp_path):
+    tpl_dir = tmp_path / "templates"
+    tpl_dir.mkdir()
+    (tpl_dir / "audit-brief.md").write_text("audit {group_id} known {known_findings}")
+    run = tmp_path / "run"
+    (run / "briefs").mkdir(parents=True)
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "audit.py"), "brief", "--phase", "audit",
+         "--unit", "G7", "--run", str(run), "--var", "group_id=G7",
+         "--var", "known_findings=", "--allow-empty",
+         "--template-dir", str(tpl_dir)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert (run / "briefs" / "audit-G7-brief.md").read_text() == "audit G7 known "

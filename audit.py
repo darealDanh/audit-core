@@ -93,6 +93,18 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_preflight(args: argparse.Namespace) -> int:
     servers: dict[str, dict] = {}
+    if args.keep:
+        if not args.from_config:
+            print("--keep requires --from-config PATH", file=sys.stderr)
+            return 1
+        try:
+            servers.update(preflight_mod.load_servers(args.from_config, args.keep))
+        except preflight_mod.PreflightError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    elif args.from_config:
+        print("--from-config requires at least one --keep NAME", file=sys.stderr)
+        return 1
     for spec in args.server:
         name, sep, command = spec.partition("=")
         if not sep or not name or not command:
@@ -106,6 +118,12 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print(f"wrote {out} with {len(servers)} server(s): {', '.join(sorted(servers)) or '(none)'}")
+    if not servers:
+        print("warning: no servers written - relaunching strict against this "
+              "config gives the run zero MCP servers. That is correct only if "
+              "the target needs no MCP tooling at all; otherwise copy a real "
+              "server definition with --from-config PATH --keep NAME.",
+              file=sys.stderr)
     print("relaunch with:")
     print(f"  {preflight_mod.launch_command(out)}")
     return 0
@@ -121,7 +139,8 @@ def cmd_brief(args: argparse.Namespace) -> int:
         variables[name] = value
     try:
         path = briefs_mod.write_brief(args.phase, args.unit, args.run, variables,
-                                      template_dir=args.template_dir)
+                                      template_dir=args.template_dir,
+                                      allow_empty=args.allow_empty)
     except briefs_mod.BriefError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -130,7 +149,13 @@ def cmd_brief(args: argparse.Namespace) -> int:
 
 
 def cmd_lint_skill(args: argparse.Namespace) -> int:
-    findings = skill_lint_mod.lint(args.root, set(HANDLERS))
+    # A linter that prints "clean" about a path it never read is the exact
+    # failure this verb exists to prevent.
+    try:
+        findings = skill_lint_mod.lint(args.root, set(HANDLERS))
+    except skill_lint_mod.SkillLintError as exc:
+        print(f"skill lint: {exc}", file=sys.stderr)
+        return 1
     if not findings:
         print("skill lint: clean")
         return 0
@@ -171,7 +196,13 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--timestamp", default=None, metavar="TS")
     pf = sub.add_parser("preflight", help="write a project-scoped MCP config")
     pf.add_argument("--out", default=preflight_mod.MCP_CONFIG_NAME, metavar="PATH")
-    pf.add_argument("--server", action="append", default=[], metavar="NAME=COMMAND")
+    pf.add_argument("--server", action="append", default=[], metavar="NAME=COMMAND",
+                    help="simple stdio server: a bare command, no args or env")
+    pf.add_argument("--from-config", default=None, metavar="PATH",
+                    help="an existing MCP config to copy server objects out of")
+    pf.add_argument("--keep", action="append", default=[], metavar="NAME",
+                    help="copy this server verbatim from --from-config "
+                         "(repeatable); keeps type/url/args/env intact")
     pf.add_argument("--force", action="store_true")
     br = sub.add_parser("brief", help="render a subagent dispatch brief")
     br.add_argument("--phase", required=True)
@@ -179,6 +210,9 @@ def build_parser() -> argparse.ArgumentParser:
     br.add_argument("--run", required=True, metavar="RUN_DIR")
     br.add_argument("--var", action="append", default=[], metavar="NAME=VALUE")
     br.add_argument("--template-dir", default=None, metavar="DIR")
+    br.add_argument("--allow-empty", action="store_true",
+                    help="accept an empty --var value for a section that is "
+                         "genuinely empty (e.g. no known findings yet)")
     ls = sub.add_parser("lint-skill", help="check the skill against the economics contract")
     ls.add_argument("--root", default=str(pathlib.Path(__file__).resolve().parent),
                     metavar="DIR")

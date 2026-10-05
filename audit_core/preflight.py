@@ -6,10 +6,52 @@ accumulation. See spec rule R4.
 """
 from __future__ import annotations
 
+import copy
 import json
 import pathlib
 
 MCP_CONFIG_NAME = ".audit-mcp.json"
+
+
+class PreflightError(Exception):
+    """An MCP source config is missing, malformed, or lacks a requested server."""
+
+
+def load_servers(config_path: str | pathlib.Path,
+                 names: list[str]) -> dict[str, dict]:
+    """Copy the named server objects verbatim out of an existing MCP config.
+
+    A real server definition is never just `{"command": ...}`: a stdio server
+    carries `args` and usually `env`, and an SSE/HTTP server carries `type` and
+    `url` instead. Re-deriving one from a command string produces a config that
+    `--strict-mcp-config` accepts and that then exposes zero working servers,
+    which silently disables the tooling R4 exists to keep.
+    """
+    config_path = pathlib.Path(config_path).expanduser()
+    if not config_path.is_file():
+        raise PreflightError(f"not found: {config_path}")
+    try:
+        payload = json.loads(config_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise PreflightError(f"{config_path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise PreflightError(f"{config_path} does not contain a JSON object")
+    found = payload.get("mcpServers")
+    if not isinstance(found, dict):
+        raise PreflightError(f"{config_path} has no `mcpServers` object")
+
+    out: dict[str, dict] = {}
+    for name in names:
+        if name not in found:
+            raise PreflightError(
+                f"{config_path} has no server named {name!r}; it defines: "
+                + (", ".join(sorted(found)) or "(none)"))
+        server = found[name]
+        if not isinstance(server, dict):
+            raise PreflightError(
+                f"server {name!r} in {config_path} is not a JSON object")
+        out[name] = copy.deepcopy(server)
+    return out
 
 
 def write_config(path: str | pathlib.Path,
