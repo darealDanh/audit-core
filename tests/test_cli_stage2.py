@@ -125,3 +125,31 @@ def test_extract_with_no_items_exits_one(tmp_path):
             "--unit", "G1")
     assert r.returncode == 1
     assert "--refresh" in r.stderr
+
+
+def test_note_appends_then_indexes(tmp_path):
+    run_dir = str(new_run(tmp_path))
+    assert run("note", "--run", run_dir, "--key", "klap_handshake1_handle",
+               "--kind", "semantics",
+               "--text", "copies before checking length").returncode == 0
+    r = run("note", "--run", run_dir)
+    assert r.returncode == 0, r.stderr
+    assert "klap_handshake1_handle" in r.stdout
+    assert "1 key(s)" in r.stdout
+
+
+def test_note_text_without_key_exits_one(tmp_path):
+    run_dir = str(new_run(tmp_path))
+    r = run("note", "--run", run_dir, "--text", "orphan")
+    assert r.returncode == 1
+    assert "--key" in r.stderr
+
+
+def test_note_index_warns_about_a_corrupt_line_on_stderr(tmp_path):
+    run_dir = new_run(tmp_path)
+    run("note", "--run", str(run_dir), "--key", "a", "--text", "one")
+    with open(run_dir / "journal.jsonl", "ab") as fh:
+        fh.write(b"not json\n")
+    r = run("note", "--run", str(run_dir))
+    assert r.returncode == 0
+    assert "line(s) 2" in r.stderr

@@ -21,6 +21,7 @@ from audit_core import skill_lint as skill_lint_mod  # noqa: E402
 from audit_core import db as db_mod  # noqa: E402
 from audit_core import coverage as coverage_mod  # noqa: E402
 from audit_core import extract as extract_mod  # noqa: E402
+from audit_core import annotations as annotations_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -321,6 +322,39 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note(args: argparse.Namespace) -> int:
+    if args.text is not None and not (args.key or "").strip():
+        print("--text requires --key", file=sys.stderr)
+        return 1
+    path = pathlib.Path(args.run).expanduser() / annotations_mod.JOURNAL_NAME
+    if args.text is not None:
+        try:
+            annotations_mod.append(path, args.key, args.kind, args.text,
+                                   source=args.source)
+        except annotations_mod.AnnotationError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(f"{path}: 1 entry")
+        return 0
+    if args.key:
+        entries, bad = annotations_mod.read(path, key=args.key, tolerate=True)
+        for e in entries:
+            print(f"{e.recorded_at}  {e.kind}\n{e.text}\n")
+    else:
+        rows, bad = annotations_mod.index(path)
+        if args.json:
+            print(json.dumps([dataclasses.asdict(r) for r in rows], indent=2))
+        else:
+            for r in rows:
+                print(f"  {r.key:40.40s} {r.kind:10s} x{r.entries:<3d} {r.summary}")
+            print(f"({len(rows)} key(s); read one with "
+                  f"`audit.py note --run {args.run} --key <key>`)")
+    if bad:
+        print(f"warning: {path} line(s) {', '.join(map(str, bad))} are not "
+              f"journal entries and were not read", file=sys.stderr)
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -338,6 +372,7 @@ HANDLERS = {
     "dedup": cmd_dedup,
     "coverage": cmd_coverage,
     "extract": cmd_extract,
+    "note": cmd_note,
 }
 
 
@@ -410,6 +445,15 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--refresh", action="store_true",
                     help="re-read every item already snapshotted for this unit")
     ex.add_argument("--batch-size", type=int, default=extract_mod.BATCH_SIZE)
+    nt = sub.add_parser("note", help="append to, or index, the run's annotation journal")
+    nt.add_argument("--run", required=True, metavar="RUN_DIR")
+    nt.add_argument("--key", default=None,
+                    help="with --text, the entry key; alone, read that key")
+    nt.add_argument("--kind", default="semantics",
+                    choices=list(annotations_mod.KINDS))
+    nt.add_argument("--text", default=None, help="append this entry")
+    nt.add_argument("--source", default=None, metavar="FILE_OR_ADDR")
+    nt.add_argument("--json", action="store_true")
     return p
 
 
