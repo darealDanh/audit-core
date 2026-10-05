@@ -21,9 +21,12 @@ Audit run directory: {run_dir}
 3. Apply all 18 Hard Exclusions and 10 Precedent rules from
    `references/phase5-fp-check.md`.
 4. Apply Capability Validity checks CV-1 to CV-3.
-5. Re-read every cited file. The cited code must exist and match the claim.
-6. Check for mitigations the original analyst may have missed.
-7. Issue a verdict: TRUE_POSITIVE, FALSE_POSITIVE or DUPLICATE.
+5. Check the confidence threshold: the finding must be rated at least 8 of 10.
+6. Re-read every cited file. The cited code must exist and match the claim.
+7. Check for mitigations the original analyst may have missed.
+8. Apply the devil's advocate review: argue the finding is wrong, then see
+   whether the argument survives the code.
+9. Issue a verdict: TRUE_POSITIVE, FALSE_POSITIVE or DUPLICATE.
 
 ## Where your output goes
 

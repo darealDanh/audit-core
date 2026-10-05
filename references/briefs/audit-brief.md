@@ -31,8 +31,14 @@ and found absent.
 6. Any path from input to code execution
 7. Authorization bypass — horizontal and vertical
 8. Cryptographic defects, weak randomness, key exposure
-9. Race conditions — TOCTOU, check-then-act without a lock
-10. Resource exhaustion with an amplification factor
+9. Information disclosure — sensitive data in responses, error messages, logs
+10. CSRF on state-changing operations — check first whether auth is API-key-based
+11. Race conditions — TOCTOU, double-spend, check-then-act without a lock
+12. Resource exhaustion with an amplification factor, including regex DoS
+13. XML and JSON parsing — XXE, billion-laughs, deeply nested structures
+14. Header injection — CRLF in headers, response splitting
+15. Configuration weaknesses — insecure defaults, missing security headers
+16. Information leakage — version disclosure, internal paths, stack traces
 
 ## Rules of engagement
 

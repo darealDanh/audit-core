@@ -90,3 +90,22 @@ def test_fpcheck_brief_cross_reference_resolves():
     brief_text = (briefs.TEMPLATE_DIR / "fpcheck-brief.md").read_text()
     assert "references/phase5-fp-check.md" in brief_text
     assert FP_RULES.is_file()
+
+
+def test_audit_brief_keeps_every_hunt_category():
+    """The prompt this template replaced listed 16 categories. Writing the
+    template from scratch dropped six of them, including XXE and CSRF."""
+    text = (briefs.TEMPLATE_DIR / "audit-brief.md").read_text()
+    assert len(re.findall(r"^\d+\. ", text, re.M)) >= 16
+    for term in ("Information disclosure", "CSRF", "XXE", "Header injection",
+                 "Configuration weaknesses", "Information leakage"):
+        assert term in text, f"audit-brief.md no longer mentions {term}"
+
+
+def test_fpcheck_brief_keeps_every_method_step():
+    """The methodology this template replaced had 9 steps. Two defence-in-depth
+    gates - the confidence threshold and the devil's advocate review - were lost."""
+    text = (briefs.TEMPLATE_DIR / "fpcheck-brief.md").read_text()
+    assert len(re.findall(r"^\d+\. ", text, re.M)) == 9
+    assert "confidence threshold" in text.lower()
+    assert "devil's advocate" in text.lower()
