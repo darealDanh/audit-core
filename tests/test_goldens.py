@@ -52,3 +52,46 @@ def test_tplink_golden_has_nineteen_criticals():
     refs = goldens.load_reference(TPLINK / "reference.json")
     assert len([r for r in refs if r.severity == "CRITICAL"]) == 19
     assert len({r.id for r in refs}) == len(refs)
+
+
+def test_load_rejections_returns_pairs(tmp_path):
+    p = tmp_path / "rejections.json"
+    p.write_text('[{"reference_id": "REF-10", "finding_id": "G6-F3", '
+                 '"reason": "bare `tss` token; unrelated defects"}]')
+    assert goldens.load_rejections(p) == {("REF-10", "G6-F3")}
+
+
+def test_a_missing_rejections_file_is_empty_not_an_error(tmp_path):
+    assert goldens.load_rejections(tmp_path / "nope.json") == set()
+
+
+def test_a_rejection_without_a_reason_is_refused(tmp_path):
+    """A rejection with no reason is indistinguishable from a mistake, and it
+    silences a candidate forever."""
+    p = tmp_path / "rejections.json"
+    p.write_text('[{"reference_id": "REF-10", "finding_id": "G6-F3"}]')
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_rejections(p)
+    assert "reason" in str(exc.value)
+
+
+def test_rejections_must_be_a_list(tmp_path):
+    p = tmp_path / "rejections.json"
+    p.write_text('{"REF-10": "G6-F3"}')
+    with pytest.raises(goldens.GoldenError):
+        goldens.load_rejections(p)
+
+
+def test_tplink_rejections_name_real_reference_ids():
+    """A rejection against an id no reference carries silences nothing and is
+    almost certainly a typo in a hand-written file."""
+    ids = {r.id for r in goldens.load_reference(TPLINK / "reference.json")}
+    rejected = goldens.load_rejections(TPLINK / "rejections.json")
+    assert rejected
+    assert {ref for ref, _ in rejected} <= ids
+
+
+def test_tplink_rejections_do_not_contradict_matches():
+    """matches.json wins: a pair cannot be both adjudicated and rejected."""
+    adjudicated = set(goldens.load_matches(TPLINK / "matches.json").items())
+    assert adjudicated & goldens.load_rejections(TPLINK / "rejections.json") == set()

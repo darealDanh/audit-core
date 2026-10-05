@@ -78,3 +78,119 @@ reaches `matches.json` without this step.
 
 **Effect on the baseline: recall moves from 8/19 to 9/19 (47.4%).** The
 baseline document records the post-adjudication figure.
+
+## rejections.json: the adjudication log, made machine-readable
+
+The two REJECTED pairs above now also live in `rejections.json`, quoting the
+same reasons. `bench` loads that file and suppresses those pairs from the
+candidate list, so a second scoring run does not charge a second adjudication
+for a question a human already answered.
+
+`rejections.json` is **human-written and append-only**, exactly like
+`matches.json`, and no scoring run may write to it. Each entry must carry a
+`reason`: a rejection without one is indistinguishable from a mistake, and it
+silences a candidate permanently. `goldens.load_rejections` refuses the file
+if any entry omits `reference_id`, `finding_id` or `reason`.
+
+A rejection suppresses a *candidate*, never a *match*. `matches.json` is
+consulted first and wins; a pair that appears in both is still scored as a
+match. `tests/test_goldens.py` pins that the two files do not contradict each
+other and that every rejected `reference_id` names a real reference entry.
+
+As of the token-based candidate rule (below), neither of these two pairs
+would be raised in the first place — the bare three-character token `tss` is
+now under the four-character floor. The file is kept anyway: the floor is a
+*heuristic* and could be tuned or reverted, whereas the adjudication is a
+*fact* about those two pairs that stays true however the heuristic changes.
+
+## Candidate generation: whole tokens of four or more characters
+
+Candidates are now proposed by intersecting `text.location_tokens` of the
+reference's `locations` with those of the run finding's `location`, instead of
+testing substring containment. Tokens are lowercased, split on everything that
+is not `[A-Za-z0-9_]`, and anything shorter than `text.MIN_LOCATION_TOKEN`
+(4) is dropped.
+
+This changes which *candidates* are proposed and nothing else. The match path
+reads `matches.json` only, so recall cannot move because of it, and did not:
+`9/19 (47.4%)` before and after.
+
+Two consequences worth naming:
+
+- REF-10's bare `tss` is three characters and is now dropped entirely. It is
+  left in `locations` as documentation of the object name the source report
+  uses; it no longer proposes anything.
+- REF-14's bare `test` is exactly four characters and is *kept*, but it can
+  now only match a location whose own token is exactly `test`. It no longer
+  pairs with every location containing `latest` or `attestation`.
+
+Address strings written as ranges (`0x0E08D9FC-0x0E08D9FE`) tokenize into
+their two endpoints, so a range may be stored exactly as the source report
+writes it.
+
+## 2026-10-05 — locations added from the source report
+
+Stage 0 finding #3's second half: several entries omitted addresses their
+source entry cites, so a future run citing only an omitted address would
+surface as nothing at all. Every one of the 19 `# CRITICAL (19)` entries in
+`~/Documents/Offsec/Opswat/Devices/tplink/findings.txt` was re-read and its
+**Location.** line diffed against this file's `locations`.
+
+**Scope rule.** The **Location.** line is taken as the entry's canonical
+citation set. Addresses that appear only in the `Root cause` / `Data flow` /
+`FP-check` prose are deliberately *not* harvested: that prose cites
+intermediate instruction addresses, immediates that are not addresses at all
+(`0x2002FFFF`, `0xFFFFFFFE`, `0x08000000`), and functions named only as
+context — several of which belong to *other* entries in this set (F-13's
+prose names `sub_E043184` and `sub_E095544`, which are REF-17's locations).
+Classifying those one by one would be guessing, and a wrong location token is
+worse than a missing one: it manufactures a candidate that costs a human
+adjudication.
+
+67 location strings were added across all 19 entries. Nothing was removed and
+`matches.json` was not touched.
+
+| Ref | Added | From |
+|---|---|---|
+| REF-1 | `0x0C025C46`, `0x0C025C2E-0x0C025C3C`, `0x0C025C28`, `0x0C025C3E-0x0C025C42`, `0x0C025B3A-0x0C025B52` | missing cumulative bound, shared copy block, correct sibling check, accumulator update, loop advance |
+| REF-2 | `0x0C023FF6`, `0x0C023FEA` | frame allocation `sub sp,#0x44`; end of the saved-register range |
+| REF-3 | `0x0E00A525`, `0x2000B344`, `0x0E0C2CD4` | table handler pointer, AT dispatch table base, `"+WREG"` name string |
+| REF-4 | `0x0E0092F8`, `0x0E009728`, `0x0E0099FE`, `0x0E007B58` | the four tokenizer call sites, one per listed caller |
+| REF-5 | `0x0E0D0E88`, `0x0E0D0E8C` | rodata name/handler pair for `get_doorlock_records` |
+| REF-6 | `0x0E0547B2`, `0x0E054A6C` | end of the missing-guard fall-through; literal-pool word holding `0x2001CBEC` |
+| REF-7 | `0x0E069F30`, `0x0E072CFE`, `0x0E072D06`, `0x0E072D0A`, `0x0E072D0C`, `0x0E072D6C`, `0x0E072D70`, `0x0E072CBA` | address form of `sub_E069F30`; the length load / pass / reuse chain and the spilled frame length |
+| REF-8 | `0x0E07D9BA`, `0x2001E468` | initial capacity set to 32; the capacity global |
+| REF-9 | `sub_E08EC78`, `0x0E08EC78`, `0x0E08EC9C` | the device_key hex encoder and its literal-pool slot |
+| REF-10 | `0x0E0EB160`, `0x0E08E555`, `off_E08E72C`, `0x0E0EAFE4`, `off_E08E730`, `0x0E0EAFF4`, `off_E08E748` | rodata name/handler pair, handler pointer, the two field-name pointers and their string literals, the module-context pointer |
+| REF-11 | `0x0E08D9FC-0x0E08D9FE`, `0x0E08D9E8-0x0E08D9F8` | record allocation; gate — the two omissions Stage 0 finding #3 names |
+| REF-12 | `0x0E08F77C`, `0x0E08F600`, `0x0E08F7E4`, `0x0E0F4D88-0x0E0F4D90` | address forms of the three dispatch stages; the `/service/passthrough` topic-table entry |
+| REF-13 | `0x2000BE34`, `0x0E0ECEB4`, `0x0E095B8D` | SRAM route entry — the omission Stage 0 finding #3 names — plus the route path string and the thunk pointer |
+| REF-14 | `off_E0948F8`, `off_E094918` | the two literal-pool pointers that select the hardcoded fallbacks |
+| REF-15 | `0x0E0CE494`, `0x0E0CF908`, `0x0E0EE2B4`, `0x0E0EE2B8` | the two JSON key literals; the rodata method-registration pair |
+| REF-16 | `0x0E0CFBDC`, `0x0E0CE9E4`, `0x0E0F4E84-0x0E0F4E8C`, `0x0E0EC1B4` | the `access_info` / `sa_user_id` key strings; the `/service/lock` dispatch entry; the `setLockStatus` method-table entry |
+| REF-17 | `0x0E043470`, `0x0E043268`, `0x0E0437E8` | the two branch targets of the bypass; address form of `sub_E0437E8` |
+| REF-18 | `0x2001CBB8-0x2001CBBC`, `0x2001CF28-0x2001CFEC`, `0x2001CF34-0x2001CF48`, `0x2001CFBE-0x2001CFC6`, `0x2001CFF0-0x2001D010`, `0x2003C066` | window-flush trigger, partial-send builder, big-endian offset store, hard-coded length, window slide, wire-length store |
+| REF-19 | `0x2001CB28` | end of the first-fragment header-size range already half-present |
+
+### Cited but deliberately left out
+
+Each of these appears on a **Location.** line and was *not* added. The rule is
+the one Stage 0 finding #3 states in reverse: a shared symbol pairs unrelated
+defects, which is the `tss` failure in address form.
+
+| Not added | Cited by | Why |
+|---|---|---|
+| `sub_E085F2C` (malloc), `sub_E019D14`, `sub_E08EB78` (calloc), `sub_E0BD070` (strlen), `sub_E0BCFD8` / `0xe0bcfd8` (memcpy), `sub_E0BD080` (memset), `0x2003d6ac` (MCU1 memcpy) | REF-8, REF-10, REF-15, REF-18, REF-19 | Firmware-wide libc-style helpers. Every heap and copy defect in the set calls them, so a token hit means nothing. |
+| `sub_E07B94C` / `0x0E07B94C` | REF-8 | Cited as the *safe* sibling that "cannot reach the equivalent state". It is a counterexample to the defect, not a location of it. |
+| `sub_E02365C` | REF-3 | The shared AT-registration routine, used by every AT module; the entry gives no detail that narrows it to WREG. |
+| `sub_E064204` | REF-14 | The shared SHA-1/compare helper, called at both fallback sites and elsewhere; the entry does not identify it. |
+| `0x0E0E8314` | REF-9 | The `"%02X"` format literal. A format string is shared firmware-wide. |
+| `0x2001EFB8` | REF-9 | The iot_cloud account-struct base, cited only to express `0x2001F704` as base+`0x74C`. It is shared with REF-15's subsystem, so it is ambiguous as a location for *this* defect. |
+
+### Effect
+
+`bench` re-run after these edits: `recall 9/19 (47.4%)`, `findings 45`, `cost
+per matched finding $73.15` — identical to before. The candidate list went
+from two pairs to zero: both were the `tss` pairs, removed twice over by the
+four-character floor and by `rejections.json`. No addition produced a new
+candidate against the pinned run.

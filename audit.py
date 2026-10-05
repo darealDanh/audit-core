@@ -130,8 +130,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
     refs = goldens_mod.load_reference(golden / "reference.json")
     adjudicated = goldens_mod.load_matches(golden / "matches.json")
+    rejected = goldens_mod.load_rejections(golden / "rejections.json")
     findings = bench_mod.load_findings_from_db(db)
-    result = bench_mod.score(refs, findings, adjudicated, cost_usd=args.cost)
+    result = bench_mod.score(refs, findings, adjudicated,
+                             rejected=rejected, cost_usd=args.cost)
 
     if args.json:
         print(json.dumps(dataclasses.asdict(result), indent=2))
@@ -149,6 +151,8 @@ def cmd_bench(args: argparse.Namespace) -> int:
         print("candidates needing adjudication:")
         for c in result.candidates:
             print(f"  {c.reference_id} ~ {c.finding_id}  ({c.reason})")
+    if rejected:
+        print(f"({len(rejected)} previously rejected pair(s) suppressed)")
     return 0
 
 

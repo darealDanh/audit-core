@@ -3,7 +3,7 @@
     "id": "REF-1",
     "title": "Unbounded cumulative stack overflow in the 802.11 beacon Supported-Rates IE copy (sub_C025A98) — spoofed beacon overwrites the saved return address",
     "cwe": "CWE-787",
-    "locations": ["sub_C025A98", "0x0C025A98", "sub_C025C90", "0x0C025E8E", "0x20068A9C"],
+    "locations": ["sub_C025A98", "0x0C025A98", "sub_C025C90", "0x0C025E8E", "0x20068A9C", "0x0C025C46", "0x0C025C2E-0x0C025C3C", "0x0C025C28", "0x0C025C3E-0x0C025C42", "0x0C025B3A-0x0C025B52"],
     "root_cause_key": "80211-beacon-ie-asymmetric-cumulative-bound-missing",
     "severity": "CRITICAL"
   },
@@ -11,7 +11,7 @@
     "id": "REF-2",
     "title": "Association-Response ERP-Information element memcpy-ed into a 1-byte stack slot with the raw attacker length byte (sub_C023FE0) — rogue AP overwrites the saved return address",
     "cwe": "CWE-787",
-    "locations": ["sub_C023FE0", "0x0C023FE0", "0x0C0240EE", "0x0C024172", "0x0C024188", "0x20068A64", "0x20068A74"],
+    "locations": ["sub_C023FE0", "0x0C023FE0", "0x0C0240EE", "0x0C024172", "0x0C024188", "0x20068A64", "0x20068A74", "0x0C023FF6", "0x0C023FEA"],
     "root_cause_key": "80211-assocresp-erp-ie-unchecked-length-stack-copy",
     "severity": "CRITICAL"
   },
@@ -19,7 +19,7 @@
     "id": "REF-3",
     "title": "AT+WREG is a byte-confirmed entry in the single AT dispatch table and gives an unrestricted 32-bit write to any address, reachable from the Tapo API exec_atcmd method",
     "cwe": "CWE-123",
-    "locations": ["AT+WREG", "exec_atcmd", "sub_E00A524", "0x0E00A524", "sub_E023F98", "0x0E023F98", "0x0E023FC2", "sub_E00A9D8", "0x0E00A9D8", "0x2000B444"],
+    "locations": ["AT+WREG", "exec_atcmd", "sub_E00A524", "0x0E00A524", "sub_E023F98", "0x0E023F98", "0x0E023FC2", "sub_E00A9D8", "0x0E00A9D8", "0x2000B444", "0x0E00A525", "0x2000B344", "0x0E0C2CD4"],
     "root_cause_key": "at-wreg-arbitrary-address-write-primitive",
     "severity": "CRITICAL"
   },
@@ -27,7 +27,7 @@
     "id": "REF-4",
     "title": "Uncapped output-token index in the shared AT argument tokenizer sub_E0237CC overwrites the saved return address of four AT handlers with a pointer to attacker-controlled SRAM (control-flow hijack)",
     "cwe": "CWE-787",
-    "locations": ["sub_E0237CC", "0x0E0237CC", "0x0E023844", "0x0E023850", "sub_E0092E0", "0x0E0092E0", "sub_E00970C", "0x0E00970C", "sub_E0099E8", "0x0E0099E8", "sub_E007B3C", "0x0E007B3C"],
+    "locations": ["sub_E0237CC", "0x0E0237CC", "0x0E023844", "0x0E023850", "sub_E0092E0", "0x0E0092E0", "sub_E00970C", "0x0E00970C", "sub_E0099E8", "0x0E0099E8", "sub_E007B3C", "0x0E007B3C", "0x0E0092F8", "0x0E009728", "0x0E0099FE", "0x0E007B58"],
     "root_cause_key": "at-tokenizer-unbounded-output-slot-index-stack-overflow",
     "severity": "CRITICAL"
   },
@@ -35,7 +35,7 @@
     "id": "REF-5",
     "title": "get_doorlock_records: bare strcpy of the app-supplied sa_user_id JSON string into a 25-byte stack field 45 bytes below the saved LR",
     "cwe": "CWE-121",
-    "locations": ["sub_E04B250", "0x0E04B250", "0x0E04B326", "0x0E04B32C", "get_doorlock_records", "sa_user_id"],
+    "locations": ["sub_E04B250", "0x0E04B250", "0x0E04B326", "0x0E04B32C", "get_doorlock_records", "sa_user_id", "0x0E0D0E88", "0x0E0D0E8C"],
     "root_cause_key": "doorlock-records-sa-user-id-unbounded-strcpy-stack-overflow",
     "severity": "CRITICAL"
   },
@@ -43,7 +43,7 @@
     "id": "REF-6",
     "title": "Unbounded attacker-controlled offset AND length in cmd_tip_message_handl gives a ~64KB-window arbitrary write into KM4 SRAM",
     "cwe": "CWE-787",
-    "locations": ["sub_E054758", "0x0E054758", "cmd_tip_message_handl", "0x0E05487E", "0x0E0547A2", "0x0E054846", "0x2001CBEC"],
+    "locations": ["sub_E054758", "0x0E054758", "cmd_tip_message_handl", "0x0E05487E", "0x0E0547A2", "0x0E054846", "0x2001CBEC", "0x0E0547B2", "0x0E054A6C"],
     "root_cause_key": "tip-message-handler-unbounded-offset-and-length-write",
     "severity": "CRITICAL"
   },
@@ -51,7 +51,7 @@
     "id": "REF-7",
     "title": "EAPOL-Key \"Key Data Length\" from the wire drives the AES-Key-Wrap unwrap with no destination bound — unbounded stack buffer overflow in the WPA2 group-key handshake",
     "cwe": "CWE-121",
-    "locations": ["sub_E072CA0", "0x0E072CA0", "sub_E069F30", "0x0E072CF8", "0x0E072D74"],
+    "locations": ["sub_E072CA0", "0x0E072CA0", "sub_E069F30", "0x0E072CF8", "0x0E072D74", "0x0E069F30", "0x0E072CFE", "0x0E072D06", "0x0E072D0A", "0x0E072D0C", "0x0E072D6C", "0x0E072D70", "0x0E072CBA"],
     "root_cause_key": "eapol-group-key-data-length-unbounded-unwrap-overflow",
     "severity": "CRITICAL"
   },
@@ -59,7 +59,7 @@
     "id": "REF-8",
     "title": "Pre-signature-verification heap buffer overflow in the FOTA signed-header parser: the fixed 256-byte RSA signature is lifted from header+32 without checking that the wire-supplied header length is >= 288",
     "cwe": "CWE-787",
-    "locations": ["sub_E07D5BC", "0x0E07D5BC", "0x0E07D730", "0x0E07D744", "0x0E07D746", "0x0E07D816", "0x0E07D826", "sub_E07B550", "0x0E07B550"],
+    "locations": ["sub_E07D5BC", "0x0E07D5BC", "0x0E07D730", "0x0E07D744", "0x0E07D746", "0x0E07D816", "0x0E07D826", "sub_E07B550", "0x0E07B550", "0x0E07D9BA", "0x2001E468"],
     "root_cause_key": "fota-header-length-missing-minimum-check-heap-overflow",
     "severity": "CRITICAL"
   },
@@ -67,7 +67,7 @@
     "id": "REF-9",
     "title": "device_key — the only secret in the emergency master-unlock code and in the remote-unlock access_info key — is 31 bytes of unseeded libc rand() with a hard-coded 0xFF first byte, minted on-device and never rotated",
     "cwe": "CWE-338",
-    "locations": ["sub_E08EDE0", "0x0E08EDE0", "sub_E09BB4C", "0x0E09BB4C", "sub_E09BB70", "0x0E09BB70", "0x2001F704", "device_key"],
+    "locations": ["sub_E08EDE0", "0x0E08EDE0", "sub_E09BB4C", "0x0E09BB4C", "sub_E09BB70", "0x0E09BB70", "0x2001F704", "device_key", "sub_E08EC78", "0x0E08EC78", "0x0E08EC9C"],
     "root_cause_key": "device-key-unseeded-prng-weak-secret-generation",
     "severity": "CRITICAL"
   },
@@ -75,7 +75,7 @@
     "id": "REF-10",
     "title": "tss.update_bind_token: strncpy(dst, src, strlen(src)) copies unbounded cloud/LAN JSON strings into 33- and 41-byte heap buffers (remote heap overflow)",
     "cwe": "CWE-787",
-    "locations": ["sub_E08E554", "0x0E08E554", "update_bind_token", "tss", "0x2001ED18", "username_md5", "username_sha1"],
+    "locations": ["sub_E08E554", "0x0E08E554", "update_bind_token", "tss", "0x2001ED18", "username_md5", "username_sha1", "0x0E0EB160", "0x0E08E555", "off_E08E72C", "0x0E0EAFE4", "off_E08E730", "0x0E0EAFF4", "off_E08E748"],
     "root_cause_key": "tss-bind-token-degenerate-strncpy-heap-overflow",
     "severity": "CRITICAL"
   },
@@ -83,7 +83,7 @@
     "id": "REF-11",
     "title": "sub_E08B794 TLV case 47 writes 33 bytes through the case-48 pointer — a 32-byte controlled heap overflow reachable from an unauthenticated 802.11 Probe Request",
     "cwe": null,
-    "locations": ["sub_E08B794", "0x0E08B794", "0x0E08B84A", "0x0E08B86E", "sub_E08C248", "0x0E08C248", "sub_E08E094", "0x0E08E094", "0x0E0EAE20"],
+    "locations": ["sub_E08B794", "0x0E08B794", "0x0E08B84A", "0x0E08B86E", "sub_E08C248", "0x0E08C248", "sub_E08E094", "0x0E08E094", "0x0E0EAE20", "0x0E08D9FC-0x0E08D9FE", "0x0E08D9E8-0x0E08D9F8"],
     "root_cause_key": "tss-tlv-case-pointer-confusion-heap-overflow",
     "severity": "CRITICAL"
   },
@@ -91,7 +91,7 @@
     "id": "REF-12",
     "title": "The Tapo API dispatcher performs no authorization, and the cloud /service/passthrough MQTT topic reaches every method including exec_atcmd",
     "cwe": "CWE-862",
-    "locations": ["sub_E08FA48", "0x0E08FA48", "sub_E08F77C", "sub_E08F600", "sub_E08F7E4", "sub_E08FD38", "0x0E08FD38", "sub_E0A764C", "0x0E0A764C", "/service/passthrough", "exec_atcmd", "0x0E0EC0F4", "0x0E0EC4E4"],
+    "locations": ["sub_E08FA48", "0x0E08FA48", "sub_E08F77C", "sub_E08F600", "sub_E08F7E4", "sub_E08FD38", "0x0E08FD38", "sub_E0A764C", "0x0E0A764C", "/service/passthrough", "exec_atcmd", "0x0E0EC0F4", "0x0E0EC4E4", "0x0E08F77C", "0x0E08F600", "0x0E08F7E4", "0x0E0F4D88-0x0E0F4D90"],
     "root_cause_key": "tapo-api-dispatcher-missing-authorization",
     "severity": "CRITICAL"
   },
@@ -99,7 +99,7 @@
     "id": "REF-13",
     "title": "Pre-authentication stack buffer overflow with return-address control in the LAN /app/handshake0 KLAP endpoint (sub_E095450)",
     "cwe": "CWE-121",
-    "locations": ["sub_E095450", "0x0E095450", "/app/handshake0", "sub_E095B8C", "0x0E095B8C", "sub_E07FB38", "0x0E07FB38"],
+    "locations": ["sub_E095450", "0x0E095450", "/app/handshake0", "sub_E095B8C", "0x0E095B8C", "sub_E07FB38", "0x0E07FB38", "0x2000BE34", "0x0E0ECEB4", "0x0E095B8D"],
     "root_cause_key": "klap-handshake0-unbounded-copy",
     "severity": "CRITICAL"
   },
@@ -107,7 +107,7 @@
     "id": "REF-14",
     "title": "Hardcoded local-API credentials \"test@tp-link.net\" / \"test\" accepted by the LAN HTTP login whenever the lock has no cloud account (factory-fresh, unbound, or factory-reset)",
     "cwe": "CWE-798",
-    "locations": ["sub_E0945EC", "0x0E0945EC", "tapo_http_server_login_nbus_callback", "sub_E096F10", "0x0E096F10", "test@tp-link.net", "test", "0x0E0CE450", "0x0E0CE448"],
+    "locations": ["sub_E0945EC", "0x0E0945EC", "tapo_http_server_login_nbus_callback", "sub_E096F10", "0x0E096F10", "test@tp-link.net", "test", "0x0E0CE450", "0x0E0CE448", "off_E0948F8", "off_E094918"],
     "root_cause_key": "hardcoded-fallback-credentials-local-api-login",
     "severity": "CRITICAL"
   },
@@ -115,7 +115,7 @@
     "id": "REF-15",
     "title": "Heap buffer overflow in iot_cloud.cloud_proxy_info: strncpy length is strlen(source), into a fixed 168-byte node",
     "cwe": "CWE-787",
-    "locations": ["sub_E09D7E8", "0x0E09D7E8", "iot_cloud_proxy_info_cb", "cloud_proxy_info"],
+    "locations": ["sub_E09D7E8", "0x0E09D7E8", "iot_cloud_proxy_info_cb", "cloud_proxy_info", "0x0E0CE494", "0x0E0CF908", "0x0E0EE2B4", "0x0E0EE2B8"],
     "root_cause_key": "cloud-proxy-info-degenerate-strncpy-heap-overflow",
     "severity": "CRITICAL"
   },
@@ -123,7 +123,7 @@
     "id": "REF-16",
     "title": "Deadbolt actuation accepts a plaintext sa_user_id instead of the account-bound access_info envelope; /service/lock also lets the cloud forge the audit attribution",
     "cwe": "CWE-306",
-    "locations": ["sub_E04B640", "0x0E04B640", "dl_status_app_set_lock_status_cb", "sub_E0A6E88", "0x0E0A6E88", "sub_E09154C", "0x0E09154C", "sa_user_id", "access_info", "set_lock_status", "/service/lock"],
+    "locations": ["sub_E04B640", "0x0E04B640", "dl_status_app_set_lock_status_cb", "sub_E0A6E88", "0x0E0A6E88", "sub_E09154C", "0x0E09154C", "sa_user_id", "access_info", "set_lock_status", "/service/lock", "0x0E0CFBDC", "0x0E0CE9E4", "0x0E0F4E84-0x0E0F4E8C", "0x0E0EC1B4"],
     "root_cause_key": "setlockstatus-missing-access-info-authentication",
     "severity": "CRITICAL"
   },
@@ -131,7 +131,7 @@
     "id": "REF-17",
     "title": "KLAP handshake-1 authentication bypass: a short request sets an in-band flag byte that makes klap_handshake1_handle skip credential verification and use the stored local_auth_hash",
     "cwe": "CWE-287",
-    "locations": ["sub_E043184", "0x0E043184", "klap_handshake1_handle", "0x0E0431B8", "sub_E0AABDC", "0x0E0AABDC", "sub_E095544", "0x0E095544", "0x2001C110", "0x2001C0EC", "sub_E0437E8"],
+    "locations": ["sub_E043184", "0x0E043184", "klap_handshake1_handle", "0x0E0431B8", "sub_E0AABDC", "0x0E0AABDC", "sub_E095544", "0x0E095544", "0x2001C110", "0x2001C0EC", "sub_E0437E8", "0x0E043470", "0x0E043268", "0x0E0437E8"],
     "root_cause_key": "klap-handshake1-flag-byte-auth-bypass",
     "severity": "CRITICAL"
   },
@@ -139,7 +139,7 @@
     "id": "REF-18",
     "title": "Unpaired BLE peer obtains a ~64 KB arbitrary-offset write into MCU2 SRAM via the tbtp -> app-v1 tip-message bridge",
     "cwe": "CWE-787",
-    "locations": ["sub_2001C8FC", "0x2001C8FC", "tbtp_receive_data", "send_tip_message_to_wifi", "sub_2003BF64", "0x2003BF64", "sub_E054758", "0x0E054758", "0x0E05487C", "0x0E05487E"],
+    "locations": ["sub_2001C8FC", "0x2001C8FC", "tbtp_receive_data", "send_tip_message_to_wifi", "sub_2003BF64", "0x2003BF64", "sub_E054758", "0x0E054758", "0x0E05487C", "0x0E05487E", "0x2001CBB8-0x2001CBBC", "0x2001CF28-0x2001CFEC", "0x2001CF34-0x2001CF48", "0x2001CFBE-0x2001CFC6", "0x2001CFF0-0x2001D010", "0x2003C066"],
     "root_cause_key": "ble-tbtp-window-offset-unbounded-relay-write",
     "severity": "CRITICAL"
   },
@@ -147,7 +147,7 @@
     "id": "REF-19",
     "title": "MCU1: a single 2-byte GATT write underflows the tbtp fragment length and makes MCU1 memcpy 65234 bytes inside its own SRAM",
     "cwe": "CWE-191",
-    "locations": ["sub_2001C8FC", "0x2001C8FC", "tbtp_receive_data", "tbtp_handle_characteristic_received", "0x2001CA22", "0x2001CA2E", "0x2001CB24", "0x2001CB3C", "0x2001CB40", "0x2001CCDC", "0x2001CCE8", "0x2001CFF0", "0x2001D010"],
+    "locations": ["sub_2001C8FC", "0x2001C8FC", "tbtp_receive_data", "tbtp_handle_characteristic_received", "0x2001CA22", "0x2001CA2E", "0x2001CB24", "0x2001CB3C", "0x2001CB40", "0x2001CCDC", "0x2001CCE8", "0x2001CFF0", "0x2001D010", "0x2001CB28"],
     "root_cause_key": "tbtp-fragment-length-integer-underflow-mcu1-overflow",
     "severity": "CRITICAL"
   }

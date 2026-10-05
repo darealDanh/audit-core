@@ -10,6 +10,7 @@ import pathlib
 import sqlite3
 from dataclasses import dataclass
 
+from audit_core import text
 from audit_core.goldens import Reference
 
 
@@ -55,8 +56,16 @@ def score(
     refs: list[Reference],
     findings: list[RunFinding],
     adjudicated: dict[str, str],
+    rejected: frozenset[tuple[str, str]] = frozenset(),
     cost_usd: float | None = None,
 ) -> BenchResult:
+    """Score `findings` against `refs`.
+
+    `adjudicated` is the only source of matches. `rejected` holds pairs a
+    human already looked at and turned down; they are suppressed from the
+    candidate list so a second run does not re-charge the same adjudication.
+    A rejection never touches the match path - matches.json wins.
+    """
     by_id = {f.id: f for f in findings}
 
     matched: list[tuple[str, str]] = []
@@ -72,13 +81,21 @@ def score(
     for ref in refs:
         if ref.id in matched_refs:
             continue
+        ref_tokens: frozenset[str] = frozenset()
+        for loc in ref.locations:
+            ref_tokens |= text.location_tokens(loc)
+        if not ref_tokens:
+            continue
         for finding in findings:
             if finding.id in matched_findings:
                 continue
-            hit = next((loc for loc in ref.locations
-                        if loc and loc.lower() in (finding.location or "").lower()), None)
-            if hit:
-                candidates.append(Candidate(ref.id, finding.id, f"location overlap: {hit}"))
+            if (ref.id, finding.id) in rejected:
+                continue
+            shared = ref_tokens & text.location_tokens(finding.location)
+            if shared:
+                candidates.append(Candidate(
+                    ref.id, finding.id,
+                    "location overlap: " + ", ".join(sorted(shared))))
 
     recall = len(matched) / len(refs) if refs else 0.0
     cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
