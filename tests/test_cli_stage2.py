@@ -87,3 +87,41 @@ def test_a_not_audited_row_without_a_reason_is_refused_at_the_cli(tmp_path):
             "--set", "phase=audit", "--set", "state=not_audited")
     assert r.returncode == 1
     assert "reason" in r.stderr
+
+
+def test_extract_snapshots_a_source_tree_and_prints_a_bounded_summary(tmp_path):
+    run_dir = new_run(tmp_path)
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "a.c").write_text("alpha")
+    (src / "sub" / "b.c").write_text("beta")
+    r = run("extract", "--run", str(run_dir), "--root", str(src),
+            "--unit", "G1", "--path", "a.c", "--path", "sub/b.c")
+    assert r.returncode == 0, r.stderr
+    assert "2 snapshot(s), 0 changed, 0 truncated" in r.stdout
+    assert (run_dir / "extract" / "G1" / "sub_b.c").read_text() == "beta"
+    # The summary is two lines. The detail is in the manifest, which is a file.
+    assert len(r.stdout.strip().splitlines()) == 2
+
+
+def test_extract_refresh_re_reads_what_the_unit_already_holds(tmp_path):
+    run_dir = new_run(tmp_path)
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("v1")
+    run("extract", "--run", str(run_dir), "--root", str(src), "--unit", "G1",
+        "--path", "a.c")
+    (src / "a.c").write_text("v2")
+    r = run("extract", "--run", str(run_dir), "--root", str(src), "--unit", "G1",
+            "--refresh")
+    assert r.returncode == 0, r.stderr
+    assert "1 changed" in r.stdout
+
+
+def test_extract_with_no_items_exits_one(tmp_path):
+    run_dir = new_run(tmp_path)
+    (tmp_path / "src").mkdir()
+    r = run("extract", "--run", str(run_dir), "--root", str(tmp_path / "src"),
+            "--unit", "G1")
+    assert r.returncode == 1
+    assert "--refresh" in r.stderr

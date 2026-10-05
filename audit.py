@@ -20,6 +20,7 @@ from audit_core import briefs as briefs_mod  # noqa: E402
 from audit_core import skill_lint as skill_lint_mod  # noqa: E402
 from audit_core import db as db_mod  # noqa: E402
 from audit_core import coverage as coverage_mod  # noqa: E402
+from audit_core import extract as extract_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -281,6 +282,45 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_extract(args: argparse.Namespace) -> int:
+    store = extract_mod.ExtractStore(pathlib.Path(args.run).expanduser())
+    backend = extract_mod.SourceTree(pathlib.Path(args.root).expanduser())
+    items = list(args.path)
+    if args.from_file:
+        src = pathlib.Path(args.from_file).expanduser()
+        if not src.is_file():
+            print(f"not found: {src}", file=sys.stderr)
+            return 1
+        items += [ln.strip() for ln in src.read_text().splitlines() if ln.strip()]
+    if args.refresh and not items:
+        items = store.items(args.unit)
+        if not items:
+            print(f"--refresh: unit {args.unit!r} has no snapshots yet",
+                  file=sys.stderr)
+            return 1
+    if not items:
+        print("nothing to extract; pass --path, --from-file or --refresh",
+              file=sys.stderr)
+        return 1
+    try:
+        recs = extract_mod.extract_batch(store, backend, args.unit, items,
+                                         batch_size=args.batch_size)
+    except extract_mod.ExtractError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"backend read failed: {exc}", file=sys.stderr)
+        return 1
+    changed = sum(1 for r in recs if r.version > 1)
+    truncated = sum(1 for r in recs if r.truncated)
+    # Bounded on purpose: R1 applies to this tool's own output. The manifest
+    # holds the per-file detail, and it is a file, not a paste.
+    print(f"extract {args.unit}: {len(recs)} snapshot(s), {changed} changed, "
+          f"{truncated} truncated")
+    print(store.manifest_path)
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -297,6 +337,7 @@ HANDLERS = {
     "status": cmd_status,
     "dedup": cmd_dedup,
     "coverage": cmd_coverage,
+    "extract": cmd_extract,
 }
 
 
@@ -359,6 +400,16 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)
     cv.add_argument("--json", action="store_true")
+    ex = sub.add_parser("extract", help="snapshot source into <run>/extract/ once, for unbounded fan-out")
+    ex.add_argument("--run", required=True, metavar="RUN_DIR")
+    ex.add_argument("--root", required=True, metavar="SRC_DIR")
+    ex.add_argument("--unit", required=True, help="feature group id, e.g. G1")
+    ex.add_argument("--path", action="append", default=[], metavar="RELPATH")
+    ex.add_argument("--from-file", default=None, metavar="LIST",
+                    help="a file of one source path per line")
+    ex.add_argument("--refresh", action="store_true",
+                    help="re-read every item already snapshotted for this unit")
+    ex.add_argument("--batch-size", type=int, default=extract_mod.BATCH_SIZE)
     return p
 
 
