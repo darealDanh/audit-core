@@ -91,16 +91,5 @@ When BOTH sources are available, use this division of labor:
 
 ## SQL Schema
 
-```sql
-CREATE TABLE IF NOT EXISTS cba_sources (
-    id TEXT PRIMARY KEY,
-    type TEXT NOT NULL,       -- 'source', 'ida', 'both'
-    source_path TEXT,         -- absolute path to source root
-    source_language TEXT,     -- primary language
-    source_file_count INTEGER,
-    ida_binary TEXT,          -- binary filename
-    ida_port INTEGER,         -- MCP port
-    ida_arch TEXT,            -- x86, x64, ARM, etc.
-    confirmed_at TEXT DEFAULT (datetime('now'))
-);
-```
+The `cba_sources` table is created by `audit.py init` (recon Step 1). Insert the
+confirmed source row into it; do not create the table.

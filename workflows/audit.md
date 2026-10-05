@@ -63,31 +63,19 @@ Patched files: <list>
 
 ## Step 3 — Create the findings table
 
-```sql
-CREATE TABLE IF NOT EXISTS cba_findings (
-    id TEXT PRIMARY KEY,                -- e.g., 'G1-F1'
-    group_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    severity TEXT NOT NULL,             -- CRITICAL, HIGH, MEDIUM, LOW
-    confidence INTEGER NOT NULL,        -- 1-10
-    cwe TEXT,
-    location TEXT NOT NULL,
-    root_cause TEXT NOT NULL,
-    impact TEXT NOT NULL,
-    attacker_position TEXT,
-    boundary_crossed TEXT,
-    data_flow TEXT,
-    verified TEXT DEFAULT 'source-only', -- source-only, ida-confirmed, live-poc
-    poc TEXT,
-    remediation TEXT,
-    artifact_path TEXT,                  -- path to per-group artifact section
-    created_at TEXT DEFAULT (datetime('now'))
-);
-```
+The schema is already applied by `audit.py init` (recon Step 1). If you are
+entering this phase against an existing run directory, re-apply it safely
+with `python3 __SKILL_DIR__/audit.py init --root . --timestamp <existing-ts>`.
 
 ## Step 4 — Parallel deep-audit subagents
 
-**Agent type**: a **writable** subagent (must write artifacts + SQL — not a read-only one). Use the strongest model your client offers. See SKILL.md → *Cross-client tool mapping*.
+**Agent type**: a **writable** subagent (must write artifacts + SQL — not a
+read-only one). **Model:** strongest tier, high effort — this is the phase
+where adversarial reasoning earns its cost. See SKILL.md → *Cross-client tool
+mapping* and *Model and effort tiering*.
+
+Render each group's brief with `audit.py brief --phase audit --unit <G>` and
+dispatch the path (spec rule R6).
 
 Spawn ONE subagent per feature group, ALL in parallel.
 

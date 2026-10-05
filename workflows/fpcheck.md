@@ -9,17 +9,7 @@
 
 ## Step 1 — Create verdicts table
 
-```sql
-CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
-    finding_id TEXT PRIMARY KEY,
-    verdict TEXT NOT NULL,        -- TRUE_POSITIVE, FALSE_POSITIVE, DUPLICATE
-    reason TEXT,
-    final_severity TEXT,
-    final_id TEXT,                -- F-N for report (assigned after this phase)
-    merged_into TEXT,             -- canonical finding_id when DUPLICATE
-    reviewed_at TEXT DEFAULT (datetime('now'))
-);
-```
+The `cba_fp_verdicts` table is created by `audit.py init`.
 
 ## Step 2 — Build batches
 
@@ -40,7 +30,13 @@ Before launching FP-check, query for finding pairs that cite the same file:line 
 
 ## Step 4 — Spawn parallel FP-check subagents
 
-**Agent type**: a **writable** subagent — a read-only agent cannot write the SQL inserts, so ALL verdicts would be lost. Use the strongest model your client offers. See SKILL.md → *Cross-client tool mapping*.
+**Agent type**: a **writable** subagent — a read-only agent cannot write the
+SQL inserts, so ALL verdicts would be lost. **Model:** mid tier, medium effort
+— FP-check applies fixed rules to a bounded list. See SKILL.md →
+*Cross-client tool mapping* and *Model and effort tiering*.
+
+Render each batch's brief with `audit.py brief --phase fpcheck --unit <batch>`
+and dispatch the path (spec rule R6).
 
 Spawn ONE subagent per batch, ALL in parallel.
 

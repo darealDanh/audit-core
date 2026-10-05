@@ -7,18 +7,34 @@
 
 ---
 
+## Step 0 — MCP preflight
+
+Unused MCP tool schemas are resident on every turn and are charged again in
+accumulation. Before anything else, scope the run's MCP surface:
+
+    python3 __SKILL_DIR__/audit.py preflight --server autorev=<autorev-command>
+
+Then relaunch against it, as the command's own output states:
+
+    claude --strict-mcp-config --mcp-config .audit-mcp.json
+
+If the target needs no binary tooling, run `audit.py preflight` with no
+`--server` at all. If `.audit-mcp.json` already exists, it is the user's —
+read it, and pass `--force` only if they confirm.
+
 ## Step 1 — Create audit workspace
 
-```bash
-TS=$(date -u +%Y%m%d-%H%M%S)
-AUDIT_DIR="reports/audit-${TS}"
-mkdir -p "${AUDIT_DIR}/files" "${AUDIT_DIR}/artifacts" "${AUDIT_DIR}/archived-poc"
-sqlite3 "${AUDIT_DIR}/audit.db" "SELECT 1;"  # create empty DB
-```
+    AUDIT_DIR=$(python3 __SKILL_DIR__/audit.py init | tail -1)
+
+`init` creates `files/`, `artifacts/`, `archived-poc/` and `briefs/`, and
+applies the full schema to `audit.db`. It is idempotent: re-running a phase
+never destroys rows an earlier phase recorded.
+
+Record `AUDIT_DIR`. **Stay at the project root for the whole audit** —
+reference `${AUDIT_DIR}` by path, never `cd` into it (SKILL.md Essential
+Principle #10).
 
 `archived-poc/` starts empty; verify forks may consult it for report-format examples, and the user archives each finalized report + its `poc/` into `archived-poc/<finding-id>/` after sending it to the maintainer.
-
-Record `AUDIT_DIR` — every later step uses it. **Stay at the project root for the whole audit: reference `${AUDIT_DIR}` by path, never `cd` into it.** Verify forks inherit the orchestrator's current directory and Claude's resume picker groups sessions by it, so a drifted cwd hides your forks and breaks the resume note's relative commands (see SKILL.md Essential Principle #10 and lessons-learned #17).
 
 ## Step 2 — Phase 0 source detection
 
@@ -63,14 +79,24 @@ Insert approved groups into `cba_feature_groups` (status='pending').
 
 Spawn ONE subagent per feature group, ALL in parallel (one subagent-spawn call per group in the same response — see SKILL.md → *Cross-client tool mapping*).
 
-Each subagent prompt (template from [../references/phase2-feature-mapping.md](../references/phase2-feature-mapping.md)) must include:
+For each group, render the brief and dispatch with its path:
 
-- Group ID + name + scope (key directories)
-- Source access instructions (paths, IDA tool list)
-- Instruction to write **two outputs**:
-  1. Detailed mapping → `<AUDIT_DIR>/files/G<n>-mapping.md`
-  2. SQL inserts into `cba_attack_surface` and `cba_security_observations`
-- Instruction to return a compact summary (counts: features, endpoints, observations)
+    python3 __SKILL_DIR__/audit.py brief --phase recon --unit "$G" --run "$AUDIT_DIR" \
+      --var group_id="$G" --var group_name="$NAME" \
+      --var group_description="$DESC" --var key_directories="$DIRS" \
+      --var run_dir="$AUDIT_DIR" --var source_access="$SRC" \
+      --var known_findings="$KNOWN" \
+      --var mapping_path="$AUDIT_DIR/files/$G-mapping.md"
+
+The dispatch carries the brief path plus only what the brief cannot know.
+Do not paste the brief's contents into the prompt, and never paste prior
+phases' summaries (spec rule R6).
+
+**Model:** mid tier, low effort — mapping is pattern work against clear
+criteria. See SKILL.md → *Model and effort tiering*.
+
+Each subagent returns one line. Read the results from SQL, not from the
+return text.
 
 After all subagents return:
 - Verify each `files/G<n>-mapping.md` exists and is non-trivial.
