@@ -9,5 +9,9 @@ reports/
 .idea/
 *.swp
 
+# Python
+__pycache__/
+*.pyc
+
 # Custom
 chat.json

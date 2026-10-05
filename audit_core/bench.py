@@ -1,0 +1,94 @@
+"""Score an audit run against a golden reference set.
+
+Only human-adjudicated pairs count toward recall. Location overlap produces a
+candidate for adjudication, never a match: auto-matching on a shared symbol
+inflates recall and would let a regression pass the gate.
+"""
+from __future__ import annotations
+
+import pathlib
+import sqlite3
+from dataclasses import dataclass
+
+from audit_core.goldens import Reference
+
+
+@dataclass(frozen=True, slots=True)
+class RunFinding:
+    id: str
+    title: str
+    cwe: str | None
+    location: str
+    severity: str
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    reference_id: str
+    finding_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BenchResult:
+    recall: float
+    matched: tuple[tuple[str, str], ...]
+    unmatched_references: tuple[str, ...]
+    candidates: tuple[Candidate, ...]
+    reference_count: int
+    finding_count: int
+    cost_per_match: float | None
+
+
+def load_findings_from_db(db_path: str | pathlib.Path) -> list[RunFinding]:
+    con = sqlite3.connect(f"file:{pathlib.Path(db_path)}?mode=ro", uri=True)
+    try:
+        rows = con.execute(
+            "SELECT id, title, cwe, location, severity FROM cba_findings ORDER BY id"
+        ).fetchall()
+    finally:
+        con.close()
+    return [RunFinding(r[0], r[1], r[2], r[3], r[4]) for r in rows]
+
+
+def score(
+    refs: list[Reference],
+    findings: list[RunFinding],
+    adjudicated: dict[str, str],
+    cost_usd: float | None = None,
+) -> BenchResult:
+    by_id = {f.id: f for f in findings}
+
+    matched: list[tuple[str, str]] = []
+    for ref in refs:
+        finding_id = adjudicated.get(ref.id)
+        if finding_id and finding_id in by_id:
+            matched.append((ref.id, finding_id))
+
+    matched_refs = {r for r, _ in matched}
+    matched_findings = {f for _, f in matched}
+
+    candidates: list[Candidate] = []
+    for ref in refs:
+        if ref.id in matched_refs:
+            continue
+        for finding in findings:
+            if finding.id in matched_findings:
+                continue
+            hit = next((loc for loc in ref.locations
+                        if loc and loc.lower() in (finding.location or "").lower()), None)
+            if hit:
+                candidates.append(Candidate(ref.id, finding.id, f"location overlap: {hit}"))
+
+    recall = len(matched) / len(refs) if refs else 0.0
+    cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
+
+    return BenchResult(
+        recall=recall,
+        matched=tuple(matched),
+        unmatched_references=tuple(r.id for r in refs if r.id not in matched_refs),
+        candidates=tuple(candidates),
+        reference_count=len(refs),
+        finding_count=len(findings),
+        cost_per_match=cost_per_match,
+    )
