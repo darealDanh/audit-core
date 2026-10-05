@@ -14,6 +14,7 @@ from audit_core import budget as budget_mod       # noqa: E402
 from audit_core import transcript as transcript_mod  # noqa: E402
 from audit_core import bench as bench_mod      # noqa: E402
 from audit_core import goldens as goldens_mod  # noqa: E402
+from audit_core import workspace as workspace_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -80,6 +81,13 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_init(args: argparse.Namespace) -> int:
+    run = workspace_mod.init_run(args.root, timestamp=args.timestamp)
+    print(f"tables: {', '.join(workspace_mod.apply_schema(run / 'audit.db'))}")
+    print(run)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="audit.py")
     sub = p.add_subparsers(dest="verb", required=True)
@@ -92,13 +100,16 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--db", required=True, metavar="AUDIT_DB")
     n.add_argument("--cost", type=float, default=None)
     n.add_argument("--json", action="store_true")
+    i = sub.add_parser("init", help="create an audit run directory and its schema")
+    i.add_argument("--root", default=".", metavar="DIR")
+    i.add_argument("--timestamp", default=None, metavar="TS")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return {"selftest": cmd_selftest, "budget": cmd_budget,
-            "bench": cmd_bench}[args.verb](args)
+            "bench": cmd_bench, "init": cmd_init}[args.verb](args)
 
 
 if __name__ == "__main__":
