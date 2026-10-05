@@ -16,6 +16,7 @@ from audit_core import bench as bench_mod      # noqa: E402
 from audit_core import goldens as goldens_mod  # noqa: E402
 from audit_core import workspace as workspace_mod  # noqa: E402
 from audit_core import preflight as preflight_mod  # noqa: E402
+from audit_core import briefs as briefs_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -109,6 +110,24 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_brief(args: argparse.Namespace) -> int:
+    variables: dict[str, str] = {}
+    for spec in args.var:
+        name, sep, value = spec.partition("=")
+        if not sep or not name:
+            print(f"bad --var {spec!r}; expected NAME=VALUE", file=sys.stderr)
+            return 1
+        variables[name] = value
+    try:
+        path = briefs_mod.write_brief(args.phase, args.unit, args.run, variables,
+                                      template_dir=args.template_dir)
+    except briefs_mod.BriefError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(path)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="audit.py")
     sub = p.add_subparsers(dest="verb", required=True)
@@ -128,13 +147,20 @@ def build_parser() -> argparse.ArgumentParser:
     pf.add_argument("--out", default=preflight_mod.MCP_CONFIG_NAME, metavar="PATH")
     pf.add_argument("--server", action="append", default=[], metavar="NAME=COMMAND")
     pf.add_argument("--force", action="store_true")
+    br = sub.add_parser("brief", help="render a subagent dispatch brief")
+    br.add_argument("--phase", required=True)
+    br.add_argument("--unit", required=True)
+    br.add_argument("--run", required=True, metavar="RUN_DIR")
+    br.add_argument("--var", action="append", default=[], metavar="NAME=VALUE")
+    br.add_argument("--template-dir", default=None, metavar="DIR")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return {"selftest": cmd_selftest, "budget": cmd_budget,
-            "bench": cmd_bench, "init": cmd_init, "preflight": cmd_preflight}[args.verb](args)
+            "bench": cmd_bench, "init": cmd_init, "preflight": cmd_preflight,
+            "brief": cmd_brief}[args.verb](args)
 
 
 if __name__ == "__main__":
