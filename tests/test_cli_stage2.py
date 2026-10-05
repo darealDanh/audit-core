@@ -60,3 +60,30 @@ def test_dedup_on_an_empty_run_says_so_and_exits_zero(tmp_path):
     r = run("dedup", "--db", db)
     assert r.returncode == 0, r.stderr
     assert "no cross-group duplicate candidates" in r.stdout
+
+
+def test_coverage_on_an_empty_inventory_exits_zero_and_explains(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("coverage", "--db", db)
+    assert r.returncode == 0, r.stderr
+    assert "inventory is empty" in r.stdout
+
+
+def test_coverage_reports_a_budget_skip_as_a_warning(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    run("put", "--db", db, "--table", "cba_inventory",
+        "--set", "unit=src/a.c", "--set", "kind=file")
+    run("put", "--db", db, "--table", "cba_coverage", "--set", "unit=src/a.c",
+        "--set", "phase=audit", "--set", "state=not_audited", "--set", "reason=budget")
+    r = run("coverage", "--db", db)
+    assert r.returncode == 0, r.stderr
+    assert "WARNING" in r.stdout
+    assert "checkpoint and restart" in r.stdout
+
+
+def test_a_not_audited_row_without_a_reason_is_refused_at_the_cli(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("put", "--db", db, "--table", "cba_coverage", "--set", "unit=a.c",
+            "--set", "phase=audit", "--set", "state=not_audited")
+    assert r.returncode == 1
+    assert "reason" in r.stderr

@@ -20,6 +20,11 @@ MAX_ROWS = 200
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 VERDICTS = ("TRUE_POSITIVE", "FALSE_POSITIVE", "DUPLICATE", "NEEDS_VERIFICATION")
+COVERAGE_STATES = ("analyzed", "not_audited")
+NOT_AUDITED_REASONS = ("budget", "out-of-scope", "generated", "vendored",
+                       "third-party", "unreachable", "binary-only")
+INVENTORY_KINDS = ("file", "function", "endpoint", "binary")
+CHECKPOINT_REASONS = ("phase-exit", "ceiling", "manual")
 
 
 class DbError(Exception):
@@ -42,6 +47,27 @@ def one_of(column: str, allowed: tuple[str, ...]) -> Validator:
         if value is not None and value not in allowed:
             raise DbError(f"{column}={value!r} is not one of {', '.join(allowed)}")
     return check
+
+
+def _validate_coverage(row: dict[str, str]) -> None:
+    """A gap needs a reason, and the reason has to come from the list.
+
+    Spec section 3.5: `not_audited` rows with reasons are mandatory. A row
+    without one records that something was skipped while hiding why, which is
+    strictly worse than no row - it makes the denominator look accounted for.
+    """
+    state = row.get("state")
+    if state not in COVERAGE_STATES:
+        raise DbError(f"state={state!r} is not one of {', '.join(COVERAGE_STATES)}")
+    reason = (row.get("reason") or "").strip()
+    if state != "not_audited":
+        return
+    if not reason:
+        raise DbError("state=not_audited requires a reason; one of: "
+                      + ", ".join(NOT_AUDITED_REASONS))
+    if reason not in NOT_AUDITED_REASONS:
+        raise DbError(f"reason={reason!r} is not one of: "
+                      + ", ".join(NOT_AUDITED_REASONS))
 
 
 TABLE_SPECS: dict[str, TableSpec] = {
@@ -76,6 +102,27 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "merged_into", "rule_applied", "reviewed_at"),
         required=("finding_id", "verdict"),
         validate=one_of("verdict", VERDICTS)),
+    "cba_inventory": TableSpec(
+        columns=("unit", "kind", "group_id", "size", "added_at"),
+        required=("unit", "kind"),
+        validate=one_of("kind", INVENTORY_KINDS)),
+    "cba_coverage": TableSpec(
+        columns=("unit", "phase", "state", "reason", "recorded_at"),
+        required=("unit", "phase", "state"),
+        validate=_validate_coverage),
+    "cba_patterns": TableSpec(
+        columns=("id", "name", "regex", "origin_finding", "language", "notes",
+                 "created_at"),
+        required=("id", "name", "regex")),
+    "cba_pattern_hits": TableSpec(
+        columns=("id", "pattern_id", "path", "line", "excerpt", "triaged",
+                 "swept_at"),
+        required=("pattern_id", "path", "line")),
+    "cba_checkpoints": TableSpec(
+        columns=("id", "phase", "reason", "turns", "projected_context",
+                 "resume_note", "recorded_at"),
+        required=("phase", "reason"),
+        validate=one_of("reason", CHECKPOINT_REASONS)),
 }
 
 

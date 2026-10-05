@@ -19,6 +19,7 @@ from audit_core import preflight as preflight_mod  # noqa: E402
 from audit_core import briefs as briefs_mod  # noqa: E402
 from audit_core import skill_lint as skill_lint_mod  # noqa: E402
 from audit_core import db as db_mod  # noqa: E402
+from audit_core import coverage as coverage_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -265,6 +266,21 @@ def cmd_dedup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coverage(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        r = coverage_mod.report(con, phase=args.phase)
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(r) | {"fraction": r.fraction}, indent=2))
+    else:
+        print(coverage_mod.render(r))
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -280,6 +296,7 @@ HANDLERS = {
     "rows": cmd_rows,
     "status": cmd_status,
     "dedup": cmd_dedup,
+    "coverage": cmd_coverage,
 }
 
 
@@ -338,6 +355,10 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("dedup", help="propose cross-group duplicate findings")
     dd.add_argument("--db", required=True, metavar="AUDIT_DB")
     dd.add_argument("--json", action="store_true")
+    cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
+    cv.add_argument("--db", required=True, metavar="AUDIT_DB")
+    cv.add_argument("--phase", default=None)
+    cv.add_argument("--json", action="store_true")
     return p
 
 
