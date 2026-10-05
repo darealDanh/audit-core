@@ -15,6 +15,7 @@ from audit_core import transcript as transcript_mod  # noqa: E402
 from audit_core import bench as bench_mod      # noqa: E402
 from audit_core import goldens as goldens_mod  # noqa: E402
 from audit_core import workspace as workspace_mod  # noqa: E402
+from audit_core import preflight as preflight_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -88,6 +89,26 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_preflight(args: argparse.Namespace) -> int:
+    servers: dict[str, dict] = {}
+    for spec in args.server:
+        name, sep, command = spec.partition("=")
+        if not sep or not name or not command:
+            print(f"bad --server {spec!r}; expected NAME=COMMAND", file=sys.stderr)
+            return 1
+        servers[name] = {"command": command}
+    out = pathlib.Path(args.out).expanduser()
+    try:
+        preflight_mod.write_config(out, servers, force=args.force)
+    except FileExistsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"wrote {out} with {len(servers)} server(s): {', '.join(sorted(servers)) or '(none)'}")
+    print("relaunch with:")
+    print(f"  {preflight_mod.launch_command(out)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="audit.py")
     sub = p.add_subparsers(dest="verb", required=True)
@@ -103,13 +124,17 @@ def build_parser() -> argparse.ArgumentParser:
     i = sub.add_parser("init", help="create an audit run directory and its schema")
     i.add_argument("--root", default=".", metavar="DIR")
     i.add_argument("--timestamp", default=None, metavar="TS")
+    pf = sub.add_parser("preflight", help="write a project-scoped MCP config")
+    pf.add_argument("--out", default=preflight_mod.MCP_CONFIG_NAME, metavar="PATH")
+    pf.add_argument("--server", action="append", default=[], metavar="NAME=COMMAND")
+    pf.add_argument("--force", action="store_true")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return {"selftest": cmd_selftest, "budget": cmd_budget,
-            "bench": cmd_bench, "init": cmd_init}[args.verb](args)
+            "bench": cmd_bench, "init": cmd_init, "preflight": cmd_preflight}[args.verb](args)
 
 
 if __name__ == "__main__":
