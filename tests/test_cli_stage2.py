@@ -182,3 +182,49 @@ def test_checkpoint_rejects_an_invented_reason(tmp_path):
     db = str(new_run(tmp_path) / "audit.db")
     r = run("checkpoint", "--db", db, "--phase", "audit", "--reason", "tired")
     assert r.returncode != 0
+
+
+def test_sweep_reports_hits_without_printing_them(tmp_path):
+    run_dir = new_run(tmp_path)
+    db = str(run_dir / "audit.db")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("strncpy(d, s, strlen(s));\n")
+    run("put", "--db", db, "--table", "cba_patterns", "--set", "id=P1",
+        "--set", "name=degenerate strncpy",
+        "--set", r"regex=strncpy\([^,]+,[^,]+,\s*strlen\(")
+    r = run("sweep", "--db", db, "--pattern", "P1", "--root", str(src), "--record")
+    assert r.returncode == 0, r.stderr
+    assert "1 hit(s)" in r.stdout
+    assert "recorded 1 hit(s)" in r.stdout
+    assert "strncpy(d, s" not in r.stdout
+    assert "candidates for triage, never verdicts" in r.stdout
+
+
+def test_sweep_against_an_unregistered_pattern_exits_one(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("sweep", "--db", db, "--pattern", "P9", "--root", str(tmp_path))
+    assert r.returncode == 1
+    assert "cba_patterns" in r.stderr
+
+
+def test_sweep_refuses_to_record_a_truncated_result(tmp_path):
+    run_dir = new_run(tmp_path)
+    db = str(run_dir / "audit.db")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("needle\n" * 50)
+    run("put", "--db", db, "--table", "cba_patterns", "--set", "id=P1",
+        "--set", "name=broad", "--set", "regex=needle")
+    r = run("sweep", "--db", db, "--pattern", "P1", "--root", str(src),
+            "--max-hits", "5", "--record")
+    assert r.returncode == 1
+    assert "narrow the pattern" in r.stderr
+
+
+def test_registering_an_uncompilable_pattern_exits_one(tmp_path):
+    db = str(new_run(tmp_path) / "audit.db")
+    r = run("put", "--db", db, "--table", "cba_patterns", "--set", "id=P1",
+            "--set", "name=bad", "--set", "regex=([a-z")
+    assert r.returncode == 1
+    assert "compile" in r.stderr

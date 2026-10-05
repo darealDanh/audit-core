@@ -5,6 +5,7 @@ import dataclasses
 import hashlib
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -23,6 +24,7 @@ from audit_core import coverage as coverage_mod  # noqa: E402
 from audit_core import extract as extract_mod  # noqa: E402
 from audit_core import annotations as annotations_mod  # noqa: E402
 from audit_core import ceiling as ceiling_mod  # noqa: E402
+from audit_core import sweep as sweep_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -361,6 +363,40 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sweep(args: argparse.Namespace) -> int:
+    con = _open_db(args.db)
+    if con is None:
+        return 1
+    try:
+        found = db_mod.rows(con, "cba_patterns", where={"id": args.pattern},
+                            columns=("id", "regex"))
+        if not found:
+            print(f"no pattern {args.pattern!r}; register one with "
+                  f"`audit.py put --table cba_patterns --set id=... "
+                  f"--set name=... --set regex=...`", file=sys.stderr)
+            return 1
+        result = sweep_mod.run(
+            pathlib.Path(args.root).expanduser(), found[0]["regex"],
+            pattern_id=args.pattern,
+            suffixes=tuple(args.suffix) or None, max_hits=args.max_hits)
+        print(sweep_mod.render(result))
+        if args.record:
+            if result.truncated:
+                print("refusing to record a truncated sweep; narrow the "
+                      "pattern first", file=sys.stderr)
+                return 1
+            print(f"recorded {sweep_mod.record(con, result)} hit(s)")
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except re.error as exc:
+        print(f"stored regex does not compile: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    return 0
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     if args.text is not None and not (args.key or "").strip():
         print("--text requires --key", file=sys.stderr)
@@ -413,6 +449,7 @@ HANDLERS = {
     "extract": cmd_extract,
     "note": cmd_note,
     "checkpoint": cmd_checkpoint,
+    "sweep": cmd_sweep,
 }
 
 
@@ -508,6 +545,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="measured prefix floor, from `audit.py budget`")
     ck.add_argument("--growth", type=float, default=None,
                     help="measured tokens per turn, from `audit.py budget`")
+    sw = sub.add_parser("sweep", help="scan a tree for a registered bug pattern")
+    sw.add_argument("--db", required=True, metavar="AUDIT_DB")
+    sw.add_argument("--pattern", required=True, metavar="PATTERN_ID")
+    sw.add_argument("--root", required=True, metavar="SRC_DIR")
+    sw.add_argument("--suffix", action="append", default=[], metavar=".c")
+    sw.add_argument("--max-hits", type=int, default=sweep_mod.MAX_HITS)
+    sw.add_argument("--record", action="store_true",
+                    help="write the hits to cba_pattern_hits")
     return p
 
 

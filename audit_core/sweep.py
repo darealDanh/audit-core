@@ -1,0 +1,130 @@
+"""Sweep a confirmed bug pattern across the corpus.
+
+A confirmed finding is evidence about one call site and a hypothesis about
+every other one. The tplink run confirmed patterns and never swept for them.
+
+This is deliberately a cheap regex pass producing CANDIDATES for an agent to
+triage, never verdicts - and it is bounded at every edge, because an uncapped
+sweep dumping ten thousand hits into the orchestrator is the exact failure R1
+exists to prevent. Binary files are skipped rather than decoded, oversized
+files are skipped rather than read, symlinks are never followed, and both
+skip counts are reported rather than absorbed.
+"""
+from __future__ import annotations
+
+import itertools
+import os
+import pathlib
+import re
+import sqlite3
+from dataclasses import dataclass
+from typing import Iterator, Sequence
+
+from audit_core import db
+
+MAX_HITS = 500
+MAX_FILE_BYTES = 2_000_000
+EXCERPT_CHARS = 160
+BINARY_SNIFF_BYTES = 8192
+SKIP_DIRS = frozenset({
+    ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv",
+    "dist", "build", ".mypy_cache", ".pytest_cache", ".tox",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class Hit:
+    path: str
+    line: int
+    excerpt: str
+
+
+@dataclass(frozen=True, slots=True)
+class SweepResult:
+    pattern_id: str
+    hits: tuple[Hit, ...]
+    files_scanned: int
+    files_skipped_binary: int
+    files_skipped_large: int
+    truncated: bool
+
+
+def _scan(root: pathlib.Path, rx: re.Pattern[str],
+          suffixes: Sequence[str] | None,
+          counters: dict[str, int]) -> Iterator[Hit]:
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        for name in sorted(filenames):
+            path = pathlib.Path(dirpath) / name
+            if path.is_symlink():
+                continue
+            if suffixes and path.suffix not in suffixes:
+                continue
+            try:
+                if path.stat().st_size > MAX_FILE_BYTES:
+                    counters["large"] += 1
+                    continue
+                blob = path.read_bytes()
+            except OSError:
+                continue
+            if b"\x00" in blob[:BINARY_SNIFF_BYTES]:
+                counters["binary"] += 1
+                continue
+            counters["scanned"] += 1
+            rel = str(path.relative_to(root))
+            for n, line in enumerate(blob.decode("utf-8", "replace").splitlines(), 1):
+                if rx.search(line):
+                    yield Hit(rel, n, line.strip()[:EXCERPT_CHARS])
+
+
+def run(root: str | pathlib.Path, regex: str, *, pattern_id: str = "",
+        suffixes: Sequence[str] | None = None,
+        max_hits: int = MAX_HITS) -> SweepResult:
+    """Scan `root` for `regex`, stopping at `max_hits`.
+
+    The counters reflect files visited before the cap was reached, so a
+    truncated sweep under-reports how much of the tree it saw. That is the
+    honest reading: the sweep stopped, so it does not know.
+    """
+    rx = re.compile(regex)
+    root = pathlib.Path(root)
+    counters = {"scanned": 0, "binary": 0, "large": 0}
+    stream = _scan(root, rx, suffixes, counters)
+    hits = tuple(itertools.islice(stream, max_hits))
+    truncated = next(stream, None) is not None
+    return SweepResult(pattern_id=pattern_id, hits=hits,
+                       files_scanned=counters["scanned"],
+                       files_skipped_binary=counters["binary"],
+                       files_skipped_large=counters["large"],
+                       truncated=truncated)
+
+
+def record(con: sqlite3.Connection, result: SweepResult) -> int:
+    """Write one `cba_pattern_hits` row per hit. Returns how many."""
+    if not result.pattern_id:
+        raise db.DbError("a sweep result with no pattern_id cannot be "
+                         "recorded; pass pattern_id= to sweep.run()")
+    for hit in result.hits:
+        db.put(con, "cba_pattern_hits", {
+            "pattern_id": result.pattern_id, "path": hit.path,
+            "line": str(hit.line), "excerpt": hit.excerpt})
+    return len(result.hits)
+
+
+def render(result: SweepResult) -> str:
+    """A bounded summary. R1 applies to this tool's own output: it says how
+    to read the hits, it does not paste them."""
+    out = [f"sweep {result.pattern_id or '(unrecorded)'}: {len(result.hits)} hit(s) "
+           f"in {result.files_scanned} file(s)"]
+    if result.files_skipped_binary or result.files_skipped_large:
+        out.append(f"  skipped {result.files_skipped_binary} binary, "
+                   f"{result.files_skipped_large} oversized file(s)")
+    if result.truncated:
+        out.append(f"  truncated at {len(result.hits)} hits - the pattern is "
+                   f"too broad to triage as written. Narrow it, or sweep a "
+                   f"subtree, before recording.")
+    if result.pattern_id:
+        out.append(f"  read them with `audit.py rows --table cba_pattern_hits "
+                   f"--where pattern_id={result.pattern_id}`")
+    out.append("  Hits are candidates for triage, never verdicts.")
+    return "\n".join(out)

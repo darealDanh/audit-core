@@ -10,6 +10,7 @@ typo fails loudly instead of writing a row nothing reads.
 from __future__ import annotations
 
 import pathlib
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable
@@ -70,6 +71,19 @@ def _validate_coverage(row: dict[str, str]) -> None:
                       + ", ".join(NOT_AUDITED_REASONS))
 
 
+def _validate_pattern(row: dict[str, str]) -> None:
+    """Compile the regex before it is stored.
+
+    A stored pattern that does not compile is a sweep that silently never
+    runs, which is the worst possible outcome for a mechanism whose whole
+    value is breadth.
+    """
+    try:
+        re.compile(row["regex"])
+    except re.error as exc:
+        raise DbError(f"regex {row['regex']!r} does not compile: {exc}") from exc
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -113,7 +127,8 @@ TABLE_SPECS: dict[str, TableSpec] = {
     "cba_patterns": TableSpec(
         columns=("id", "name", "regex", "origin_finding", "language", "notes",
                  "created_at"),
-        required=("id", "name", "regex")),
+        required=("id", "name", "regex"),
+        validate=_validate_pattern),
     "cba_pattern_hits": TableSpec(
         columns=("id", "pattern_id", "path", "line", "excerpt", "triaged",
                  "swept_at"),
