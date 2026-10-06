@@ -101,3 +101,42 @@ def test_pivot_on_an_unknown_finding_exits_one(tmp_path):
             "--mechanism", "m", "--enables", "e")
     assert r.returncode == 1
     assert "G9-F9" in r.stderr
+
+
+PATTERN_ARGS = [
+    "--set", "id=P1", "--set", "name=strncpy with strlen of source",
+    "--set", "regex=strncpy", "--set", "origin_finding=G1-F1",
+]
+
+
+def test_patterns_gate_fails_on_an_unswept_pattern(tmp_path):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_patterns",
+               *PATTERN_ARGS).returncode == 0
+    r = run("patterns", "--db", db, "--gate")
+    assert r.returncode == 1
+    assert "NEVER SWEPT" in r.stdout
+    assert "audit.py sweep" in r.stdout
+
+
+def test_patterns_gate_passes_once_the_pattern_is_swept(tmp_path, tmp_path_factory):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_patterns",
+               *PATTERN_ARGS).returncode == 0
+    src = tmp_path_factory.mktemp("src")
+    (src / "a.c").write_text("strncpy(d, s, strlen(s));\n")
+    assert run("sweep", "--db", db, "--pattern", "P1",
+               "--root", str(src), "--record").returncode == 0
+    r = run("patterns", "--db", db, "--gate")
+    assert r.returncode == 0, r.stdout
+    assert "0 unswept" in r.stdout
+
+
+def test_patterns_gate_passes_when_nothing_is_registered(tmp_path):
+    """No registered pattern is not a failure. A run that confirmed no
+    generalisable pattern has nothing to sweep, and a gate that failed there
+    would push an operator to register a junk pattern to clear it."""
+    db = seeded(tmp_path)
+    r = run("patterns", "--db", db, "--gate")
+    assert r.returncode == 0
+    assert "none registered" in r.stdout

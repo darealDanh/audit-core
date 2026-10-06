@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from audit_core import db, sweep, workspace
+from audit_core import db, patterns, sweep, workspace
 
 
 def tree(root, **files):
@@ -147,3 +147,36 @@ def test_render_never_prints_the_hits_themselves(tmp_path):
     assert "needle" not in out
     assert "audit.py rows" in out
     assert "cba_pattern_hits" in out
+
+
+REGEX = r"strncpy\([^,]+,[^,]+,\s*strlen\("
+
+
+def test_record_marks_the_pattern_swept(con, tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "strncpy(dst, src, strlen(src));\n",
+        "b.c": "strncpy(d2, s2, strlen(s2));\n",
+    })
+    result = sweep.run(root, REGEX, pattern_id="P1")
+    assert sweep.record(con, result) == 2
+    state = patterns.states(con)[0]
+    assert state.swept is True
+    assert state.hit_count == 2
+
+
+def test_record_refuses_a_truncated_sweep(con, tmp_path):
+    """Review Focus 3. A sweep that stopped at its cap does not know what it
+    did not see. Marking that pattern swept is a false coverage claim about
+    the one mechanism whose whole value is breadth -- and the pattern would
+    then never appear in `patterns.unswept` again."""
+    root = tree(tmp_path / "src", **{
+        "a.c": "strncpy(dst, src, strlen(src));\n",
+        "b.c": "strncpy(d2, s2, strlen(s2));\n",
+    })
+    result = sweep.run(root, REGEX, pattern_id="P1", max_hits=1)
+    assert result.truncated is True
+    with pytest.raises(db.DbError) as exc:
+        sweep.record(con, result)
+    assert "truncated" in str(exc.value).lower()
+    assert patterns.states(con)[0].swept is False
+    assert db.rows(con, "cba_pattern_hits") == []

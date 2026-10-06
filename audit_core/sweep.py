@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Iterator, Sequence
 
 from audit_core import db
+from audit_core import patterns
 
 MAX_HITS = 500
 MAX_FILE_BYTES = 2_000_000
@@ -100,14 +101,28 @@ def run(root: str | pathlib.Path, regex: str, *, pattern_id: str = "",
 
 
 def record(con: sqlite3.Connection, result: SweepResult) -> int:
-    """Write one `cba_pattern_hits` row per hit. Returns how many."""
+    """Write one `cba_pattern_hits` row per hit, and mark the pattern swept.
+
+    A truncated sweep is refused outright, before any hit is written. The
+    sweep stopped at its cap, so it does not know what it did not see;
+    recording it would both store a partial hit list and set `swept_at`,
+    after which the pattern never appears in `patterns.unswept` again. The
+    bad outcome is silent and permanent, so the check is a refusal.
+    """
     if not result.pattern_id:
         raise db.DbError("a sweep result with no pattern_id cannot be "
                          "recorded; pass pattern_id= to sweep.run()")
+    if result.truncated:
+        raise db.DbError(
+            f"refusing to record a truncated sweep of {result.pattern_id}: it "
+            f"stopped at {len(result.hits)} hits and does not know what it "
+            f"did not see. Narrow the pattern, or sweep a subtree, and run "
+            f"it again.")
     for hit in result.hits:
         db.put(con, "cba_pattern_hits", {
             "pattern_id": result.pattern_id, "path": hit.path,
             "line": str(hit.line), "excerpt": hit.excerpt})
+    patterns.mark_swept(con, result.pattern_id, hit_count=len(result.hits))
     return len(result.hits)
 
 

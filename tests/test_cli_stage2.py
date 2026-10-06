@@ -223,7 +223,8 @@ def test_sweep_refuses_to_record_a_truncated_result(tmp_path):
     r = run("sweep", "--db", db, "--pattern", "P1", "--root", str(src),
             "--max-hits", "5", "--record")
     assert r.returncode == 1
-    assert "narrow the pattern" in r.stderr
+    assert "truncated" in r.stderr
+    assert "P1" in r.stderr
 
 
 def test_registering_an_uncompilable_pattern_exits_one(tmp_path):

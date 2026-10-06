@@ -28,6 +28,7 @@ from audit_core import annotations as annotations_mod  # noqa: E402
 from audit_core import ceiling as ceiling_mod  # noqa: E402
 from audit_core import sweep as sweep_mod  # noqa: E402
 from audit_core import pivot as pivot_mod  # noqa: E402
+from audit_core import patterns as patterns_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -470,10 +471,6 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             suffixes=tuple(args.suffix) or None, max_hits=args.max_hits)
         print(sweep_mod.render(result))
         if args.record:
-            if result.truncated:
-                print("refusing to record a truncated sweep; narrow the "
-                      "pattern first", file=sys.stderr)
-                return 1
             print(f"recorded {sweep_mod.record(con, result)} hit(s)")
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
@@ -551,6 +548,28 @@ def cmd_pivot(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_patterns(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        items = patterns_mod.states(con)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dataclasses.asdict(s) | {"swept": s.swept}
+                          for s in items], indent=2))
+    else:
+        print(patterns_mod.render(items))
+    if args.gate:
+        gaps = [s for s in items if not s.swept]
+        return 1 if gaps else 0
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -572,6 +591,7 @@ HANDLERS = {
     "checkpoint": cmd_checkpoint,
     "sweep": cmd_sweep,
     "pivot": cmd_pivot,
+    "patterns": cmd_patterns,
 }
 
 
@@ -692,6 +712,12 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--replace", action="store_true")
     pv.add_argument("--check", action="store_true",
                     help="list verdicts whose enabled_observation does not resolve")
+
+    pt = sub.add_parser("patterns", help="sweep state for every registered bug pattern")
+    pt.add_argument("--db", required=True, metavar="AUDIT_DB")
+    pt.add_argument("--gate", action="store_true",
+                    help="exit 1 if any registered pattern has never been swept")
+    pt.add_argument("--json", action="store_true")
     return p
 
 
