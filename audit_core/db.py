@@ -26,6 +26,25 @@ NOT_AUDITED_REASONS = ("budget", "out-of-scope", "generated", "vendored",
                        "third-party", "unreachable", "binary-only")
 INVENTORY_KINDS = ("file", "function", "endpoint", "binary")
 CHECKPOINT_REASONS = ("phase-exit", "ceiling", "manual")
+COMPONENT_KINDS = ("source-tree", "binary", "library", "firmware-image",
+                   "service", "config")
+CHAIN_COMPLETENESS = ("complete", "partial", "blocked")
+
+# Columns added to tables that already existed when an earlier stage shipped.
+# `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
+# is already there, and SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT
+# EXISTS`. So the list is explicit and ordered, and a reviewer can read
+# exactly what will be run against a user's database.
+#
+# Append to this tuple; never reorder it and never remove an entry. A removed
+# entry is a column that stops being added to the databases that still lack
+# it, and nothing reports that - the column simply is not there.
+MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
+    ("cba_fp_verdicts", "enabled_observation", "TEXT"),
+    ("cba_patterns", "swept_at", "TEXT"),
+    ("cba_patterns", "hit_count", "INTEGER"),
+)
 
 
 class DbError(Exception):
@@ -84,6 +103,41 @@ def _validate_pattern(row: dict[str, str]) -> None:
         raise DbError(f"regex {row['regex']!r} does not compile: {exc}") from exc
 
 
+def _validate_component(row: dict[str, str]) -> None:
+    kind = row.get("kind")
+    if kind not in COMPONENT_KINDS:
+        raise DbError(f"kind={kind!r} is not one of {', '.join(COMPONENT_KINDS)}")
+    raw = str(row.get("confidence", "") or "").strip()
+    if not raw:
+        return
+    try:
+        value = int(raw)
+    except ValueError:
+        raise DbError(f"confidence={raw!r} is not an integer 1-10") from None
+    if not 1 <= value <= 10:
+        raise DbError(f"confidence={value} is outside 1-10")
+
+
+def _validate_chain(row: dict[str, str]) -> None:
+    """A chain is an ordered list of findings, and two is the minimum.
+
+    A one-finding chain is a finding. Recording it as a chain hides it from
+    the finding tally and inflates the chain tally, which is the one thing
+    this table exists to count honestly.
+    """
+    completeness = row.get("completeness")
+    if completeness not in CHAIN_COMPLETENESS:
+        raise DbError(f"completeness={completeness!r} is not one of "
+                      + ", ".join(CHAIN_COMPLETENESS))
+    ids = [part.strip() for part in str(row.get("finding_ids", "")).split(",")]
+    ids = [i for i in ids if i]
+    if len(ids) < 2:
+        raise DbError("finding_ids needs at least two comma-separated finding "
+                      "ids, in attack order; a one-finding chain is a finding")
+    if len(set(ids)) != len(ids):
+        raise DbError(f"finding_ids repeats an id: {', '.join(ids)}")
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -113,7 +167,8 @@ TABLE_SPECS: dict[str, TableSpec] = {
         validate=one_of("severity", SEVERITIES)),
     "cba_fp_verdicts": TableSpec(
         columns=("finding_id", "verdict", "reason", "final_severity", "final_id",
-                 "merged_into", "rule_applied", "reviewed_at"),
+                 "merged_into", "rule_applied", "refuting_mechanism",
+                 "enabled_observation", "reviewed_at"),
         required=("finding_id", "verdict"),
         validate=one_of("verdict", VERDICTS)),
     "cba_inventory": TableSpec(
@@ -126,7 +181,7 @@ TABLE_SPECS: dict[str, TableSpec] = {
         validate=_validate_coverage),
     "cba_patterns": TableSpec(
         columns=("id", "name", "regex", "origin_finding", "language", "notes",
-                 "created_at"),
+                 "swept_at", "hit_count", "created_at"),
         required=("id", "name", "regex"),
         validate=_validate_pattern),
     "cba_pattern_hits": TableSpec(
@@ -138,7 +193,50 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "resume_note", "recorded_at"),
         required=("phase", "reason"),
         validate=one_of("reason", CHECKPOINT_REASONS)),
+    "cba_components": TableSpec(
+        columns=("path", "kind", "asserted_identity", "identity_evidence",
+                 "confidence", "version", "recorded_at"),
+        required=("path", "kind", "asserted_identity", "identity_evidence"),
+        validate=_validate_component),
+    "cba_chains": TableSpec(
+        columns=("id", "finding_ids", "attacker_position", "pre_auth",
+                 "completeness", "blocking_unknowns", "created_at"),
+        required=("id", "finding_ids", "attacker_position", "completeness"),
+        validate=_validate_chain),
 }
+
+
+def table_columns(con: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    """The columns a database actually has for `table`, in declared order.
+
+    `table` is interpolated into the PRAGMA, which takes no bound parameters.
+    It is checked against TABLE_SPECS first, so the only strings that reach
+    the statement are the fourteen literals this module declares.
+    """
+    _spec(table)
+    return tuple(r[1] for r in con.execute(f"PRAGMA table_info({table})"))
+
+
+def migrate(con: sqlite3.Connection) -> list[str]:
+    """Add every MIGRATIONS column the database lacks. Returns what it added.
+
+    Idempotent, and safe against a database that has none of the tables yet:
+    a table that is not there is skipped rather than reported, because that
+    is what `init` sees on a fresh run before schema.sql has been applied.
+    """
+    present = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    applied: list[str] = []
+    for table, column, decl in MIGRATIONS:
+        if table not in present:
+            continue
+        if column in table_columns(con, table):
+            continue
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        applied.append(f"{table}.{column}")
+    if applied:
+        con.commit()
+    return applied
 
 
 def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.Connection:
@@ -169,17 +267,29 @@ def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.
     except sqlite3.DatabaseError as exc:
         con.close()
         raise DbError(f"{path} is not a readable SQLite database: {exc}") from exc
-    missing = sorted(set(TABLE_SPECS) - present)
-    if missing:
+    missing_tables = sorted(set(TABLE_SPECS) - present)
+    missing_columns: list[str] = []
+    if not missing_tables:
+        # Only when every table is there: naming a column of a table that
+        # does not exist is noise on top of the real problem.
+        for table, spec in sorted(TABLE_SPECS.items()):
+            have = set(table_columns(con, table))
+            missing_columns.extend(
+                f"{table}.{c}" for c in spec.columns if c not in have)
+    if missing_tables or missing_columns:
         con.close()
+        noun = "table(s)" if missing_tables else "column(s)"
+        names = ", ".join(missing_tables or missing_columns)
         raise DbError(
-            f"{path} is missing table(s): {', '.join(missing)}. This run "
+            f"{path} is missing {noun}: {names}. This run "
             f"directory predates the current schema. Re-apply it in place "
             f"with `audit.py init --root <project> --timestamp <ts>`, where "
             f"<ts> is the timestamp already in the run directory name - "
-            f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS, so "
-            f"this adds the missing tables and destroys no rows. Without "
-            f"--timestamp, `init` creates a new run directory instead.")
+            f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS "
+            f"and every column added since is applied by an idempotent "
+            f"ALTER TABLE, so this adds what is missing and destroys no "
+            f"rows. Without --timestamp, `init` creates a new run directory "
+            f"instead.")
     return con
 
 

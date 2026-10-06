@@ -55,7 +55,7 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = pathlib.Path(tmp) / "selftest.db"
         try:
-            tables = list(workspace_mod.apply_schema(db_path))
+            tables = workspace_mod.apply_schema(db_path).tables
         except Exception as exc:                       # noqa: BLE001
             print(f"selftest: schema.sql does not apply: {exc}", file=sys.stderr)
             return 1
@@ -158,8 +158,17 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    run = workspace_mod.init_run(args.root, timestamp=args.timestamp)
-    print(f"tables: {', '.join(workspace_mod.apply_schema(run / 'audit.db'))}")
+    # Not workspace_mod.init_run() + a second apply_schema(): migrate() is
+    # idempotent, so a second call would always report an empty `migrated`,
+    # even on a real upgrade, because the one real application already ran
+    # inside init_run and this would just be re-checking a caught-up db.
+    run, result = workspace_mod._init_run_with_schema_result(
+        args.root, timestamp=args.timestamp)
+    print(f"tables: {', '.join(result.tables)}")
+    if result.migrated:
+        print(f"migrated: {', '.join(result.migrated)}")
+    # The run directory is printed LAST and nothing may follow it:
+    # workflows/recon.md does `AUDIT_DIR=$(audit.py init | tail -1)`.
     print(run)
     return 0
 

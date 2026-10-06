@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
     final_id TEXT,
     merged_into TEXT,
     rule_applied TEXT,
+    refuting_mechanism TEXT,
+    enabled_observation TEXT,
     reviewed_at TEXT DEFAULT (datetime('now')));
 
 -- Stage 2 additions. Every statement below is IF NOT EXISTS for the same
@@ -80,6 +82,8 @@ CREATE TABLE IF NOT EXISTS cba_patterns (
     origin_finding TEXT,
     language TEXT,
     notes TEXT,
+    swept_at TEXT,
+    hit_count INTEGER,
     created_at TEXT DEFAULT (datetime('now')));
 
 CREATE TABLE IF NOT EXISTS cba_pattern_hits (
@@ -99,3 +103,28 @@ CREATE TABLE IF NOT EXISTS cba_checkpoints (
     projected_context INTEGER,
     resume_note TEXT,
     recorded_at TEXT DEFAULT (datetime('now')));
+
+-- Stage 3 additions. IF NOT EXISTS for the same reason as every statement
+-- above. New COLUMNS on the tables above cannot be declared this way --
+-- SQLite has no ADD COLUMN IF NOT EXISTS, and CREATE TABLE IF NOT EXISTS is
+-- a no-op against a table that already exists -- so those columns are
+-- declared inline above for fresh databases and added to existing ones by
+-- audit_core.db.migrate, which workspace.apply_schema runs after this file.
+
+CREATE TABLE IF NOT EXISTS cba_components (
+    path TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    asserted_identity TEXT NOT NULL,
+    identity_evidence TEXT NOT NULL,
+    confidence INTEGER,
+    version TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_chains (
+    id TEXT PRIMARY KEY,
+    finding_ids TEXT NOT NULL,
+    attacker_position TEXT NOT NULL,
+    pre_auth TEXT,
+    completeness TEXT NOT NULL,
+    blocking_unknowns TEXT,
+    created_at TEXT DEFAULT (datetime('now')));
