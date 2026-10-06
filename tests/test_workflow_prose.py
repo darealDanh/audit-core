@@ -90,16 +90,29 @@ def test_dispatching_workflow_never_asks_to_paste_brief_content(name):
 
 @pytest.mark.parametrize("name", ["recon.md", "fpcheck.md"])
 def test_mapping_and_fpcheck_keep_the_strongest_model(name):
-    """Spec section 7 quarantines Sonnet tiering for mapping and fpcheck to
-    Stage 3, "the one tiering change that can cost quality, with precision
-    measured before and after". Stage 1 tiers effort only."""
+    """Spec section 7 ships Sonnet tiering for mapping and fpcheck "last and
+    alone ... with precision measured before and after".
+
+    Stage 3 built the measurement (`bench` now scores precision) and did not
+    take the measurement: that needs two full tplink runs, which this
+    repository cannot do. No precision figure exists for any run, so the
+    before-number the spec conditions the change on does not exist.
+
+    The procedure and the exact diff this test guards are in
+    docs/baselines/2026-10-05-stage3-tiering-gate.md. Change this test when
+    that gate has been run, and put the date in the docstring.
+    """
     text = (ROOT / "workflows" / name).read_text()
     assert "mid tier" not in text, (
-        f"{name} downgrades the model; Stage 1 tiers effort, not the model")
+        f"{name} downgrades the model with no precision baseline to compare "
+        f"against; see docs/baselines/2026-10-05-stage3-tiering-gate.md")
     assert "strongest tier" in text
 
 
 def test_skill_md_subagent_table_keeps_the_strongest_model_for_both():
+    """Same gate as test_mapping_and_fpcheck_keep_the_strongest_model: no
+    precision baseline exists. docs/baselines/2026-10-05-stage3-tiering-gate.md
+    holds the procedure and the exact diff."""
     text = (ROOT / "SKILL.md").read_text()
     for row in ("| recon (mapping) |", "| fpcheck |"):
         line = next(l for l in text.splitlines() if l.startswith(row))
@@ -403,3 +416,18 @@ def test_the_fpcheck_brief_kept_its_placeholders_and_return_contract():
     assert "rows=<n> artifact=" in text
     assert "18 Hard Exclusions and 10 Precedent rules" in text
     assert "Capability Validity checks CV-1 to CV-3" in text
+
+
+def test_the_tiering_gate_document_exists_and_says_it_has_not_run():
+    """A spec-mandated change that was not made needs a record, or the next
+    reader finds a quarantine test with no explanation and deletes it."""
+    path = ROOT / "docs" / "baselines" / "2026-10-05-stage3-tiering-gate.md"
+    text = path.read_text(encoding="utf-8")
+    assert "NOT RUN" in text
+    assert "precision" in text.lower()
+    assert "mid tier" in text, "the document must carry the exact diff to apply"
+
+
+def test_the_stage3_gate_document_says_it_has_not_run():
+    path = ROOT / "docs" / "baselines" / "2026-10-05-stage3-gate.md"
+    assert "**Status: NOT RUN.**" in path.read_text(encoding="utf-8")
