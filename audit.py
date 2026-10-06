@@ -368,10 +368,18 @@ def cmd_coverage(args: argparse.Namespace) -> int:
         return 1
     finally:
         con.close()
+    g = coverage_mod.gate(r) if args.gate else None
     if args.json:
-        print(json.dumps(dataclasses.asdict(r) | {"fraction": r.fraction}, indent=2))
+        payload = dataclasses.asdict(r) | {"fraction": r.fraction}
+        if g is not None:
+            payload["gate"] = dataclasses.asdict(g)
+        print(json.dumps(payload, indent=2))
     else:
         print(coverage_mod.render(r))
+    if g is not None:
+        if not args.json:
+            print(coverage_mod.render_gate(g))
+        return 0 if g.ok else 1
     return 0
 
 
@@ -657,6 +665,8 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)
     cv.add_argument("--json", action="store_true")
+    cv.add_argument("--gate", action="store_true",
+                    help="exit 1 if coverage cannot support a phase exit")
     ex = sub.add_parser("extract", help="snapshot source into <run>/extract/ once, for unbounded fan-out")
     ex.add_argument("--run", required=True, metavar="RUN_DIR")
     ex.add_argument("--root", required=True, metavar="SRC_DIR")

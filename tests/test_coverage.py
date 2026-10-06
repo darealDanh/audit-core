@@ -162,6 +162,61 @@ def test_an_inventory_row_needs_a_known_kind(con):
     assert "thingy" in str(exc.value)
 
 
+def test_a_fully_analyzed_run_passes(con):
+    inventory(con, "src/a.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "analyzed"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is True
+    assert g.failures == ()
+
+
+def test_an_empty_inventory_fails_the_gate(con):
+    """Review Focus 4. fraction is 0.0 with nothing inventoried, and the
+    Stage 2 render says there is no denominator. A gate reading `0 budget
+    skips, 0 unrecorded` and passing would pass hardest on the run that did
+    the least."""
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("inventory" in f for f in g.failures)
+
+
+def test_a_budget_skip_fails_the_gate(con):
+    inventory(con, "src/a.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "not_audited", "reason": "budget"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("budget" in f for f in g.failures)
+    assert any("checkpoint" in f.lower() for f in g.failures), (
+        "the failure must name the remedy; R3 answers a budget skip with "
+        "checkpoint-and-restart, never with skipping")
+
+
+def test_an_inventoried_unit_with_no_coverage_row_fails_the_gate(con):
+    """The silent case the whole mechanism exists for: a unit nobody ever
+    recorded a decision about. Six of ten missed tplink CRITICALs are on
+    surfaces that were never opened and never written down."""
+    inventory(con, "src/a.c", "src/wifi.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "analyzed"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("unrecorded" in f for f in g.failures)
+
+
+def test_a_recorded_non_budget_skip_warns_but_passes(con):
+    """out-of-scope, vendored and the rest are decisions, recorded with
+    reasons -- which is what the mechanism asks for. Failing on them would
+    make the gate unclearable on any real target."""
+    inventory(con, "vendor/lib.c")
+    db.put(con, "cba_coverage", {"unit": "vendor/lib.c", "phase": "audit",
+                                 "state": "not_audited", "reason": "vendored"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is True
+    assert any("vendored" in w for w in g.warnings)
+
+
 def test_a_state_outside_the_contract_is_absorbed_into_neither_count(con):
     """`db.put` cannot write this; a hand-edited table can. Overstating
     coverage is the failure this module exists to prevent, so an

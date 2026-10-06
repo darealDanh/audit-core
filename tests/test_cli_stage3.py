@@ -140,3 +140,37 @@ def test_patterns_gate_passes_when_nothing_is_registered(tmp_path):
     r = run("patterns", "--db", db, "--gate")
     assert r.returncode == 0
     assert "none registered" in r.stdout
+
+
+def test_coverage_gate_exits_one_on_a_budget_skip(tmp_path):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_inventory",
+               "--set", "unit=src/wifi.c", "--set", "kind=file").returncode == 0
+    assert run("put", "--db", db, "--table", "cba_coverage",
+               "--set", "unit=src/wifi.c", "--set", "phase=audit",
+               "--set", "state=not_audited",
+               "--set", "reason=budget").returncode == 0
+    r = run("coverage", "--db", db, "--gate")
+    assert r.returncode == 1
+    assert "coverage gate: FAIL" in r.stdout
+    assert "checkpoint" in r.stdout
+
+
+def test_coverage_gate_exits_zero_on_a_fully_analyzed_run(tmp_path):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_inventory",
+               "--set", "unit=src/a.c", "--set", "kind=file").returncode == 0
+    assert run("put", "--db", db, "--table", "cba_coverage",
+               "--set", "unit=src/a.c", "--set", "phase=audit",
+               "--set", "state=analyzed").returncode == 0
+    r = run("coverage", "--db", db, "--gate")
+    assert r.returncode == 0, r.stdout
+    assert "coverage gate: PASS" in r.stdout
+
+
+def test_coverage_without_gate_still_exits_zero_on_a_gap(tmp_path):
+    """Ruling S3: the gate is opt-in. Bare `coverage` reports; it does not
+    decide. A verb that started failing would break every existing caller."""
+    db = seeded(tmp_path)
+    r = run("coverage", "--db", db)
+    assert r.returncode == 0
