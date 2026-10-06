@@ -85,6 +85,12 @@ the detailed write-up to `{artifact_path}`. Set each row's `artifact_path`
 column to `{artifact_path}` as you insert it. The finding schema is in
 `references/phase4-deep-audit.md` under *Finding Schema*.
 
+If a finding's root cause is a shape that could appear elsewhere in the tree,
+register it: `audit.py put --table cba_patterns --set id=<id> --set name=...
+--set regex=... --set origin_finding=<your finding id>`. The orchestrator
+sweeps every registered pattern corpus-wide with `audit.py sweep` before the
+phase exits.
+
 If you find zero vulnerabilities in your group, say so explicitly and list
 every entry point you reviewed. `rows=0` is not a coverage statement.
 

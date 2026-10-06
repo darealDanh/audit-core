@@ -29,6 +29,14 @@ Audit run directory: {run_dir}
 8. Apply the devil's advocate review: argue the finding is wrong, then see
    whether the argument survives the code.
 9. Issue a verdict: TRUE_POSITIVE, FALSE_POSITIVE or DUPLICATE.
+10. For a FALSE_POSITIVE, take the pivot: name the mechanism that refuted the
+    finding, and say what that mechanism itself enables. Record both with
+    `audit.py pivot`, which writes the observation and the verdict together;
+    a bare FALSE_POSITIVE insert is refused. The requirement is
+    unconditional -- "no attacker-controlled path identified in this review"
+    is a legitimate answer, a blank is not. A finding was once correctly
+    refuted by a 300-byte sliding-window flush, and that flush is the attack
+    surface for a CRITICAL.
 
 ## Where your output goes
 

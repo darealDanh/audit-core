@@ -93,3 +93,18 @@ When BOTH sources are available, use this division of labor:
 
 The `cba_sources` table is created by `audit.py init` (recon Step 1). Insert the
 confirmed source row into it; do not create the table.
+
+Record what each confirmed artifact is, with evidence:
+
+```bash
+python3 __SKILL_DIR__/audit.py identify --db ${AUDIT_DIR}/audit.db \
+  --path images/km0_boot_0C000020.elf --kind binary \
+  --identity 'Realtek RTL8710 Wi-Fi driver image' \
+  --evidence "contains 'rtl8710 wlan firmware' at 0x0C00A120; imports wifi_hal_init" \
+  --confidence 8
+```
+
+A filename is an assertion by whoever named it. `km0_boot_0C000020.elf` was
+treated as a bootloader for a whole run on the strength of its name; it holds
+the Wi-Fi driver and several CRITICALs, and no finding in that run sits below
+the IP layer. The verb refuses evidence that only repeats the path.

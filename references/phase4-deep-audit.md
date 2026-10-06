@@ -82,6 +82,30 @@ After all subagents return:
 
    These are proposals. Keep the one with higher confidence and record the other as `verdict=DUPLICATE` with `merged_into` set.
 
+5. **Register and sweep confirmed patterns**: a confirmed finding is evidence
+   about one call site and a hypothesis about every other one.
+
+   ```bash
+   python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db \
+     --table cba_patterns --set id=P1 --set name='<the shape>' \
+     --set regex='<the regex>' --set origin_finding=G1-F1
+   python3 __SKILL_DIR__/audit.py sweep --db ${AUDIT_DIR}/audit.db \
+     --pattern P1 --root . --record
+   python3 __SKILL_DIR__/audit.py patterns --db ${AUDIT_DIR}/audit.db --gate
+   ```
+
+   Hits are candidates for triage, never verdicts.
+
+6. **Chain pass**: findings are born inside per-group subagents, so a chain
+   whose halves sit in two groups is never composed.
+
+   ```bash
+   python3 __SKILL_DIR__/audit.py chain --db ${AUDIT_DIR}/audit.db
+   ```
+
+   These are proposals. Read both findings in full, then record the decision
+   with `audit.py chain --compose`.
+
 ## Quality Signals
 
 Good findings have:
@@ -90,6 +114,8 @@ Good findings have:
 - Explicit mention of what mitigations were checked and absent
 - Realistic attacker position (not "attacker with server access")
 - CWE that matches the actual bug class
+- A recorded `attacker_position` and `boundary_crossed` — a finding with
+  neither cannot be the consumer half of any chain
 
 Bad findings (reject and re-prompt):
 - Vague locations ("in the codebase")

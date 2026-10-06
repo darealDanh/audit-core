@@ -260,6 +260,7 @@ def test_every_instruction_the_replaced_blocks_sat_inside_survives():
         "workflows/fpcheck.md": [
             "identify the missing batch and re-spawn just that one",
             "Order TPs by severity",
+            "cites a specific HE/PR/CV rule",      # survived the pivot edit
         ],
         "workflows/report.md": [
             "Steps to reproduce is a reproduction GUIDE only",
@@ -322,3 +323,59 @@ def test_every_documented_audit_py_invocation_parses():
     for path in live_markdown():
         for verb in pattern.findall(path.read_text(encoding="utf-8")):
             assert verb in audit.HANDLERS, f"{path.name}: unknown verb {verb}"
+
+
+# --- Stage 3: the shipped prose invokes the five mechanisms --------------------
+
+
+def test_every_stage3_verb_appears_in_shipped_prose():
+    """A mechanism nothing invokes is a mechanism that does not run. Each
+    verb must be named somewhere a phase actually reads."""
+    text = "\n".join(p.read_text(encoding="utf-8") for p in live_markdown())
+    for verb in ("audit.py pivot", "audit.py patterns", "audit.py identify",
+                 "audit.py chain", "audit.py coverage"):
+        assert verb in text, f"no shipped workflow or reference invokes {verb}"
+
+
+def test_the_coverage_gate_is_invoked_at_a_phase_exit():
+    """Phase-scoped on purpose. Unscoped, `coverage` counts a unit analyzed if
+    ANY phase recorded it, so a surface recon ruled on and audit never opened
+    reports 100% and the gate passes on exactly the failure it exists to
+    catch (reproduced: 1/1 PASS unscoped, 0/1 FAIL with --phase audit)."""
+    assert "coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit" in \
+        (ROOT / "workflows" / "audit.md").read_text(encoding="utf-8")
+
+
+def test_the_pivot_rule_is_stated_as_unconditional():
+    """It must not soften into "where applicable". The whole value is that it
+    forces the question on every false positive."""
+    for rel in ("workflows/fpcheck.md", "references/briefs/fpcheck-brief.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8").lower()
+        assert "unconditional" in text, rel
+    skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    assert "refuting_mechanism" in skill
+
+
+def test_the_five_stage3_rationalizations_are_in_the_rejection_table():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for needle in ("audit.py pivot", "That IS the observation",
+                   "audit.py patterns --gate", "km0_boot",
+                   "audit.py chain"):
+        assert needle in text, needle
+
+
+def test_skill_md_lists_the_two_new_tables():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for table in ("cba_components", "cba_chains"):
+        assert table in text
+
+
+def test_the_fpcheck_brief_kept_its_placeholders_and_return_contract():
+    """The brief rewrite is the exact shape Stage 1 lost instructions in."""
+    text = (ROOT / "references" / "briefs" / "fpcheck-brief.md").read_text()
+    for var in ("{batch_id}", "{finding_ids}", "{run_dir}",
+                "{source_access}", "{artifact_path}"):
+        assert var in text, var
+    assert "rows=<n> artifact=" in text
+    assert "18 Hard Exclusions and 10 Precedent rules" in text
+    assert "Capability Validity checks CV-1 to CV-3" in text

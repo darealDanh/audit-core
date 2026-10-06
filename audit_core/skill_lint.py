@@ -32,6 +32,12 @@ RETIRED_QUERIES = (
     "SELECT COUNT(*) FROM cba_fp_verdicts WHERE verdict",
 )
 
+# Two shapes that are correct SQL and wrong practice, each pinning a mistake
+# this project has made. Same scope statement as the rule above: a clean run
+# means these specific mistakes are absent, not that the skill works.
+FP_VERDICT_INSERT = ("--tablecba_fp_verdicts", "verdict=false_positive")
+PATTERN_INSERT = "--tablecba_patterns"
+
 _WS = re.compile(r"\s+")
 
 
@@ -132,6 +138,20 @@ def lint(root: str | pathlib.Path, known_verbs: set[str]) -> list[Finding]:
                     "hand-typed-status-sql", rel,
                     f"prose carries the retired query {query!r}; "
                     f"`audit.py status` prints it"))
+
+        if all(n in squashed for n in FP_VERDICT_INSERT) \
+                and "audit.pypivot" not in squashed:
+            findings.append(Finding(
+                "fp-verdict-without-pivot", rel,
+                "documents writing a FALSE_POSITIVE through `put` without "
+                "naming `audit.py pivot`; the verdict is refused without "
+                "refuting_mechanism and enabled_observation"))
+
+        if PATTERN_INSERT in squashed and "audit.pysweep" not in squashed:
+            findings.append(Finding(
+                "pattern-registered-without-sweep", rel,
+                "registers a bug pattern without naming `audit.py sweep`; a "
+                "pattern that is never swept is the tplink miss exactly"))
 
     briefs = root / "references" / "briefs"
     if briefs.is_dir():

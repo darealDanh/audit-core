@@ -133,13 +133,57 @@ If a subagent returns "no response" or returns analysis without writing the SQL/
 2. If the agent ran but its findings only exist in its return blob: materialize them yourself by writing the `artifacts/G<n>-findings.md` file and running the SQL inserts directly. Do NOT lose findings.
 3. Update the resume note's "Quirks to remember" section so future runs avoid the same trap.
 
-## Step 6 — Update group status
+## Step 6 — Sweep confirmed patterns, and look for chains
+
+Two passes the per-group subagents structurally cannot do, because each one
+sees only its own group.
+
+**Patterns.** A confirmed finding is evidence about one call site and a
+hypothesis about every other one. For each finding whose root cause could
+appear elsewhere, register it and sweep:
+
+    python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db \
+      --table cba_patterns --set id=P1 --set name='<the shape>' \
+      --set regex='<the regex>' --set origin_finding=G1-F1
+
+    python3 __SKILL_DIR__/audit.py sweep --db ${AUDIT_DIR}/audit.db \
+      --pattern P1 --root . --record
+
+Hits land in `cba_pattern_hits` as candidates for triage, never verdicts. A
+truncated sweep is refused: narrow the pattern and run it again.
+
+    python3 __SKILL_DIR__/audit.py patterns --db ${AUDIT_DIR}/audit.db --gate
+
+exits non-zero while any registered pattern has never been swept.
+`strncpy(dst, src, strlen(src))` was found twice in a real run, named as a
+pattern, and never grepped for; two reference-set CRITICALs are that pattern
+elsewhere.
+
+**Chains.** Findings are born inside per-group subagents and nothing crosses
+them, so a chain whose halves sit in two groups is never composed:
+
+    python3 __SKILL_DIR__/audit.py chain --db ${AUDIT_DIR}/audit.db
+
+proposes ordered (enabler → consumer) pairs across groups. Read both findings
+in full before accepting one, then record the decision:
+
+    python3 __SKILL_DIR__/audit.py chain --db ${AUDIT_DIR}/audit.db \
+      --compose C1 --findings G1-F2,G3-F4 \
+      --attacker-position 'unauthenticated on the LAN' \
+      --completeness complete --pre-auth yes
+
+The command also reports how many findings record neither
+`attacker_position` nor `boundary_crossed`. Those cannot be the consumer half
+of any chain, and a high count means the findings are underspecified, not
+that no chain exists.
+
+## Step 7 — Update group status
 
 ```sql
 UPDATE cba_feature_groups SET status='audited' WHERE id IN (...);
 ```
 
-## Step 7 — Summary + resume note rewrite
+## Step 8 — Summary + resume note rewrite
 
 Present a finding-count table by group × severity:
 
@@ -155,7 +199,7 @@ Rewrite the resume note ([../references/resume-note-template.md](../references/r
 - Live-PoC status (how many `verified='live-poc'` vs `'source-only'`)
 - Updated "Quirks to remember"
 
-## Step 8 — USER GATE
+## Step 9 — USER GATE
 
 > _Automated `source` mode supersedes this gate — proceed straight to fpcheck without pausing (see [source.md](source.md))._
 
@@ -164,6 +208,14 @@ Present:
 > Deep audit complete. N findings across M groups: X CRITICAL, Y HIGH, Z MEDIUM, W LOW. K already live-verified.
 >
 > Next: the **fpcheck** phase for static false-positive elimination (see SKILL.md for your client's phase syntax).
+>
+> Record coverage for this phase and check it:
+>
+>     python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit
+>
+> It exits non-zero on an empty inventory, on any unit skipped for budget, and
+> on any inventoried unit with no coverage row. A budget skip is answered by
+> `audit.py checkpoint` and a restart, never by skipping.
 >
 > Say **go fpcheck** to proceed.
 >
@@ -176,3 +228,6 @@ Present:
 - [ ] No finding has confidence < 8
 - [ ] Patch-bypass intel from Step 2 has been probed (look for "probe these sites" items reflected in findings)
 - [ ] Resume note rewrites complete
+- [ ] `audit.py patterns --gate` exits 0 — every registered pattern has been swept
+- [ ] `audit.py coverage --gate` exits 0, or every failure it names has been answered
+- [ ] `audit.py chain` has been run and its proposals read

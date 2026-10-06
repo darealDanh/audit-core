@@ -184,8 +184,13 @@ def test_fpcheck_brief_step_six_traces_data_flow():
 
 def test_fpcheck_brief_keeps_every_method_step():
     """The methodology this template replaced had 9 steps. Two defence-in-depth
-    gates - the confidence threshold and the devil's advocate review - were lost."""
+    gates - the confidence threshold and the devil's advocate review - were lost.
+
+    Stage 3 appends step 10, the FALSE_POSITIVE pivot, so the pinned count is
+    10. It stays an exact count rather than a floor: the point of this test is
+    that a step cannot silently vanish, and `>=` would let one go."""
     text = (briefs.TEMPLATE_DIR / "fpcheck-brief.md").read_text()
-    assert len(re.findall(r"^\d+\. ", text, re.M)) == 9
+    assert len(re.findall(r"^\d+\. ", text, re.M)) == 10
     assert "confidence threshold" in text.lower()
     assert "devil's advocate" in text.lower()
+    assert "take the pivot" in text.lower()

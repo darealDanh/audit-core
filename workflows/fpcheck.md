@@ -72,7 +72,36 @@ from the return text.
 
 **IMPORTANT for this phase**: Subagents must NOT use the live instance, must NOT edit any project files, and must NOT modify `cba_findings`. Static review only. Per-finding live testing is the next phase (`verify`).
 
-## Step 5 — Sanity-check verdict completeness
+## Step 5 — The pivot rule
+
+A `FALSE_POSITIVE` verdict is invalid unless it records what refuted the
+finding and what that mechanism enables. Record both together:
+
+    python3 __SKILL_DIR__/audit.py pivot --db ${AUDIT_DIR}/audit.db \
+      --finding G1-F3 --group G1 \
+      --mechanism '<what refuted it>' \
+      --enables '<what that mechanism makes possible, or what you ruled out>' \
+      --reason '<the FP reasoning>' --rule HE-7
+
+This writes the observation into `cba_security_observations` and the verdict
+into `cba_fp_verdicts` as one act, because a verdict written first and an
+observation to follow is an observation nobody writes. `audit.py put --table
+cba_fp_verdicts --set verdict=FALSE_POSITIVE` is refused without both fields.
+
+The requirement is unconditional. A refuting mechanism is code, and code does
+something; "no attacker-controlled path to the window size identified in this
+review" is a legitimate answer and exactly the kind of observation that never
+got written down. A blank is not.
+
+In a real run a finding was correctly refuted by a 300-byte sliding-window
+flush — and that flush is the attack surface for a reference-set CRITICAL.
+The verdict schema recorded the refutation and nothing else.
+
+    python3 __SKILL_DIR__/audit.py pivot --db ${AUDIT_DIR}/audit.db --check
+
+lists any verdict whose `enabled_observation` no longer resolves.
+
+## Step 6 — Sanity-check verdict completeness
 
 ```bash
 python3 __SKILL_DIR__/audit.py status --db ${AUDIT_DIR}/audit.db
@@ -82,7 +111,7 @@ If `findings != verdicts`, identify the missing batch and re-spawn just that one
 
 `status` prints `unverdicted`, which is that difference.
 
-## Step 6 — Assign final IDs
+## Step 7 — Assign final IDs
 
 Order TPs by severity (CRITICAL → HIGH → MEDIUM → LOW), then by group ID, then by original finding ID. Assign sequential `F-1, F-2, …`.
 
@@ -92,7 +121,7 @@ UPDATE cba_fp_verdicts SET final_id = 'F-' || row_number
 WHERE verdict='TRUE_POSITIVE';
 ```
 
-## Step 7 — Resume-note rewrite + fork plan
+## Step 8 — Resume-note rewrite + fork plan
 
 Rewrite the resume note with:
 
@@ -102,7 +131,7 @@ Rewrite the resume note with:
 - **Fork inventory** for the remaining TPs needing live verification: **one fork per finding** (each verify fork/agent covers exactly one finding)
 - The **fork prompt template** ready to paste (see [verify.md](verify.md))
 
-## Step 8 — USER GATE
+## Step 9 — USER GATE
 
 > _Automated `source` mode supersedes this gate — skip the verify forks and proceed straight to report without pausing (see [source.md](source.md))._
 
@@ -123,6 +152,6 @@ Present:
 - [ ] `cba_fp_verdicts` row count == `cba_findings` row count
 - [ ] No verdict is NULL or "UNKNOWN"
 - [ ] Every DUPLICATE has a valid `merged_into` finding_id
-- [ ] Every FALSE_POSITIVE cites a specific HE/PR/CV rule
+- [ ] Every FALSE_POSITIVE cites a specific HE/PR/CV rule, and records `refuting_mechanism` plus an `enabled_observation` that resolves (`audit.py pivot --check`)
 - [ ] Per-batch artifacts exist for all batches A..N
 - [ ] Resume note includes the fork prompt template + fork inventory
