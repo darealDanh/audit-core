@@ -27,6 +27,7 @@ from audit_core import extract as extract_mod  # noqa: E402
 from audit_core import annotations as annotations_mod  # noqa: E402
 from audit_core import ceiling as ceiling_mod  # noqa: E402
 from audit_core import sweep as sweep_mod  # noqa: E402
+from audit_core import pivot as pivot_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -518,6 +519,38 @@ def cmd_note(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pivot(args: argparse.Namespace) -> int:
+    con = _open_db(args.db)
+    if con is None:
+        return 1
+    try:
+        if args.check:
+            bad = pivot_mod.dangling(con)
+            for finding_id, obs in bad:
+                print(f"  {finding_id}: enabled_observation={obs} resolves to "
+                      f"no row in cba_security_observations")
+            print(f"pivot: {len(bad)} dangling observation reference(s)")
+            return 1 if bad else 0
+        for name in ("finding", "group", "mechanism", "enables"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name} is required unless --check is given",
+                      file=sys.stderr)
+                return 1
+        p = pivot_mod.record(
+            con, finding_id=args.finding, group_id=args.group,
+            mechanism=args.mechanism, enables=args.enables,
+            reason=args.reason or "", rule_applied=args.rule or "",
+            severity_hint=args.severity_hint or "",
+            location=args.location or "", replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(pivot_mod.render(p))
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -538,6 +571,7 @@ HANDLERS = {
     "note": cmd_note,
     "checkpoint": cmd_checkpoint,
     "sweep": cmd_sweep,
+    "pivot": cmd_pivot,
 }
 
 
@@ -641,6 +675,23 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--max-hits", type=int, default=sweep_mod.MAX_HITS)
     sw.add_argument("--record", action="store_true",
                     help="write the hits to cba_pattern_hits")
+
+    pv = sub.add_parser("pivot", help="record a FALSE_POSITIVE and the observation it pivots to")
+    pv.add_argument("--db", required=True, metavar="AUDIT_DB")
+    pv.add_argument("--finding", default=None, metavar="FINDING_ID")
+    pv.add_argument("--group", default=None, metavar="GROUP_ID")
+    pv.add_argument("--mechanism", default=None,
+                    help="what refuted the finding")
+    pv.add_argument("--enables", default=None,
+                    help="what that mechanism makes possible, or what this "
+                         "review ruled out about it")
+    pv.add_argument("--reason", default=None)
+    pv.add_argument("--rule", default=None, metavar="HE-n/PR-n/CV-n")
+    pv.add_argument("--severity-hint", default=None)
+    pv.add_argument("--location", default=None)
+    pv.add_argument("--replace", action="store_true")
+    pv.add_argument("--check", action="store_true",
+                    help="list verdicts whose enabled_observation does not resolve")
     return p
 
 

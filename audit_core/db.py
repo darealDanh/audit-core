@@ -103,6 +103,37 @@ def _validate_pattern(row: dict[str, str]) -> None:
         raise DbError(f"regex {row['regex']!r} does not compile: {exc}") from exc
 
 
+def _validate_verdict(row: dict[str, str]) -> None:
+    """Spec section 3.5: a FALSE_POSITIVE must say what refuted it, and what
+    that mechanism enables.
+
+    From the tplink post-mortem: a finding was correctly refuted by a
+    300-byte sliding-window flush, and that flush is the attack surface for a
+    reference-set CRITICAL. The verdict schema recorded the refutation and
+    nothing else, so the pivot was never taken.
+
+    The requirement is unconditional. A refuting mechanism is code, and code
+    does something; "no attacker-controlled path identified in this review"
+    is a legitimate answer and a useful rung-1 observation. A blank is not.
+    """
+    verdict = row.get("verdict")
+    if verdict not in VERDICTS:
+        raise DbError(f"verdict={verdict!r} is not one of {', '.join(VERDICTS)}")
+    if verdict != "FALSE_POSITIVE":
+        return
+    missing = [c for c in ("refuting_mechanism", "enabled_observation")
+               if not str(row.get(c, "") or "").strip()]
+    if missing:
+        raise DbError(
+            f"a FALSE_POSITIVE verdict requires {', '.join(missing)}: what "
+            f"refuted the finding, and the id of the observation recording "
+            f"what that mechanism enables. Write both with "
+            f"`audit.py pivot --db <db> --finding {row.get('finding_id', '<id>')} "
+            f"--group <group> --mechanism '<what refuted it>' "
+            f"--enables '<what it enables, or what was ruled out>'`, which "
+            f"records the observation and the verdict together.")
+
+
 def _validate_component(row: dict[str, str]) -> None:
     kind = row.get("kind")
     if kind not in COMPONENT_KINDS:
@@ -170,7 +201,7 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "merged_into", "rule_applied", "refuting_mechanism",
                  "enabled_observation", "reviewed_at"),
         required=("finding_id", "verdict"),
-        validate=one_of("verdict", VERDICTS)),
+        validate=_validate_verdict),
     "cba_inventory": TableSpec(
         columns=("unit", "kind", "group_id", "size", "added_at"),
         required=("unit", "kind"),
