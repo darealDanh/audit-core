@@ -216,13 +216,15 @@ def test_chain_proposes_across_groups(tmp_path):
                "--set", "severity=HIGH", "--set", "confidence=9",
                "--set", "location=src/b.c:1", "--set", "root_cause=rc",
                "--set", "impact=im",
-               "--set", "attacker_position=needs session_token and nvram_config"
+               "--set", "attacker_position=needs session_token, nvram_commit "
+                        "and nvram_config"
                ).returncode == 0
     assert run("put", "--db", db, "--table", "cba_findings",
                "--set", "id=G3-F1", "--set", "group_id=G3", "--set", "title=t",
                "--set", "severity=HIGH", "--set", "confidence=9",
                "--set", "location=src/c.c:1", "--set", "root_cause=rc",
-               "--set", "impact=leaks session_token from the nvram_config blob"
+               "--set", "impact=leaks session_token through nvram_commit from "
+                        "the nvram_config blob"
                ).returncode == 0
     r = run("chain", "--db", db)
     assert r.returncode == 0, r.stderr
@@ -255,3 +257,142 @@ def test_chain_reports_findings_that_cannot_be_a_consumer(tmp_path):
     r = run("chain", "--db", db)
     assert r.returncode == 0
     assert "cannot be the consumer half" in r.stdout
+
+
+# --- coverage --record: the writer side of the coverage gate ------------------
+
+
+def _inventoried(tmp_path, *units):
+    dbp = str(new_run(tmp_path) / "audit.db")
+    for u in units:
+        assert run("put", "--db", dbp, "--table", "cba_inventory",
+                   "--set", f"unit={u}", "--set", "kind=file").returncode == 0
+    return dbp
+
+
+def test_coverage_record_clears_the_phase_gate_from_a_file(tmp_path):
+    """Walked end to end: the gate fails, one `--record --from-file` call
+    clears it. Before this verb existed, nothing in SKILL.md, workflows/ or
+    references/ ever told anyone to write a cba_coverage row, so the gate
+    shipped unclearable on every real target."""
+    dbp = _inventoried(tmp_path, "src/a.c", "src/b.c", "vendor/z.c")
+    before = run("coverage", "--db", dbp, "--gate", "--phase", "audit")
+    assert before.returncode == 1
+    assert "unrecorded" in before.stdout
+
+    listing = tmp_path / "audited.txt"
+    listing.write_text("# the files this phase opened\nsrc/a.c\nsrc/b.c\n")
+    r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
+            "--state", "analyzed", "--from-file", str(listing))
+    assert r.returncode == 0, r.stderr
+    assert "2 unit(s) recorded as analyzed" in r.stdout
+
+    r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
+            "--state", "not_audited", "--reason", "vendored",
+            "--unit", "vendor/z.c")
+    assert r.returncode == 0, r.stderr
+
+    after = run("coverage", "--db", dbp, "--gate", "--phase", "audit")
+    assert after.returncode == 0, after.stdout + after.stderr
+    assert "coverage gate: PASS" in after.stdout
+
+
+def test_coverage_record_refuses_a_gap_with_no_reason(tmp_path):
+    dbp = _inventoried(tmp_path, "src/a.c")
+    r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
+            "--state", "not_audited", "--unit", "src/a.c")
+    assert r.returncode == 1
+    assert "reason" in r.stderr
+    assert run("coverage", "--db", dbp, "--gate", "--phase",
+               "audit").returncode == 1
+
+
+def test_coverage_record_needs_a_phase(tmp_path):
+    dbp = _inventoried(tmp_path, "src/a.c")
+    r = run("coverage", "--db", dbp, "--record", "--state", "analyzed",
+            "--unit", "src/a.c")
+    assert r.returncode == 1
+    assert "--phase" in r.stderr
+
+
+def test_coverage_write_flags_without_record_are_refused(tmp_path):
+    """Silently ignoring a write flag on a read-only invocation is how an
+    operator believes a gate was cleared when nothing was written."""
+    dbp = _inventoried(tmp_path, "src/a.c")
+    r = run("coverage", "--db", dbp, "--phase", "audit", "--unit", "src/a.c")
+    assert r.returncode == 1
+    assert "--record" in r.stderr
+
+
+def test_coverage_record_names_a_missing_list_file(tmp_path):
+    dbp = _inventoried(tmp_path, "src/a.c")
+    r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
+            "--state", "analyzed", "--from-file", str(tmp_path / "nope.txt"))
+    assert r.returncode == 1
+    assert "not found" in r.stderr
+
+
+# --- the minors, each reproduced before it was fixed -------------------------
+
+
+def test_rows_columns_tolerates_the_space_after_a_comma(tmp_path):
+    """`--columns "id, title"` is the natural way to type a list, and it
+    answered `has no column(s):  title` -- naming a column that differs from
+    a real one only by a space nobody can see."""
+    dbp = seeded(tmp_path)
+    r = run("rows", "--db", dbp, "--table", "cba_findings",
+            "--columns", "id, title")
+    assert r.returncode == 0, r.stderr
+    assert "G1-F1" in r.stdout
+
+
+def test_sweep_refuses_a_nonsense_max_hits(tmp_path):
+    dbp = seeded(tmp_path)
+    assert run("put", "--db", dbp, "--table", "cba_patterns", "--set", "id=P1",
+               "--set", "name=n", "--set", r"regex=strcpy\(").returncode == 0
+    r = run("sweep", "--db", dbp, "--pattern", "P1", "--root", str(tmp_path),
+            "--max-hits", "-1")
+    assert r.returncode == 1
+    assert "--max-hits must be at least 1" in r.stderr
+
+
+def test_sweep_says_when_it_clamps_an_oversized_max_hits(tmp_path):
+    dbp = seeded(tmp_path)
+    assert run("put", "--db", dbp, "--table", "cba_patterns", "--set", "id=P1",
+               "--set", "name=n", "--set", r"regex=strcpy\(").returncode == 0
+    r = run("sweep", "--db", dbp, "--pattern", "P1", "--root", str(tmp_path),
+            "--max-hits", "100000")
+    assert r.returncode == 0, r.stderr
+    assert "clamped" in r.stderr
+
+
+def test_sweep_without_record_opens_the_database_read_only(tmp_path):
+    """A sweep that only reports has no business holding the run's database
+    open for writing."""
+    dbp = seeded(tmp_path)
+    assert run("put", "--db", dbp, "--table", "cba_patterns", "--set", "id=P1",
+               "--set", "name=n", "--set", r"regex=strcpy\(").returncode == 0
+    import os
+    os.chmod(dbp, 0o444)
+    try:
+        r = run("sweep", "--db", dbp, "--pattern", "P1", "--root", str(tmp_path))
+        assert r.returncode == 0, r.stdout + r.stderr
+    finally:
+        os.chmod(dbp, 0o644)
+
+
+def test_chain_compose_refuses_json_instead_of_ignoring_it(tmp_path):
+    """Accepted and silently ignored before: a flag that changes nothing is a
+    flag whose absence from the output reads as a failed write."""
+    dbp = seeded(tmp_path)
+    assert run("put", "--db", dbp, "--table", "cba_findings",
+               "--set", "id=G2-F1", "--set", "group_id=G2", "--set", "title=t",
+               "--set", "severity=HIGH", "--set", "confidence=9",
+               "--set", "location=src/b.c:1", "--set", "root_cause=rc",
+               "--set", "impact=im").returncode == 0
+    r = run("chain", "--db", dbp, "--compose", "C1",
+            "--findings", "G1-F1,G2-F1", "--attacker-position", "LAN",
+            "--completeness", "complete", "--json")
+    assert r.returncode == 1
+    assert "--json" in r.stderr
+    assert "rows --table cba_chains" in r.stderr

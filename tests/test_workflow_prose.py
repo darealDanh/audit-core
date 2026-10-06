@@ -431,3 +431,34 @@ def test_the_tiering_gate_document_exists_and_says_it_has_not_run():
 def test_the_stage3_gate_document_says_it_has_not_run():
     path = ROOT / "docs" / "baselines" / "2026-10-05-stage3-gate.md"
     assert "**Status: NOT RUN.**" in path.read_text(encoding="utf-8")
+
+
+def test_the_coverage_gate_has_a_writer_in_the_shipped_prose():
+    """The gate shipped with no writer side. `workflows/recon.md` populates
+    `cba_inventory`, `workflows/audit.md` runs `coverage --gate --phase audit`,
+    and nothing in SKILL.md, workflows/, references/ or references/briefs/
+    ever said to write a `cba_coverage` row -- so following the shipped
+    workflow exactly produced `FAIL ... 2 inventoried unit(s) are unrecorded`
+    on every real target. An unclearable gate gets turned off.
+
+    Both halves are named: the orchestrator's own call, and the per-group
+    brief, because the subagents are the only ones who know which files they
+    opened.
+    """
+    for rel in ("workflows/audit.md", "references/briefs/audit-brief.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "coverage" in text and "--record" in text, rel
+        assert "--state analyzed" in text, f"{rel} never records an analysed unit"
+        assert "--state not_audited" in text, f"{rel} never records a gap"
+
+
+def test_the_coverage_writer_is_not_presented_instead_of_run():
+    """Same rule as the gate itself: a `>` block is what the orchestrator
+    shows the user, so a write placed there ships inert."""
+    for path in live_markdown():
+        for n, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "audit.py" in line and "coverage" in line and "--record" in line:
+                assert not line.lstrip().startswith(">"), (
+                    f"{path.relative_to(ROOT)}:{n} presents a write instead of "
+                    f"running it: {line.strip()}")

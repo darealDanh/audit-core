@@ -36,7 +36,7 @@ from audit_core import chains as chains_mod  # noqa: E402
 def cmd_selftest(_args: argparse.Namespace) -> int:
     """Verify the vendored core is importable AND internally consistent.
 
-    Printing a version number proves an import. These two checks prove the
+    Printing a version number proves an import. These three checks prove the
     things that actually break a run six phases in, and each compares two
     structures that were built independently - per Stage 0's finding that a
     tool's output is only trustworthy when validated against something it did
@@ -80,6 +80,35 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
         finally:
             con.close()
 
+    # 3. Migrations: the frozen pre-Stage-3 baseline against what connect()
+    #    now demands. `schema.sql` and TABLE_SPECS are checked against each
+    #    other above; nothing checked either against MIGRATIONS, and a column
+    #    added inline to an already-shipped table with no MIGRATIONS entry
+    #    passes that check, passes every test, and permanently bricks every
+    #    existing run directory: connect() rejects it, `init` cannot repair
+    #    it, and the remedy connect() prints is the thing that cannot help.
+    #    Rows holding real, unbacked-up findings become unreachable through
+    #    every verb but `bench`.
+    with tempfile.TemporaryDirectory() as tmp:
+        old_db = pathlib.Path(tmp) / "pre-stage3.db"
+        con = sqlite3.connect(old_db)
+        try:
+            con.executescript(workspace_mod.BASELINE_PATH.read_text())
+            con.commit()
+            db_mod.migrate(con)
+        except Exception as exc:                       # noqa: BLE001
+            problems.append(f"the pre-Stage-3 baseline does not migrate: {exc}")
+        finally:
+            con.close()
+        try:
+            db_mod.connect(old_db).close()
+        except db_mod.DbError as exc:
+            problems.append(
+                f"a migrated pre-Stage-3 database is still rejected by "
+                f"connect(): {exc} -- add the missing column(s) to "
+                f"db.MIGRATIONS; adding them to schema.sql alone repairs "
+                f"nothing on a database that already exists")
+
     if problems:
         print(f"selftest: {len(problems)} inconsistenc(ies)", file=sys.stderr)
         for p in problems:
@@ -89,6 +118,8 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     print(f"  verbs  {len(HANDLERS)} declared, all dispatchable")
     print(f"  tables {len(tables)} in schema.sql, "
           f"{len(db_mod.TABLE_SPECS)} under contract, columns agree")
+    print(f"  migrations {len(db_mod.MIGRATIONS)} applied to the pre-Stage-3 "
+          f"baseline, result accepted by connect()")
     return 0
 
 
@@ -310,9 +341,13 @@ def cmd_rows(args: argparse.Namespace) -> int:
     if con is None:
         return 1
     try:
+        # Stripped: `--columns "id, title"` is the natural way to type a
+        # list and produced `has no column(s):  title`, naming a column that
+        # differs from a real one only by a space nobody can see.
+        columns = tuple(c.strip() for c in args.columns.split(",")
+                        if c.strip()) if args.columns else None
         got = db_mod.rows(con, args.table, where=where or None,
-                          columns=tuple(args.columns.split(",")) if args.columns else None,
-                          limit=args.limit)
+                          columns=columns, limit=args.limit)
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -386,6 +421,14 @@ def cmd_chain(args: argparse.Namespace) -> int:
             else:
                 print(chains_mod.render(proposal))
             return 0
+        if args.json:
+            # Accepted and silently ignored before this. A flag that changes
+            # nothing is a flag whose absence from the output reads as a
+            # failed write.
+            print("--json has no meaning with --compose, which records a row "
+                  "rather than reporting one; read it back with `audit.py "
+                  "rows --table cba_chains --json`", file=sys.stderr)
+            return 1
         for name in ("findings", "attacker_position", "completeness"):
             if not (getattr(args, name) or "").strip():
                 print(f"--{name.replace('_', '-')} is required with --compose",
@@ -407,10 +450,28 @@ def cmd_chain(args: argparse.Namespace) -> int:
 
 
 def cmd_coverage(args: argparse.Namespace) -> int:
-    con = _open_db(args.db, read_only=True)
+    units = list(args.unit)
+    if args.from_file:
+        src = pathlib.Path(args.from_file).expanduser()
+        if not src.is_file():
+            print(f"not found: {src}", file=sys.stderr)
+            return 1
+        units += [ln.strip() for ln in src.read_text().splitlines()
+                  if ln.strip() and not ln.lstrip().startswith("#")]
+    if (units or args.state or args.reason) and not args.record:
+        print("--unit, --from-file, --state and --reason are only meaningful "
+              "with --record", file=sys.stderr)
+        return 1
+    con = _open_db(args.db, read_only=not args.record)
     if con is None:
         return 1
     try:
+        if args.record:
+            written = coverage_mod.record(
+                con, units=units, phase=args.phase or "",
+                state=args.state or "", reason=args.reason or "",
+                replace=args.replace)
+            print(coverage_mod.render_record(written))
         r = coverage_mod.report(con, phase=args.phase)
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
@@ -511,7 +572,22 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
-    con = _open_db(args.db)
+    if args.max_hits < 1:
+        # `itertools.islice` raises a bare ValueError on a negative count,
+        # and a traceback is not the clean stderr/exit-1 path every other bad
+        # input on this suite gets (see cmd_extract's --batch-size).
+        print(f"--max-hits must be at least 1, not {args.max_hits}",
+              file=sys.stderr)
+        return 1
+    if args.max_hits > sweep_mod.MAX_HITS:
+        print(f"--max-hits {args.max_hits} is above the {sweep_mod.MAX_HITS} "
+              f"cap and is being clamped to it: a higher cap would report an "
+              f"untruncated sweep that stopped anyway, and the truncation "
+              f"refusal is what keeps a partial hit list from being recorded "
+              f"as a completed sweep.", file=sys.stderr)
+    # Read-only unless something is going to be written. A sweep that only
+    # reports has no business holding the run's database open for writing.
+    con = _open_db(args.db, read_only=not args.record)
     if con is None:
         return 1
     try:
@@ -583,7 +659,10 @@ def cmd_pivot(args: argparse.Namespace) -> int:
             for finding_id, obs in bad:
                 print(f"  {finding_id}: enabled_observation={obs} resolves to "
                       f"no row in cba_security_observations")
-            print(f"pivot: {len(bad)} dangling observation reference(s)")
+            capped = (" (capped at the read bound; there may be more)"
+                      if len(bad) >= db_mod.MAX_ROWS else "")
+            print(f"pivot: {len(bad)} dangling observation reference(s)"
+                  f"{capped}")
             return 1 if bad else 0
         for name in ("finding", "group", "mechanism", "enables"):
             if not (getattr(args, name) or "").strip():
@@ -756,6 +835,21 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)
     cv.add_argument("--json", action="store_true")
+    cv.add_argument("--record", action="store_true",
+                    help="write one cba_coverage row per --unit/--from-file "
+                         "entry, in one call; needs --phase and --state")
+    cv.add_argument("--unit", action="append", default=[], metavar="UNIT",
+                    help="repeatable; the inventory unit this phase ruled on")
+    cv.add_argument("--from-file", dest="from_file", default=None,
+                    metavar="LIST", help="one unit per line; # comments and "
+                                         "blank lines are skipped")
+    cv.add_argument("--state", default=None,
+                    choices=list(db_mod.COVERAGE_STATES))
+    cv.add_argument("--reason", default=None,
+                    choices=list(db_mod.NOT_AUDITED_REASONS),
+                    help="required with --state not_audited")
+    cv.add_argument("--replace", action="store_true",
+                    help="overwrite an existing row for the same unit+phase")
     cv.add_argument("--gate", action="store_true",
                     help="exit 1 if coverage cannot support a phase exit")
     ex = sub.add_parser("extract", help="snapshot source into <run>/extract/ once, for unbounded fan-out")

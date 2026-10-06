@@ -15,6 +15,14 @@ from audit_core import db
 SUBDIRS = ("files", "artifacts", "archived-poc", "briefs")
 SCHEMA_PATH = pathlib.Path(__file__).resolve().parent / "schema.sql"
 
+# The oldest database shape this code must still be able to repair, frozen.
+# `audit.py selftest` applies db.MIGRATIONS to it and asserts db.connect()
+# then accepts the result - the one cross-check that keeps a column added
+# inline to schema.sql from shipping with no migration and bricking every
+# existing run directory. Read the file's own header before touching it.
+BASELINE_PATH = (pathlib.Path(__file__).resolve().parent
+                 / "baseline-pre-stage3.sql")
+
 
 @dataclass(frozen=True, slots=True)
 class SchemaResult:

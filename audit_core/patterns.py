@@ -19,7 +19,14 @@ from dataclasses import dataclass
 
 from audit_core import db
 
-MAX_PATTERNS = 200
+# Not 200 by coincidence. `states()` reads through `db.rows`, which clamps
+# every read to `db.MAX_ROWS` with `min(limit, MAX_ROWS)` - so raising this
+# number alone would change nothing except the claim it makes. The gate below
+# reports PASS when it sees no unswept pattern, and a pattern beyond the clamp
+# is a pattern it never saw: a gate that stops working without saying so. The
+# relationship is written here so that raising the bound means raising
+# db.MAX_ROWS, deliberately, in one place.
+MAX_PATTERNS = db.MAX_ROWS
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +91,11 @@ def render(items: list[PatternState]) -> str:
                 "--set regex=... --set origin_finding=<finding-id>`.")
     gaps = [s for s in items if not s.swept]
     out = [f"patterns: {len(items)} registered, {len(gaps)} unswept"]
+    if len(items) >= MAX_PATTERNS:
+        out.append(f"  WARNING: this list is capped at {MAX_PATTERNS} and is "
+                   f"full, so there may be registered patterns it has not "
+                   f"seen - and `--gate` can only rule on what is here. Treat "
+                   f"a PASS as covering these {MAX_PATTERNS} only.")
     for s in items:
         mark = "swept" if s.swept else "NEVER SWEPT"
         origin = f" from {s.origin_finding}" if s.origin_finding else ""

@@ -57,3 +57,20 @@ def test_render_names_the_sweep_command_for_each_unswept_pattern(tmp_path):
     assert "P1" in out
     assert "audit.py sweep" in out
     assert "1 unswept" in out
+
+
+def test_the_pattern_cap_is_the_read_cap_not_a_coincidence():
+    """`MAX_PATTERNS = 200` equalled `db.MAX_ROWS` by accident, and
+    `db.rows` clamps with `min(limit, MAX_ROWS)`. Raising MAX_PATTERNS alone
+    would change nothing except the claim it makes, and `patterns --gate`
+    would report PASS over unswept patterns beyond the clamp: a gate that
+    stops working without saying so."""
+    assert patterns.MAX_PATTERNS == db.MAX_ROWS
+
+
+def test_a_full_pattern_list_says_the_gate_can_only_rule_on_what_it_saw():
+    items = [patterns.PatternState(id=f"P{i}", name="n", origin_finding="",
+                                   swept_at="2026-01-01", hit_count=0)
+             for i in range(patterns.MAX_PATTERNS)]
+    out = patterns.render(items)
+    assert "capped" in out and "PASS" in out

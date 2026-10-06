@@ -75,3 +75,36 @@ def test_an_unknown_kind_is_rejected(con):
             "asserted_identity": "x",
             "identity_evidence": "entropy 7.9 over the whole file, no ELF header"})
     assert "thingy" in str(exc.value)
+
+
+def test_the_identity_rule_depends_on_these_noise_words():
+    """IMPORTANT 6's other half. `text.NOISE_WORDS` is subtracted here to
+    stop a circular claim slipping through dressed as a sentence, and
+    subtracted by `chains._significant` to suppress generic joins -- two
+    rules that want opposite changes out of one frozenset. The base
+    docstring asked for "both callers' tests" and neither existed.
+
+    This is this caller's. Each word below is one that
+    test_the_check_ignores_case_and_path_separators and
+    test_evidence_that_only_repeats_the_filename_is_rejected rely on: remove
+    it and evidence that only restates its own path starts being accepted.
+    """
+    from audit_core import text
+    for word in ("found", "under", "file", "named", "itself", "inside"):
+        assert word in text.NOISE_WORDS, (
+            f"{word!r} left text.NOISE_WORDS; evidence that only restates "
+            f"its own path in a sentence is now accepted. Chain-proposal "
+            f"noise belongs in chains.GENERIC_TOKENS, not here.")
+
+
+def test_chain_proposal_noise_never_leaks_into_the_identity_rule():
+    """The reason the two sets are separate: a word added for the chain
+    proposer must not quietly make this rule reject more evidence."""
+    from audit_core import chains
+    identity.check_evidence(
+        "images/boot.elf",
+        "the memory layout places a persistent session credential table at "
+        "offset 0x4000")
+    assert "memory" in chains.GENERIC_TOKENS
+    assert "memory" not in __import__(
+        "audit_core.text", fromlist=["text"]).NOISE_WORDS

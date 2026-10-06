@@ -371,13 +371,66 @@ def _spec(table: str) -> TableSpec:
     return spec
 
 
+def primary_key(con: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    """The declared primary-key columns of `table`, in key order.
+
+    `table` is checked against TABLE_SPECS by `table_columns`, so the only
+    strings that reach the PRAGMA are this module's own literals.
+    """
+    _spec(table)
+    keyed = [(r[5], r[1]) for r in con.execute(f"PRAGMA table_info({table})")
+             if r[5]]
+    return tuple(name for _, name in sorted(keyed))
+
+
+def _merge_with_stored(con: sqlite3.Connection, table: str, spec: TableSpec,
+                       row: dict[str, str]) -> dict[str, str]:
+    """`row`, filled out from the row it is about to replace.
+
+    `INSERT OR REPLACE` deletes the conflicting row and inserts a new one, so
+    every column the caller omits is silently reset - to its DEFAULT if it has
+    one, to NULL if it does not. That is not what any caller means by
+    "replace this row", and the columns at risk are owned by a *different*
+    workflow step than the one doing the replacing.
+
+    Reproduced before this merge existed: fpcheck assigns `cba_fp_verdicts`
+    .final_id by a raw UPDATE after the verdicts exist, `pivot.record` writes
+    6 of that table's 10 columns, and `pivot --replace` therefore destroyed
+    final_id, merged_into, final_severity and reason - the report's finding
+    numbering, which exists nowhere else - with exit 0 and no warning, and
+    neither `status` nor `pivot --check` noticed.
+
+    So a replace is a merge: the caller's columns win, and the ones it does
+    not name keep what is stored. A stored NULL is left out rather than
+    bound, so a column's DEFAULT still applies on the re-insert.
+    """
+    key = primary_key(con, table)
+    if not key or any(c not in row for c in key):
+        # No declared key, or the caller did not name all of it: there is no
+        # row this one provably replaces, so there is nothing to merge.
+        return row
+    clause = " AND ".join(f"{c} = ?" for c in key)
+    stored = con.execute(
+        f"SELECT {', '.join(spec.columns)} FROM {table} WHERE {clause}",
+        [row[c] for c in key]).fetchone()
+    if stored is None:
+        return row
+    kept = {c: stored[c] for c in spec.columns
+            if c not in row and stored[c] is not None}
+    return {**kept, **row}
+
+
 def put(con: sqlite3.Connection, table: str, row: dict[str, str],
         *, replace: bool = False) -> None:
-    """Insert one validated row.
+    """Insert one validated row. With `replace`, merge it over the stored one.
 
     Column names are interpolated into the statement, which is safe only
     because every one of them has just been checked against the spec's own
     tuple of names. Values are always bound parameters.
+
+    Validation runs on what the caller wrote, not on the merged result: the
+    stored half was validated when it was written, and a rule that reported
+    a failure in a column the caller never named would be unreadable.
     """
     spec = _spec(table)
     unknown = sorted(set(row) - set(spec.columns))
@@ -389,12 +442,13 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
         raise DbError(f"{table} requires a non-empty value for: {', '.join(missing)}")
     if spec.validate is not None:
         spec.validate(row)
-    cols = sorted(row)
+    values = _merge_with_stored(con, table, spec, row) if replace else row
+    cols = sorted(values)
     verb = "INSERT OR REPLACE" if replace else "INSERT"
     sql = (f"{verb} INTO {table} ({', '.join(cols)}) "
            f"VALUES ({', '.join('?' for _ in cols)})")
     try:
-        con.execute(sql, [row[c] for c in cols])
+        con.execute(sql, [values[c] for c in cols])
     except sqlite3.IntegrityError as exc:
         raise DbError(f"{table}: {exc}; pass --replace to overwrite") from exc
     con.commit()

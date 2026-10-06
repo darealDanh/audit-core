@@ -200,7 +200,33 @@ Rewrite the resume note ([../references/resume-note-template.md](../references/r
 - Updated "Quirks to remember"
 
 Then record coverage for this phase and check it, the same way Step 6 checks
-the pattern gate:
+the pattern gate. **Record first — the gate has nothing to read until you do.**
+Recon populated `cba_inventory`; this phase says what it did with each unit.
+
+Write the list of units this phase actually opened — one per line, `#` comments
+allowed — and record them all in one call. Each deep-audit subagent wrote its
+own list to `files/$G-audited.txt` (see the brief), so the lists concatenate:
+
+```bash
+cat ${AUDIT_DIR}/files/G*-audited.txt > ${AUDIT_DIR}/files/audit-analyzed.txt
+
+python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --record \
+  --phase audit --state analyzed --from-file ${AUDIT_DIR}/files/audit-analyzed.txt
+```
+
+Every inventoried unit nobody opened needs a decision, not silence. Record one
+call per reason — `budget`, `out-of-scope`, `generated`, `vendored`,
+`third-party`, `unreachable`, `binary-only`:
+
+```bash
+python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --record \
+  --phase audit --state not_audited --reason vendored \
+  --unit third_party/libfoo/foo.c --unit third_party/libfoo/bar.c
+```
+
+`--unit` is repeatable and `--from-file` takes a list, so recording a whole
+corpus is one invocation, not one per unit. A row written for the wrong state
+is corrected with `--replace` on the same unit and phase. Then:
 
 ```bash
 python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit
@@ -239,5 +265,6 @@ Present:
 - [ ] Patch-bypass intel from Step 2 has been probed (look for "probe these sites" items reflected in findings)
 - [ ] Resume note rewrites complete
 - [ ] `audit.py patterns --gate` exits 0 — every registered pattern has been swept
+- [ ] Every unit this phase opened has an `analyzed` row, and every unit it did not has a `not_audited` row with a reason (`audit.py coverage --record`)
 - [ ] `audit.py coverage --gate --phase audit` exits 0, or every failure it names has been answered
 - [ ] `audit.py chain` has been run and its proposals read

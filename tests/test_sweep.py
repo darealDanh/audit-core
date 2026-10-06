@@ -180,3 +180,45 @@ def test_record_refuses_a_truncated_sweep(con, tmp_path):
     assert "truncated" in str(exc.value).lower()
     assert patterns.states(con)[0].swept is False
     assert db.rows(con, "cba_pattern_hits") == []
+
+
+def test_the_sweep_skips_the_audits_own_run_directory(tmp_path):
+    """IMPORTANT. `workflows/audit.md` and `references/phase4-deep-audit.md`
+    both say to sweep with `--root .` from the project root, and
+    `audit.py extract` writes verbatim source copies under
+    `reports/audit-<ts>/extract/`. Reproduced: one real call site in the tree,
+    two recorded hits -- one of them the audit's own copy of the other.
+
+    Counting them inflates `hit_count` (a gate-document leading indicator),
+    puts non-source paths in the triage list, and on a real corpus pushes
+    toward MAX_HITS, which trips `record`'s truncation refusal, which makes
+    `patterns --gate` unclearable.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.c").write_text("strcpy(dst, src);\n")
+    extract = tmp_path / "reports" / "audit-20260105-120000" / "extract"
+    extract.mkdir(parents=True)
+    (extract / "a.c").write_text("strcpy(dst, src);\n")
+
+    result = sweep.run(tmp_path, r"strcpy\(")
+    assert [h.path for h in result.hits] == ["src/a.c"]
+    assert "reports" in sweep.SKIP_DIRS
+
+
+def test_max_hits_is_clamped_to_the_modules_own_cap(tmp_path):
+    """`--max-hits 100000` left `truncated` False on a sweep that stopped
+    anyway, and that flag is the only thing standing between a partial hit
+    list and a pattern permanently marked swept."""
+    (tmp_path / "a.c").write_text("".join(
+        "strcpy(a, b);\n" for _ in range(sweep.MAX_HITS + 50)))
+    result = sweep.run(tmp_path, r"strcpy\(", max_hits=100_000)
+    assert len(result.hits) == sweep.MAX_HITS
+    assert result.truncated is True
+
+
+def test_a_nonsense_max_hits_does_not_reach_islice(tmp_path):
+    """`--max-hits -1` raised a bare ValueError out of itertools.islice."""
+    (tmp_path / "a.c").write_text("strcpy(a, b);\nstrcpy(c, d);\n")
+    result = sweep.run(tmp_path, r"strcpy\(", max_hits=-1)
+    assert len(result.hits) == 1
+    assert result.truncated is True

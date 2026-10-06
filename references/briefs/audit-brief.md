@@ -94,6 +94,38 @@ phase exits.
 If you find zero vulnerabilities in your group, say so explicitly and list
 every entry point you reviewed. `rows=0` is not a coverage statement.
 
+## Record what you opened
+
+Coverage is measured per unit against the inventory recon built, and the
+`audit` phase cannot exit until every inventoried unit has a decision. Nobody
+else knows which files you opened, so you are the only one who can record it.
+
+As you work, append every file you actually read to
+`{run_dir}/files/{group_id}-audited.txt`, one path per line, in the same form
+the inventory uses. Before you return, record them:
+
+    python3 __SKILL_DIR__/audit.py coverage --db {run_dir}/audit.db --record \
+      --phase audit --state analyzed \
+      --from-file {run_dir}/files/{group_id}-audited.txt
+
+If a file in your group was inventoried and you deliberately did not open it,
+say why in the same way — one call per reason, from `out-of-scope`,
+`generated`, `vendored`, `third-party`, `unreachable`, `binary-only`:
+
+    python3 __SKILL_DIR__/audit.py coverage --db {run_dir}/audit.db --record \
+      --phase audit --state not_audited --reason vendored \
+      --unit <path> --unit <path>
+
+`budget` is a legal reason and it **fails** the phase gate on purpose: running
+short of context is answered by checkpointing and restarting, never by leaving
+a surface unopened. If you are running out of room, say so in your return line
+rather than recording a budget skip.
+
+A file you opened and recorded nothing about is a decision on the record. A
+file you opened and never recorded is indistinguishable from one nobody ever
+looked at — which is how six of ten missed CRITICALs sat on surfaces that were
+never opened and never written down.
+
 ## What you return
 
 Return exactly one line, and nothing else:

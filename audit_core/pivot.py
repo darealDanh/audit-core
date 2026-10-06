@@ -63,11 +63,20 @@ def record(con: sqlite3.Connection, *, finding_id: str, group_id: str,
         "location": location or ""})
     observation_id = int(con.execute("SELECT last_insert_rowid()").fetchone()[0])
 
-    db.put(con, "cba_fp_verdicts", {
-        "finding_id": finding_id, "verdict": "FALSE_POSITIVE",
-        "reason": reason or "", "rule_applied": rule_applied or "",
-        "refuting_mechanism": mechanism,
-        "enabled_observation": str(observation_id)}, replace=replace)
+    # `reason` and `rule_applied` are written only when they were given.
+    # `db.put(replace=True)` merges a row over the one it replaces, and a
+    # column named with an empty value is a caller saying "blank it" - which
+    # is how a re-pivot of an already-reasoned verdict erased the reason the
+    # first pass recorded. Omitting them leaves the stored text alone, and on
+    # a first insert leaves the column at its schema default.
+    verdict = {"finding_id": finding_id, "verdict": "FALSE_POSITIVE",
+               "refuting_mechanism": mechanism,
+               "enabled_observation": str(observation_id)}
+    if (reason or "").strip():
+        verdict["reason"] = reason
+    if (rule_applied or "").strip():
+        verdict["rule_applied"] = rule_applied
+    db.put(con, "cba_fp_verdicts", verdict, replace=replace)
 
     return Pivot(finding_id=finding_id, observation_id=observation_id,
                  mechanism=mechanism)
@@ -79,13 +88,19 @@ def dangling(con: sqlite3.Connection) -> list[tuple[str, str]]:
     The validator checks that the field is non-empty; it has no connection,
     so it cannot check that the id exists. This is that check, run on demand
     rather than on every write.
+
+    Bounded at `db.MAX_ROWS` like every other read path in this suite: this
+    was the one new read that stated no cap, and R1's rule is that the
+    orchestrator reads rows, never raw material. The caller reports whether
+    the cap was reached - a full page means "at least this many", not "this
+    many".
     """
     return [(r[0], "(unset)" if r[1] is None else str(r[1])) for r in con.execute(
         "SELECT v.finding_id, v.enabled_observation FROM cba_fp_verdicts v "
         "LEFT JOIN cba_security_observations o "
         "  ON CAST(o.id AS TEXT) = CAST(v.enabled_observation AS TEXT) "
         "WHERE v.verdict = 'FALSE_POSITIVE' AND o.id IS NULL "
-        "ORDER BY v.finding_id")]
+        "ORDER BY v.finding_id LIMIT ?", (db.MAX_ROWS,))]
 
 
 def render(p: Pivot) -> str:

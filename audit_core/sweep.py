@@ -27,9 +27,21 @@ MAX_HITS = 500
 MAX_FILE_BYTES = 2_000_000
 EXCERPT_CHARS = 160
 BINARY_SNIFF_BYTES = 8192
+# `reports` is the audit's own run directory, and it is here for the same
+# reason `build` is: it holds generated copies of files that are already in
+# the tree. `audit.py extract` writes verbatim source snapshots under
+# `reports/audit-<ts>/extract/`, and both `workflows/audit.md` and
+# `references/phase4-deep-audit.md` tell the orchestrator to sweep with
+# `--root .` from the project root. Reproduced on one real call site: two
+# recorded hits in the audit's own extract copies.
+#
+# Sweeping it inflates `hit_count` - a gate-document leading indicator - puts
+# non-source paths in the triage list, and on a real corpus pushes toward
+# MAX_HITS, which trips `record`'s truncation refusal, which makes
+# `patterns --gate` unclearable.
 SKIP_DIRS = frozenset({
     ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv",
-    "dist", "build", ".mypy_cache", ".pytest_cache", ".tox",
+    "dist", "build", "reports", ".mypy_cache", ".pytest_cache", ".tox",
 })
 
 
@@ -86,8 +98,18 @@ def run(root: str | pathlib.Path, regex: str, *, pattern_id: str = "",
     The counters reflect files visited before the cap was reached, so a
     truncated sweep under-reports how much of the tree it saw. That is the
     honest reading: the sweep stopped, so it does not know.
+
+    `max_hits` is clamped to MAX_HITS: a caller that raised it past the cap
+    would get `truncated=False` on a sweep that stopped anyway, and
+    `record`'s truncation refusal is the only thing standing between a
+    partial hit list and a permanently-`swept_at` pattern.
     """
     rx = re.compile(regex)
+    # Clamped, not trusted. `--max-hits 100000` left `truncated` False on a
+    # sweep that stopped well short of the tree and defeated `record`'s
+    # truncation refusal; `--max-hits -1` reached `itertools.islice` as a raw
+    # ValueError traceback. The cap is the module's, not the caller's.
+    max_hits = max(1, min(int(max_hits), MAX_HITS))
     root = pathlib.Path(root)
     counters = {"scanned": 0, "binary": 0, "large": 0}
     stream = _scan(root, rx, suffixes, counters)

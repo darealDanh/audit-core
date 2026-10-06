@@ -15,7 +15,79 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from audit_core.db import NOT_AUDITED_REASONS
+from audit_core import db
+from audit_core.db import COVERAGE_STATES, NOT_AUDITED_REASONS
+
+MAX_UNITS_PER_CALL = 5000
+
+
+@dataclass(frozen=True, slots=True)
+class RecordResult:
+    units: int
+    phase: str
+    state: str
+    reason: str
+
+
+def record(con: sqlite3.Connection, *, units, phase: str, state: str,
+           reason: str = "", replace: bool = False) -> RecordResult:
+    """Record one coverage row per unit, in one call.
+
+    The gate this clears is per-unit, and a real corpus has thousands of
+    units. One `audit.py put --table cba_coverage` per unit is thousands of
+    process launches and thousands of orchestrator turns to clear one gate -
+    which is the economics failure this whole suite exists to remove, so a
+    gate that could only be cleared that way would get turned off instead.
+
+    Every row goes through `db.put`, so `_validate_coverage` still applies:
+    a `not_audited` row without a legal reason is refused here exactly as it
+    is refused one row at a time. The whole call is validated before the
+    first write, because a partial clear of a coverage gate is worse than a
+    refused one - it looks like progress.
+    """
+    phase = (phase or "").strip()
+    state = (state or "").strip()
+    reason = (reason or "").strip()
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in units:
+        unit = (raw or "").strip()
+        if not unit or unit in seen:
+            continue
+        seen.add(unit)
+        ordered.append(unit)
+    if not phase:
+        raise db.DbError("recording coverage needs a --phase: the phase whose "
+                         "exit this scope is measured at")
+    if state not in COVERAGE_STATES:
+        raise db.DbError(f"state={state!r} is not one of "
+                         + ", ".join(COVERAGE_STATES))
+    if not ordered:
+        raise db.DbError(
+            "no units to record; pass --unit <path> (repeatable) or "
+            "--from-file <list>, one unit per line")
+    if len(ordered) > MAX_UNITS_PER_CALL:
+        raise db.DbError(
+            f"{len(ordered)} units in one call is past the "
+            f"{MAX_UNITS_PER_CALL} bound; split the list. A single call that "
+            f"large is a sign the unit list is a whole tree rather than what "
+            f"this phase actually ruled on.")
+    # Validated once, on a representative row, before anything is written.
+    db.TABLE_SPECS["cba_coverage"].validate(
+        {"unit": ordered[0], "phase": phase, "state": state, "reason": reason})
+    for unit in ordered:
+        row = {"unit": unit, "phase": phase, "state": state}
+        if reason:
+            row["reason"] = reason
+        db.put(con, "cba_coverage", row, replace=replace)
+    return RecordResult(units=len(ordered), phase=phase, state=state,
+                        reason=reason)
+
+
+def render_record(r: RecordResult) -> str:
+    detail = f" reason={r.reason}" if r.reason else ""
+    return (f"coverage: {r.units} unit(s) recorded as {r.state}{detail} "
+            f"(phase {r.phase})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +198,10 @@ def render(r: CoverageReport) -> str:
                    f"(SKILL.md, R3).")
     if r.unrecorded:
         out.append(f"  {r.unrecorded} inventoried unit(s) have no coverage row "
-                   f"in this scope. Legal reasons: {', '.join(NOT_AUDITED_REASONS)}.")
+                   f"in this scope. Record them with `audit.py coverage --db "
+                   f"<db> --record --phase {r.phase or '<phase>'} --state "
+                   f"analyzed --from-file <list>`; legal not_audited reasons: "
+                   f"{', '.join(NOT_AUDITED_REASONS)}.")
     return "\n".join(out)
 
 
@@ -178,8 +253,11 @@ def gate(r: CoverageReport) -> GateResult:
     if r.unrecorded:
         failures.append(
             f"{r.unrecorded} inventoried unit(s) are unrecorded{scope}: no "
-            f"coverage row in this scope. Record one per unit: state=analyzed, "
-            f"or state=not_audited with a reason from "
+            f"coverage row in this scope. Record them in one call with "
+            f"`audit.py coverage --db <db> --record --phase "
+            f"{r.phase or '<phase>'} --state analyzed --from-file <list>` "
+            f"(one unit per line), and the units nobody opened with "
+            f"`--state not_audited --reason <r>`, from: "
             f"{', '.join(NOT_AUDITED_REASONS)}.")
 
     for reason, n in r.by_reason:

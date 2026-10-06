@@ -24,7 +24,65 @@ from dataclasses import dataclass
 from audit_core import db, text
 
 MAX_CANDIDATES = 100
-MIN_SHARED_TOKENS = 2
+
+# Three, not two. Measured on the pinned 45-finding tplink run, the only real
+# corpus this project has: at two shared tokens the proposer produced 311
+# pairs, hit the 100 cap after 12 of 45 findings, and its top join tokens were
+# `lock` (37), `account` (32), `flash` (21) and `cloud` (20) - words that
+# appear in nearly every finding on a single-product corpus, so two of them
+# together is not evidence of a chain. At three, with the generic set below,
+# the same run proposes 29 pairs and never reaches the cap, so every finding
+# is examined as an enabler. A list nobody can read is a mechanism nobody
+# uses, and the cross-group chain this exists to find is invisible inside 311
+# proposals just as surely as inside none.
+MIN_SHARED_TOKENS = 3
+
+# Chain-proposal noise, layered on top of `text.NOISE_WORDS`.
+#
+# `text.NOISE_WORDS` has two callers pulling in opposite directions:
+# `db.check_identity_evidence` subtracts it to detect evidence that only
+# repeats its own path, so growing it makes that rule reject more legitimate
+# evidence; this module subtracts it to suppress generic joins, so growing it
+# is how this module gets better. One frozenset cannot serve both, and the
+# shared base is the one with the sharper downside - so the base stays as it
+# is and the growth happens here, where the only thing at risk is a chain
+# proposal.
+#
+# What belongs here: words that are generic to security-audit prose in any
+# target - the vocabulary of impact and attacker position rather than the
+# name of a mechanism. What does not: the nouns of whatever product is under
+# audit. `lock`, `flash`, `cloud` and `tapo` dominate the tplink corpus
+# because the target is a cloud-connected smart lock; on another target they
+# would carry real signal, and MIN_SHARED_TOKENS is what handles them.
+#
+# A compound identifier survives this list intact: `location_tokens` keeps
+# underscores, so `session_token` and `nvram_config` are single tokens and are
+# not suppressed by `session` or `config` being here.
+GENERIC_TOKENS = frozenset({
+    # Impact and severity vocabulary.
+    "bypass", "corruption", "destructive", "disclose", "disclosure",
+    "escalation", "impact", "leak", "leakage", "leaked", "leaks",
+    "privilege", "privileges", "persistence", "persistent", "surface",
+    # Position, trust and boundary vocabulary.
+    "boundary", "credential", "credentials", "identity", "internal",
+    "level", "peer", "physical", "secure", "security", "session",
+    "sessions", "trust", "trusted", "untrusted", "validation",
+    # Software-shape vocabulary: true of nearly every finding ever written.
+    "adjacent", "application", "applications", "behaviour", "behavior",
+    "bound", "bounded", "chain", "chains", "code", "component",
+    "components", "condition", "contents", "context", "feature", "fixed",
+    "function", "global", "implementation", "integrity", "interface",
+    "invalid", "layer", "logic", "memory", "message", "messages", "module",
+    "object", "offset", "operation", "payload", "process", "range",
+    "response", "responses", "routine", "size", "state", "store", "stored",
+    "string", "strings", "structure", "supplied", "table", "target", "task",
+    "version", "versions",
+    # English filler that reaches this far. It is not promoted into
+    # text.NOISE_WORDS because that set is also the identity rule's, and
+    # every word added there is a word an evidence string may no longer
+    # count on. Here the blast radius is one chain proposal.
+    "between", "drives", "entirely", "every", "fully", "later", "rest",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +98,16 @@ class Proposal:
     findings_scanned: int
     without_precondition: int
     truncated: bool
+    unexamined: int = 0
+    """Findings never examined as an enabler, because the cap stopped the scan.
+
+    `sweep.render` and `sweep.record` both apply honest-truncation discipline
+    - a truncated sweep is refused outright because it "does not know what it
+    did not see" - and this list used to say only "capped at 100". On the
+    pinned tplink run that hid the fact that 33 of 45 findings were never
+    looked at, which is the number a reader actually needs: a cross-group
+    chain is invisible here if its enabler sorts after the cap.
+    """
 
 
 def _significant(value: str) -> frozenset[str]:
@@ -49,8 +117,13 @@ def _significant(value: str) -> frozenset[str]:
     added because the bare token `tss` matched TssRSASecretKey and
     osal_tss_init and produced two false golden candidates. The same
     reasoning applies harder here: this runs over prose, not paths.
+
+    Two sets are subtracted, not one: the shared English-filler base, and
+    this module's own GENERIC_TOKENS. See that constant for why they are
+    separate.
     """
-    return frozenset(text.location_tokens(value) - text.NOISE_WORDS)
+    return frozenset(text.location_tokens(value)
+                     - text.NOISE_WORDS - GENERIC_TOKENS)
 
 
 def propose(con: sqlite3.Connection) -> Proposal:
@@ -81,10 +154,11 @@ def propose(con: sqlite3.Connection) -> Proposal:
 
     out: list[ChainCandidate] = []
     truncated = False
+    examined = 0
     for eid, egroup, impact, _ in findings:
-        if not impact:
-            continue
         for cid, cgroup, _, precondition in findings:
+            if not impact:
+                break
             if cid == eid or cgroup == egroup or not precondition:
                 continue
             shared = impact & precondition
@@ -95,10 +169,15 @@ def propose(con: sqlite3.Connection) -> Proposal:
                 break
             out.append(ChainCandidate(eid, cid, tuple(sorted(shared))))
         if truncated:
+            # This enabler's own list was cut short, so it does not count as
+            # examined either. Over-reporting what was looked at is the one
+            # direction this number must not fail in.
             break
+        examined += 1
 
     return Proposal(candidates=tuple(out), findings_scanned=len(findings),
-                    without_precondition=without, truncated=truncated)
+                    without_precondition=without, truncated=truncated,
+                    unexamined=len(findings) - examined)
 
 
 def compose(con: sqlite3.Connection, *, chain_id: str, finding_ids: str,
@@ -112,8 +191,15 @@ def compose(con: sqlite3.Connection, *, chain_id: str, finding_ids: str,
     connection can check that they resolve.
     """
     ids = [p.strip() for p in finding_ids.split(",") if p.strip()]
-    known = {r["id"] for r in db.rows(con, "cba_findings", columns=("id",))}
-    unknown = [i for i in ids if i not in known]
+    # Checked one id at a time, exactly as `pivot.record` checks its finding.
+    # Reading the whole id set instead inherits `db.rows`' 200-row clamp -
+    # with no ORDER BY, so *which* 200 is arbitrary - and on the 259-finding
+    # run that refused F259 with "names finding(s) that do not exist", a
+    # false statement about a row the user can see, and no workaround,
+    # because the clamp is `min(limit, MAX_ROWS)`.
+    unknown = [i for i in ids
+               if not db.rows(con, "cba_findings", where={"id": i},
+                              columns=("id",))]
     if unknown:
         raise db.DbError(
             f"chain {chain_id} names finding(s) that do not exist: "
@@ -132,9 +218,13 @@ def render(p: Proposal) -> str:
         out.append(f"  {c.enabler} -> {c.consumer}   shared: "
                    f"{', '.join(c.shared)}")
     if p.truncated:
-        out.append(f"  capped at {MAX_CANDIDATES}. The impact and "
-                   f"attacker-position text is too generic to join on as "
-                   f"written - narrow it before reading this list.")
+        out.append(f"  capped at {MAX_CANDIDATES}, so the scan STOPPED: "
+                   f"{p.unexamined} of {p.findings_scanned} finding(s) were "
+                   f"never examined as an enabler. A chain whose enabler is "
+                   f"among those is not in this list and nothing below says "
+                   f"so. The impact and attacker-position text is too generic "
+                   f"to join on as written - narrow it and run this again "
+                   f"before treating the list as complete.")
     if p.without_precondition:
         out.append(
             f"  {p.without_precondition} of {p.findings_scanned} finding(s) "

@@ -130,3 +130,88 @@ def test_dangling_renders_a_null_enabled_observation_as_unset_not_the_word_none(
         "VALUES (?, 'FALSE_POSITIVE', 'legacy raw-sql row')", ("G1-F1",))
     con.commit()
     assert pivot.dangling(con) == [("G1-F1", "(unset)")]
+
+
+def test_replace_keeps_the_columns_a_different_step_owns(tmp_path):
+    """CRITICAL. `INSERT OR REPLACE` deletes the whole row, and `pivot.record`
+    writes 6 of `cba_fp_verdicts`' 10 columns. The other four are written by
+    `workflows/fpcheck.md`, which assigns `final_id` by a raw UPDATE *after*
+    the verdicts exist -- so `pivot --replace` destroyed the report's finding
+    numbering, which exists nowhere else, at exit 0 with no warning and with
+    neither `status` nor `pivot --check` noticing.
+
+    The fix is in `db.put`, not here: every `--replace` caller has the hazard.
+    """
+    con = fresh(tmp_path)
+    pivot.record(con, finding_id="G1-F1", group_id="G1",
+                 mechanism="300-byte sliding-window flush",
+                 enables="the flush is reachable from the parser",
+                 reason="bounded by the window")
+    # fpcheck's own step, verbatim in shape: a raw UPDATE after the verdict.
+    con.execute("UPDATE cba_fp_verdicts SET final_id = 'F-3', "
+                "merged_into = 'G2-F9', final_severity = 'HIGH' "
+                "WHERE finding_id = 'G1-F1'")
+    con.commit()
+
+    pivot.record(con, finding_id="G1-F1", group_id="G1",
+                 mechanism="300-byte sliding-window flush, re-reviewed",
+                 enables="still reachable from the parser", replace=True)
+
+    row = db.rows(con, "cba_fp_verdicts", where={"finding_id": "G1-F1"})[0]
+    assert row["final_id"] == "F-3"
+    assert row["merged_into"] == "G2-F9"
+    assert row["final_severity"] == "HIGH"
+    # The caller's own columns still win.
+    assert row["refuting_mechanism"].endswith("re-reviewed")
+    # And a column the caller dropped from a row it had previously written
+    # keeps its stored value too, rather than silently blanking.
+    assert row["reason"] == "bounded by the window"
+    con.close()
+
+
+def test_replace_keeps_the_timestamp_a_full_row_rewrite_would_reset(tmp_path):
+    """`cmd_chain` and `cmd_identify` pass every user-facing column, so the
+    only thing their `--replace` destroyed was `created_at`/`recorded_at` --
+    the record of when the row was first written. The merge fixes those too."""
+    con = fresh(tmp_path)
+    db.put(con, "cba_components", {
+        "path": "images/km0_boot_0C000020.elf", "kind": "binary",
+        "asserted_identity": "Realtek RTL8710 Wi-Fi driver image",
+        "identity_evidence": "contains 'rtl8710 wlan firmware' at 0x0C00A120"})
+    con.execute("UPDATE cba_components SET recorded_at = '2026-01-01 00:00:00'")
+    con.commit()
+    db.put(con, "cba_components", {
+        "path": "images/km0_boot_0C000020.elf", "kind": "binary",
+        "asserted_identity": "Realtek RTL8710 Wi-Fi driver image, v2",
+        "identity_evidence": "contains 'rtl8710 wlan firmware' at 0x0C00A120"},
+        replace=True)
+    row = db.rows(con, "cba_components")[0]
+    assert row["recorded_at"] == "2026-01-01 00:00:00"
+    assert row["asserted_identity"].endswith("v2")
+    con.close()
+
+
+def test_replace_of_a_row_that_is_not_there_is_still_an_insert(tmp_path):
+    """The merge must not turn `--replace` into "requires an existing row"."""
+    con = fresh(tmp_path)
+    db.put(con, "cba_fp_verdicts",
+           {"finding_id": "G1-F1", "verdict": "TRUE_POSITIVE"}, replace=True)
+    assert db.rows(con, "cba_fp_verdicts")[0]["verdict"] == "TRUE_POSITIVE"
+    con.close()
+
+
+def test_dangling_states_a_cap_like_every_other_read_path(tmp_path, monkeypatch):
+    """R1: the orchestrator reads rows, never raw material. This was the one
+    new read path that stated no bound at all."""
+    con = fresh(tmp_path)
+    for i in range(2, 8):
+        db.put(con, "cba_findings", {
+            "id": f"G1-F{i}", "group_id": "G1", "title": "t",
+            "severity": "HIGH", "confidence": "9", "location": "src/a.c:1",
+            "root_cause": "rc", "impact": "im"})
+        db.put(con, "cba_fp_verdicts", {
+            "finding_id": f"G1-F{i}", "verdict": "FALSE_POSITIVE",
+            "refuting_mechanism": "m", "enabled_observation": "9999"})
+    monkeypatch.setattr(db, "MAX_ROWS", 4)
+    assert len(pivot.dangling(con)) == 4
+    con.close()

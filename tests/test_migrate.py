@@ -29,105 +29,11 @@ CREATE TABLE IF NOT EXISTS cba_patterns (
 """
 
 # A full pre-Stage-3 baseline: every table TABLE_SPECS declares, each in the
-# form it had before this stage -- cba_fp_verdicts and cba_patterns without
-# the four columns this stage adds, and cba_components/cba_chains already in
-# their current (and only ever) form, since they ship complete and were
-# never migrated. Used to isolate the column half of the gate/remedy
-# contract from the table half Stage 2 already covers: every table is
-# present here, so connect()'s table check cannot be what passes or fails
-# the test that follows.
-FULL_PRE_STAGE3_SQL = STAGE2_SQL + """
-CREATE TABLE IF NOT EXISTS cba_sources (
-    id TEXT PRIMARY KEY, type TEXT NOT NULL, source_path TEXT, source_language TEXT,
-    source_file_count INTEGER, ida_binary TEXT, ida_port INTEGER, ida_arch TEXT,
-    confirmed_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_feature_groups (
-    id TEXT PRIMARY KEY, name TEXT, description TEXT, key_paths TEXT,
-    status TEXT DEFAULT 'pending', created_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_attack_surface (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT, endpoint TEXT, method TEXT,
-    auth_required TEXT, description TEXT);
-
-CREATE TABLE IF NOT EXISTS cba_security_observations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT, observation TEXT,
-    severity_hint TEXT, location TEXT);
-
-CREATE TABLE IF NOT EXISTS cba_known_findings (
-    id TEXT PRIMARY KEY, title TEXT, location TEXT, source TEXT,
-    patched_in TEXT, severity TEXT, raw TEXT);
-
-CREATE TABLE IF NOT EXISTS cba_findings (
-    id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    severity TEXT NOT NULL,
-    confidence INTEGER NOT NULL,
-    cwe TEXT,
-    location TEXT NOT NULL,
-    root_cause TEXT NOT NULL,
-    impact TEXT NOT NULL,
-    attacker_position TEXT,
-    boundary_crossed TEXT,
-    data_flow TEXT,
-    verified TEXT DEFAULT 'source-only',
-    poc TEXT,
-    remediation TEXT,
-    artifact_path TEXT,
-    created_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_inventory (
-    unit TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    group_id TEXT,
-    size INTEGER,
-    added_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_coverage (
-    unit TEXT NOT NULL,
-    phase TEXT NOT NULL,
-    state TEXT NOT NULL,
-    reason TEXT,
-    recorded_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (unit, phase));
-
-CREATE TABLE IF NOT EXISTS cba_pattern_hits (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pattern_id TEXT NOT NULL,
-    path TEXT NOT NULL,
-    line INTEGER NOT NULL,
-    excerpt TEXT,
-    triaged TEXT DEFAULT 'pending',
-    swept_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_checkpoints (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phase TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    turns INTEGER,
-    projected_context INTEGER,
-    resume_note TEXT,
-    recorded_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_components (
-    path TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,
-    asserted_identity TEXT NOT NULL,
-    identity_evidence TEXT NOT NULL,
-    confidence INTEGER,
-    version TEXT,
-    recorded_at TEXT DEFAULT (datetime('now')));
-
-CREATE TABLE IF NOT EXISTS cba_chains (
-    id TEXT PRIMARY KEY,
-    finding_ids TEXT NOT NULL,
-    attacker_position TEXT NOT NULL,
-    pre_auth TEXT,
-    completeness TEXT NOT NULL,
-    blocking_unknowns TEXT,
-    created_at TEXT DEFAULT (datetime('now')));
-"""
+# form it had before this stage. It lives in audit_core/ rather than here
+# because `audit.py selftest` runs the same check from the installed skill,
+# and install.sh copies audit_core/ but not tests/. Read its header before
+# editing it: the file is frozen on purpose.
+FULL_PRE_STAGE3_SQL = workspace.BASELINE_PATH.read_text()
 
 
 def columns(con, table):
@@ -250,3 +156,48 @@ def test_migrate_closes_every_column_gap_the_connect_gate_would_reject(tmp_path)
     con.close()
 
     db.connect(old).close()
+
+
+def test_selftest_catches_a_spec_column_that_has_no_migration(monkeypatch, capsys):
+    """IMPORTANT. `cmd_selftest` compared TABLE_SPECS to schema.sql and
+    nothing compared schema.sql to MIGRATIONS. The next stage that adds a
+    column inline to an already-shipped table and forgets MIGRATIONS passes
+    selftest, passes every test, and permanently bricks every existing run
+    directory -- connect() rejects it, `init` cannot repair it, and the
+    printed remedy is the thing that cannot help.
+
+    Emptying MIGRATIONS is that defect in its purest form: schema.sql and
+    TABLE_SPECS still agree, so checks 1 and 2 pass, and only the baseline
+    cross-check can see it.
+    """
+    import audit
+
+    monkeypatch.setattr(db, "MIGRATIONS", ())
+    assert audit.cmd_selftest(None) == 1
+    err = capsys.readouterr().err
+    assert "pre-Stage-3" in err
+    assert "db.MIGRATIONS" in err
+
+
+def test_selftest_passes_the_migration_cross_check_as_shipped(capsys):
+    import audit
+
+    assert audit.cmd_selftest(None) == 0
+    assert "migrations" in capsys.readouterr().out
+
+
+def test_the_frozen_baseline_is_not_a_second_copy_of_the_schema():
+    """It must stay behind schema.sql, or it cannot catch anything. The four
+    Stage 3 columns are absent from it by construction; if an edit ever
+    "fixed" it to match schema.sql, migrate() would have nothing to do and
+    the cross-check would pass vacuously."""
+    import sqlite3 as _sqlite3
+    con = _sqlite3.connect(":memory:")
+    con.executescript(workspace.BASELINE_PATH.read_text())
+    try:
+        for table, column, _type in db.MIGRATIONS:
+            assert column not in columns(con, table), (
+                f"{table}.{column} is already in the frozen baseline, so the "
+                f"selftest cross-check can no longer prove migrate() adds it")
+    finally:
+        con.close()
