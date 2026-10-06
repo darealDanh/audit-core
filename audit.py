@@ -162,7 +162,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     # idempotent, so a second call would always report an empty `migrated`,
     # even on a real upgrade, because the one real application already ran
     # inside init_run and this would just be re-checking a caught-up db.
-    run, result = workspace_mod._init_run_with_schema_result(
+    run, result = workspace_mod.init_run_with_schema(
         args.root, timestamp=args.timestamp)
     print(f"tables: {', '.join(result.tables)}")
     if result.migrated:

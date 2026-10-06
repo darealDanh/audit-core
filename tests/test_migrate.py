@@ -1,4 +1,3 @@
-import pathlib
 import sqlite3
 
 import pytest
@@ -29,9 +28,121 @@ CREATE TABLE IF NOT EXISTS cba_patterns (
     created_at TEXT DEFAULT (datetime('now')));
 """
 
+# A full pre-Stage-3 baseline: every table TABLE_SPECS declares, each in the
+# form it had before this stage -- cba_fp_verdicts and cba_patterns without
+# the four columns this stage adds, and cba_components/cba_chains already in
+# their current (and only ever) form, since they ship complete and were
+# never migrated. Used to isolate the column half of the gate/remedy
+# contract from the table half Stage 2 already covers: every table is
+# present here, so connect()'s table check cannot be what passes or fails
+# the test that follows.
+FULL_PRE_STAGE3_SQL = STAGE2_SQL + """
+CREATE TABLE IF NOT EXISTS cba_sources (
+    id TEXT PRIMARY KEY, type TEXT NOT NULL, source_path TEXT, source_language TEXT,
+    source_file_count INTEGER, ida_binary TEXT, ida_port INTEGER, ida_arch TEXT,
+    confirmed_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_feature_groups (
+    id TEXT PRIMARY KEY, name TEXT, description TEXT, key_paths TEXT,
+    status TEXT DEFAULT 'pending', created_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_attack_surface (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT, endpoint TEXT, method TEXT,
+    auth_required TEXT, description TEXT);
+
+CREATE TABLE IF NOT EXISTS cba_security_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT, observation TEXT,
+    severity_hint TEXT, location TEXT);
+
+CREATE TABLE IF NOT EXISTS cba_known_findings (
+    id TEXT PRIMARY KEY, title TEXT, location TEXT, source TEXT,
+    patched_in TEXT, severity TEXT, raw TEXT);
+
+CREATE TABLE IF NOT EXISTS cba_findings (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    confidence INTEGER NOT NULL,
+    cwe TEXT,
+    location TEXT NOT NULL,
+    root_cause TEXT NOT NULL,
+    impact TEXT NOT NULL,
+    attacker_position TEXT,
+    boundary_crossed TEXT,
+    data_flow TEXT,
+    verified TEXT DEFAULT 'source-only',
+    poc TEXT,
+    remediation TEXT,
+    artifact_path TEXT,
+    created_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_inventory (
+    unit TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    group_id TEXT,
+    size INTEGER,
+    added_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_coverage (
+    unit TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    state TEXT NOT NULL,
+    reason TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (unit, phase));
+
+CREATE TABLE IF NOT EXISTS cba_pattern_hits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    excerpt TEXT,
+    triaged TEXT DEFAULT 'pending',
+    swept_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_checkpoints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    turns INTEGER,
+    projected_context INTEGER,
+    resume_note TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_components (
+    path TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    asserted_identity TEXT NOT NULL,
+    identity_evidence TEXT NOT NULL,
+    confidence INTEGER,
+    version TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_chains (
+    id TEXT PRIMARY KEY,
+    finding_ids TEXT NOT NULL,
+    attacker_position TEXT NOT NULL,
+    pre_auth TEXT,
+    completeness TEXT NOT NULL,
+    blocking_unknowns TEXT,
+    created_at TEXT DEFAULT (datetime('now')));
+"""
+
 
 def columns(con, table):
     return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+
+
+def downgrade_cba_patterns(con):
+    """Rebuild cba_patterns without the Stage 3 columns, which is what a
+    pre-Stage-3 database holds."""
+    con.executescript(
+        "DROP TABLE cba_patterns;"
+        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
+        " notes TEXT, created_at TEXT);")
+    con.commit()
 
 
 def test_a_stage2_database_migrates_to_the_current_column_set(tmp_path):
@@ -50,6 +161,9 @@ def test_a_stage2_database_migrates_to_the_current_column_set(tmp_path):
         assert columns(con, table) >= set(db.TABLE_SPECS[table].columns)
     # The row an upgrading user already had is still there.
     assert con.execute("SELECT COUNT(*) FROM cba_fp_verdicts").fetchone()[0] == 1
+    # Idempotent: a second call against the database it just migrated adds
+    # nothing more.
+    assert db.migrate(con) == []
     con.close()
 
 
@@ -95,14 +209,7 @@ def test_connect_names_a_missing_column_and_gives_the_remedy(tmp_path):
     `sqlite3.OperationalError: no such column` from six verbs."""
     run = workspace.init_run(tmp_path, timestamp="20260105-120000")
     con = sqlite3.connect(run / "audit.db")
-    # Rebuild cba_patterns without the Stage 3 columns, which is what a
-    # pre-Stage-3 database holds.
-    con.executescript(
-        "DROP TABLE cba_patterns;"
-        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
-        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
-        " notes TEXT, created_at TEXT);")
-    con.commit()
+    downgrade_cba_patterns(con)
     con.close()
 
     with pytest.raises(db.DbError) as exc:
@@ -116,12 +223,30 @@ def test_connect_names_a_missing_column_and_gives_the_remedy(tmp_path):
 def test_connect_succeeds_once_the_missing_columns_are_migrated(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20260105-120000")
     con = sqlite3.connect(run / "audit.db")
-    con.executescript(
-        "DROP TABLE cba_patterns;"
-        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
-        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
-        " notes TEXT, created_at TEXT);")
-    con.commit()
+    downgrade_cba_patterns(con)
     db.migrate(con)
     con.close()
     db.connect(run / "audit.db").close()
+
+
+def test_migrate_closes_every_column_gap_the_connect_gate_would_reject(tmp_path):
+    """Review Focus 2: the gate must never reject a column migrate() cannot
+    repair. MIGRATIONS and TABLE_SPECS are built independently, and nothing
+    but this test keeps them in lockstep -- add a TABLE_SPECS column with no
+    MIGRATIONS entry, and connect() rejects every pre-Stage-3 database with
+    a remedy (`audit.py init --timestamp <ts>`) that runs clean, exits 0,
+    and repairs nothing; the user's only escape would be hand-editing
+    SQLite.
+
+    Every table TABLE_SPECS declares is present in FULL_PRE_STAGE3_SQL, so
+    connect()'s table check cannot be what makes this pass or fail -- only
+    the column check, and only migrate(), are under test here.
+    """
+    old = tmp_path / "old.db"
+    con = sqlite3.connect(old)
+    con.executescript(FULL_PRE_STAGE3_SQL)
+    con.commit()
+    db.migrate(con)
+    con.close()
+
+    db.connect(old).close()

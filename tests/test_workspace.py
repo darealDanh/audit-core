@@ -55,7 +55,20 @@ def test_timestamp_defaults_to_utc_now(tmp_path):
     assert len(run.name) == len("audit-20260105-120000")
 
 
+def downgrade_cba_patterns(con):
+    """Rebuild cba_patterns without the Stage 3 columns, which is what a
+    pre-Stage-3 database holds."""
+    con.executescript(
+        "DROP TABLE cba_patterns;"
+        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
+        " notes TEXT, created_at TEXT);")
+    con.commit()
+
+
 def test_cli_init_prints_the_run_directory(tmp_path):
+    """workflows/recon.md reads `AUDIT_DIR=$(audit.py init | tail -1)`. Any
+    line printed after the path silently sets AUDIT_DIR to that line."""
     r = subprocess.run(
         [sys.executable, str(ROOT / "audit.py"), "init",
          "--root", str(tmp_path), "--timestamp", "20260105-120000"],
@@ -66,27 +79,10 @@ def test_cli_init_prints_the_run_directory(tmp_path):
         tmp_path / "reports" / "audit-20260105-120000")
 
 
-def test_init_prints_the_run_directory_as_its_last_stdout_line(tmp_path):
-    """workflows/recon.md reads `AUDIT_DIR=$(audit.py init | tail -1)`. Any
-    line printed after the path silently sets AUDIT_DIR to that line."""
-    r = subprocess.run(
-        [sys.executable, str(ROOT / "audit.py"), "init",
-         "--root", str(tmp_path), "--timestamp", "20260105-120000"],
-        capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    last = r.stdout.strip().splitlines()[-1]
-    assert pathlib.Path(last) == tmp_path / "reports" / "audit-20260105-120000"
-
-
 def test_init_against_an_older_database_reports_what_it_migrated(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20260105-120000")
     con = sqlite3.connect(run / "audit.db")
-    con.executescript(
-        "DROP TABLE cba_patterns;"
-        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
-        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
-        " notes TEXT, created_at TEXT);")
-    con.commit()
+    downgrade_cba_patterns(con)
     con.close()
     r = subprocess.run(
         [sys.executable, str(ROOT / "audit.py"), "init",

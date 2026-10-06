@@ -45,11 +45,11 @@ def apply_schema(db_path: str | pathlib.Path) -> SchemaResult:
 def init_run(root: str | pathlib.Path,
              timestamp: str | None = None) -> pathlib.Path:
     """Create reports/audit-<ts>/ under root, with its subdirs and audit.db."""
-    run, _ = _init_run_with_schema_result(root, timestamp)
+    run, _ = init_run_with_schema(root, timestamp)
     return run
 
 
-def _init_run_with_schema_result(
+def init_run_with_schema(
         root: str | pathlib.Path,
         timestamp: str | None = None) -> tuple[pathlib.Path, SchemaResult]:
     """`init_run`'s own body, plus the `SchemaResult` it would otherwise
@@ -59,7 +59,9 @@ def _init_run_with_schema_result(
     second time to recover a report for the CLI would always see a database
     already caught up, and `migrated` would read empty even on a real
     upgrade. So `init_run` and `cmd_init` share this one application instead
-    of each calling `apply_schema` on their own.
+    of each calling `apply_schema` on their own. Public because `audit.py`
+    calls it directly: it is part of the CLI's contract, not a workspace-
+    internal detail.
     """
     if timestamp is None:
         timestamp = datetime.datetime.now(datetime.timezone.utc).strftime(
