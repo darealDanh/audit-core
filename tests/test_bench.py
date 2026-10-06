@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from audit_core import bench, goldens
+from audit_core import bench, db, goldens, workspace
 
 R1 = goldens.Reference("REF-1", "overflow in handshake", "CWE-787",
                        ("sub_E0941B4",), "klap-handshake0-unbounded-copy", "CRITICAL")
@@ -204,3 +204,62 @@ def test_rejected_and_cost_usd_are_keyword_only(tmp_path):
         bench.score([R1], [F1], {"REF-1": "F-1"}, frozenset(), 50.0)
     assert bench.score([R1], [F1], {"REF-1": "F-1"},
                        cost_usd=50.0).cost_per_match == 50.0
+
+
+def verdicts(tmp_path, pairs):
+    run = workspace.init_run(tmp_path, timestamp="20260105-120000")
+    con = db.connect(run / "audit.db")
+    for fid, verdict in pairs:
+        row = {"finding_id": fid, "verdict": verdict}
+        if verdict == "FALSE_POSITIVE":
+            row["refuting_mechanism"] = "bounded by the window"
+            row["enabled_observation"] = "1"
+        db.put(con, "cba_fp_verdicts", row)
+    con.close()
+    return run / "audit.db"
+
+
+def test_precision_counts_decided_verdicts_only(tmp_path):
+    con = verdicts(tmp_path, [
+        ("G1-F1", "TRUE_POSITIVE"), ("G1-F2", "TRUE_POSITIVE"),
+        ("G1-F3", "FALSE_POSITIVE"), ("G1-F4", "DUPLICATE"),
+        ("G1-F5", "NEEDS_VERIFICATION"),
+    ])
+    p = bench.precision_from_db(con)
+    assert p.true_positives == 2
+    assert p.false_positives == 1
+    assert p.duplicates == 1
+    assert p.needs_verification == 1
+    assert p.decided == 3
+    assert p.fraction == pytest.approx(2 / 3)
+
+
+def test_precision_is_none_when_nothing_is_decided(tmp_path):
+    """A run with only duplicates and undecided findings has no precision to
+    report. Returning 0.0 would read as "everything was a false positive"."""
+    p = bench.precision_from_db(verdicts(tmp_path, [
+        ("G1-F1", "DUPLICATE"), ("G1-F2", "NEEDS_VERIFICATION")]))
+    assert p.decided == 0
+    assert p.fraction is None
+
+
+def test_precision_from_a_database_with_no_verdicts_table_is_none(tmp_path):
+    """bench deliberately opens a run database without db.connect()'s schema
+    gate, so it keeps working against run directories older than the current
+    schema. Those have no cba_fp_verdicts, and bench must still score recall
+    on them rather than traceback."""
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        "CREATE TABLE cba_findings (id TEXT PRIMARY KEY, title TEXT, "
+        "cwe TEXT, location TEXT, severity TEXT);")
+    con.commit()
+    con.close()
+    assert bench.precision_from_db(path) is None
+
+
+def test_score_carries_precision_through(tmp_path):
+    p = bench.Precision(true_positives=3, false_positives=1,
+                        duplicates=0, needs_verification=0)
+    result = bench.score([], [], {}, precision=p)
+    assert result.precision is p

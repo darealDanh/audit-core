@@ -48,3 +48,26 @@ def test_bench_json_output(tmp_path):
 def test_bench_missing_golden_exits_one(tmp_path):
     r = run("bench", "--golden", str(tmp_path / "nope"), "--db", str(make_db(tmp_path)))
     assert r.returncode == 1
+
+
+def test_bench_says_precision_is_not_scored_without_a_verdicts_table(tmp_path):
+    r = run("bench", "--golden", str(make_golden(tmp_path)),
+            "--db", str(make_db(tmp_path)))
+    assert r.returncode == 0, r.stderr
+    assert "precision  not scored" in r.stdout
+    assert "cba_fp_verdicts" in r.stdout
+
+
+def test_bench_prints_precision_and_its_caveat(tmp_path):
+    db = make_db(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cba_fp_verdicts (finding_id TEXT PRIMARY KEY, "
+                "verdict TEXT NOT NULL)")
+    con.executemany("INSERT INTO cba_fp_verdicts VALUES (?, ?)",
+                    [("F-1", "TRUE_POSITIVE"), ("F-2", "TRUE_POSITIVE"),
+                     ("F-3", "FALSE_POSITIVE")])
+    con.commit(); con.close()
+    r = run("bench", "--golden", str(make_golden(tmp_path)), "--db", str(db))
+    assert r.returncode == 0, r.stderr
+    assert "precision  2/3 (66.7%)" in r.stdout
+    assert "comparable only" in r.stdout

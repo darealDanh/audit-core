@@ -136,8 +136,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
     adjudicated = goldens_mod.load_matches(golden / "matches.json")
     rejected = goldens_mod.load_rejections(golden / "rejections.json")
     findings = bench_mod.load_findings_from_db(db)
+    precision = bench_mod.precision_from_db(db)
     result = bench_mod.score(refs, findings, adjudicated,
-                             rejected=rejected, cost_usd=args.cost)
+                             rejected=rejected, cost_usd=args.cost,
+                             precision=precision)
 
     if args.json:
         print(json.dumps(dataclasses.asdict(result), indent=2))
@@ -147,6 +149,18 @@ def cmd_bench(args: argparse.Namespace) -> int:
     print(f"recall   {len(result.matched)}/{result.reference_count} "
           f"({100 * result.recall:.1f}%)")
     print(f"findings {result.finding_count}")
+    if result.precision is None:
+        print("precision  not scored (this run has no cba_fp_verdicts table)")
+    elif result.precision.fraction is None:
+        print(f"precision  not scored ({result.precision.duplicates} duplicate(s), "
+              f"{result.precision.needs_verification} undecided, 0 decided)")
+    else:
+        p = result.precision
+        print(f"precision  {p.true_positives}/{p.decided} "
+              f"({100 * p.fraction:.1f}%)  "
+              f"[+{p.duplicates} dup, {p.needs_verification} undecided]")
+        print("           what this run's own FP-check kept; comparable only "
+              "against the same golden and pipeline")
     if result.cost_per_match is not None:
         print(f"cost per matched finding  ${result.cost_per_match:.2f}")
     if result.unmatched_references:
