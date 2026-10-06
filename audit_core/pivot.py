@@ -80,7 +80,7 @@ def dangling(con: sqlite3.Connection) -> list[tuple[str, str]]:
     so it cannot check that the id exists. This is that check, run on demand
     rather than on every write.
     """
-    return [(r[0], str(r[1])) for r in con.execute(
+    return [(r[0], "(unset)" if r[1] is None else str(r[1])) for r in con.execute(
         "SELECT v.finding_id, v.enabled_observation FROM cba_fp_verdicts v "
         "LEFT JOIN cba_security_observations o "
         "  ON CAST(o.id AS TEXT) = CAST(v.enabled_observation AS TEXT) "

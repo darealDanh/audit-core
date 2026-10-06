@@ -117,3 +117,16 @@ def test_dangling_finds_a_verdict_whose_observation_was_deleted(tmp_path):
                 (p.observation_id,))
     con.commit()
     assert pivot.dangling(con) == [("G1-F1", str(p.observation_id))]
+
+
+def test_dangling_renders_a_null_enabled_observation_as_unset_not_the_word_none(tmp_path):
+    """A legacy FALSE_POSITIVE row written by raw SQL can have
+    enabled_observation IS NULL. str(None) would print the literal text
+    'None', which is ambiguous with a stored string "None" -- render it
+    distinguishably instead."""
+    con = fresh(tmp_path)
+    con.execute(
+        "INSERT INTO cba_fp_verdicts (finding_id, verdict, refuting_mechanism) "
+        "VALUES (?, 'FALSE_POSITIVE', 'legacy raw-sql row')", ("G1-F1",))
+    con.commit()
+    assert pivot.dangling(con) == [("G1-F1", "(unset)")]

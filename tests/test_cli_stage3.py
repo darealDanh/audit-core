@@ -1,4 +1,6 @@
+import json
 import pathlib
+import sqlite3
 import subprocess
 import sys
 
@@ -56,13 +58,41 @@ def test_put_rejects_a_bare_false_positive_and_points_at_pivot(tmp_path):
     assert "audit.py pivot" in r.stderr
 
 
-def test_pivot_check_reports_a_dangling_observation(tmp_path):
+def test_pivot_check_exits_zero_with_no_dangling_observations(tmp_path):
     db = seeded(tmp_path)
     assert run("pivot", "--db", db, "--finding", "G1-F1", "--group", "G1",
                "--mechanism", "m", "--enables", "e").returncode == 0
     r = run("pivot", "--db", db, "--check")
     assert r.returncode == 0, r.stderr
     assert "0 dangling" in r.stdout
+
+
+def test_pivot_check_exits_one_and_names_the_dangling_reference(tmp_path):
+    """A dead test here would pass even if cmd_pivot --check always
+    returned 0. This one makes a real dangling reference through the CLI,
+    by recording a pivot and then deleting the observation row it wrote,
+    and checks that --check both exits 1 and names the finding id and the
+    unresolvable observation id."""
+    db = seeded(tmp_path)
+    assert run("pivot", "--db", db, "--finding", "G1-F1", "--group", "G1",
+               "--mechanism", "m", "--enables", "e").returncode == 0
+
+    verdict_rows = run("rows", "--db", db, "--table", "cba_fp_verdicts",
+                       "--where", "finding_id=G1-F1", "--json")
+    assert verdict_rows.returncode == 0, verdict_rows.stderr
+    observation_id = json.loads(verdict_rows.stdout)[0]["enabled_observation"]
+
+    con = sqlite3.connect(db)
+    con.execute("DELETE FROM cba_security_observations WHERE id = ?",
+                (observation_id,))
+    con.commit()
+    con.close()
+
+    r = run("pivot", "--db", db, "--check")
+    assert r.returncode == 1
+    assert "G1-F1" in r.stdout
+    assert observation_id in r.stdout
+    assert "1 dangling" in r.stdout
 
 
 def test_pivot_on_an_unknown_finding_exits_one(tmp_path):
