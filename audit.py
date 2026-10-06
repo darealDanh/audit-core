@@ -30,6 +30,7 @@ from audit_core import sweep as sweep_mod  # noqa: E402
 from audit_core import pivot as pivot_mod  # noqa: E402
 from audit_core import patterns as patterns_mod  # noqa: E402
 from audit_core import identity as identity_mod  # noqa: E402
+from audit_core import chains as chains_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -358,6 +359,39 @@ def cmd_dedup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_chain(args: argparse.Namespace) -> int:
+    composing = bool(args.compose)
+    con = _open_db(args.db, read_only=not composing)
+    if con is None:
+        return 1
+    try:
+        if not composing:
+            proposal = chains_mod.propose(con)
+            if args.json:
+                print(json.dumps(dataclasses.asdict(proposal), indent=2))
+            else:
+                print(chains_mod.render(proposal))
+            return 0
+        for name in ("findings", "attacker_position", "completeness"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name.replace('_', '-')} is required with --compose",
+                      file=sys.stderr)
+                return 1
+        chains_mod.compose(
+            con, chain_id=args.compose, finding_ids=args.findings,
+            attacker_position=args.attacker_position,
+            completeness=args.completeness, pre_auth=args.pre_auth or "",
+            blocking_unknowns=args.blocking_unknowns or "",
+            replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"cba_chains: {args.compose} recorded ({args.findings})")
+    return 0
+
+
 def cmd_coverage(args: argparse.Namespace) -> int:
     con = _open_db(args.db, read_only=True)
     if con is None:
@@ -619,6 +653,7 @@ HANDLERS = {
     "rows": cmd_rows,
     "status": cmd_status,
     "dedup": cmd_dedup,
+    "chain": cmd_chain,
     "coverage": cmd_coverage,
     "extract": cmd_extract,
     "note": cmd_note,
@@ -688,6 +723,21 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("dedup", help="propose cross-group duplicate findings")
     dd.add_argument("--db", required=True, metavar="AUDIT_DB")
     dd.add_argument("--json", action="store_true")
+    ch = sub.add_parser("chain", help="propose cross-group finding pairs, or record a composed chain")
+    ch.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ch.add_argument("--compose", default=None, metavar="CHAIN_ID",
+                    help="record a chain instead of proposing")
+    ch.add_argument("--findings", default=None, metavar="ID,ID,...",
+                    help="two or more finding ids, in attack order")
+    ch.add_argument("--attacker-position", dest="attacker_position",
+                    default=None)
+    ch.add_argument("--completeness", default=None,
+                    choices=list(db_mod.CHAIN_COMPLETENESS))
+    ch.add_argument("--pre-auth", dest="pre_auth", default=None)
+    ch.add_argument("--blocking-unknowns", dest="blocking_unknowns",
+                    default=None)
+    ch.add_argument("--replace", action="store_true")
+    ch.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)

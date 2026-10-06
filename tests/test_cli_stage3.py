@@ -207,3 +207,51 @@ def test_identify_rejects_a_confidence_outside_the_range(tmp_path):
             "--confidence", "99")
     assert r.returncode == 1
     assert "1-10" in r.stderr
+
+
+def test_chain_proposes_across_groups(tmp_path):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_findings",
+               "--set", "id=G2-F1", "--set", "group_id=G2", "--set", "title=t",
+               "--set", "severity=HIGH", "--set", "confidence=9",
+               "--set", "location=src/b.c:1", "--set", "root_cause=rc",
+               "--set", "impact=im",
+               "--set", "attacker_position=needs session_token and nvram_config"
+               ).returncode == 0
+    assert run("put", "--db", db, "--table", "cba_findings",
+               "--set", "id=G3-F1", "--set", "group_id=G3", "--set", "title=t",
+               "--set", "severity=HIGH", "--set", "confidence=9",
+               "--set", "location=src/c.c:1", "--set", "root_cause=rc",
+               "--set", "impact=leaks session_token from the nvram_config blob"
+               ).returncode == 0
+    r = run("chain", "--db", db)
+    assert r.returncode == 0, r.stderr
+    assert "G3-F1 -> G2-F1" in r.stdout
+    assert "proposals" in r.stdout
+
+
+def test_chain_compose_records_and_rejects_an_unknown_finding(tmp_path):
+    db = seeded(tmp_path)
+    assert run("put", "--db", db, "--table", "cba_findings",
+               "--set", "id=G2-F1", "--set", "group_id=G2", "--set", "title=t",
+               "--set", "severity=HIGH", "--set", "confidence=9",
+               "--set", "location=src/b.c:1", "--set", "root_cause=rc",
+               "--set", "impact=im").returncode == 0
+    ok = run("chain", "--db", db, "--compose", "C1",
+             "--findings", "G1-F1,G2-F1",
+             "--attacker-position", "unauthenticated on the LAN",
+             "--completeness", "complete")
+    assert ok.returncode == 0, ok.stderr
+
+    bad = run("chain", "--db", db, "--compose", "C2",
+              "--findings", "G1-F1,G9-F9",
+              "--attacker-position", "LAN", "--completeness", "complete")
+    assert bad.returncode == 1
+    assert "G9-F9" in bad.stderr
+
+
+def test_chain_reports_findings_that_cannot_be_a_consumer(tmp_path):
+    db = seeded(tmp_path)
+    r = run("chain", "--db", db)
+    assert r.returncode == 0
+    assert "cannot be the consumer half" in r.stdout
