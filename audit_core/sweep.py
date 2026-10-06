@@ -27,22 +27,36 @@ MAX_HITS = 500
 MAX_FILE_BYTES = 2_000_000
 EXCERPT_CHARS = 160
 BINARY_SNIFF_BYTES = 8192
-# `reports` is the audit's own run directory, and it is here for the same
-# reason `build` is: it holds generated copies of files that are already in
-# the tree. `audit.py extract` writes verbatim source snapshots under
-# `reports/audit-<ts>/extract/`, and both `workflows/audit.md` and
-# `references/phase4-deep-audit.md` tell the orchestrator to sweep with
-# `--root .` from the project root. Reproduced on one real call site: two
-# recorded hits in the audit's own extract copies.
-#
-# Sweeping it inflates `hit_count` - a gate-document leading indicator - puts
-# non-source paths in the triage list, and on a real corpus pushes toward
-# MAX_HITS, which trips `record`'s truncation refusal, which makes
-# `patterns --gate` unclearable.
+# Skipped wherever they appear: a directory called `node_modules` or `.git` is
+# that thing at any depth.
 SKIP_DIRS = frozenset({
     ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv",
-    "dist", "build", "reports", ".mypy_cache", ".pytest_cache", ".tox",
+    "dist", "build", ".mypy_cache", ".pytest_cache", ".tox",
 })
+
+# Skipped ONLY as a direct child of the scanned root, because that is the one
+# place the name means what we want it to mean.
+#
+# `audit.py extract` writes verbatim source snapshots under
+# `<root>/reports/audit-<ts>/extract/`, and both `workflows/audit.md` and
+# `references/phase4-deep-audit.md` tell the orchestrator to sweep with
+# `--root .` from the project root. Scanning them inflates `hit_count` - a
+# gate-document leading indicator - puts non-source paths in the triage list,
+# and on a real corpus pushes toward MAX_HITS, which trips `record`'s
+# truncation refusal, which makes `patterns --gate` unclearable. Reproduced on
+# one real call site: two recorded hits, one of them the audit's own copy of
+# the other.
+#
+# It is NOT in SKIP_DIRS, and that distinction is the whole point. `_scan`
+# filters `dirnames` at every os.walk level, so putting it there excluded any
+# directory named `reports` at any depth - and `render` reports skipped files,
+# never skipped directories. On a project with an `app/reports/` or
+# `src/reports/` source tree that is a silent false negative in a
+# vulnerability scanner, with `patterns --gate` then reporting PASS over it:
+# the "gate that stops working without saying so" failure patterns.py warns
+# about, caused by the fix for a different one. Reproduced: `src/reports/
+# export.c` holding a real call site, never scanned, nothing said.
+ROOT_ONLY_SKIP_DIRS = frozenset({"reports"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +80,10 @@ def _scan(root: pathlib.Path, rx: re.Pattern[str],
           suffixes: Sequence[str] | None,
           counters: dict[str, int]) -> Iterator[Hit]:
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        skip = SKIP_DIRS
+        if pathlib.Path(dirpath) == root:
+            skip = SKIP_DIRS | ROOT_ONLY_SKIP_DIRS
+        dirnames[:] = sorted(d for d in dirnames if d not in skip)
         for name in sorted(filenames):
             path = pathlib.Path(dirpath) / name
             if path.is_symlink():

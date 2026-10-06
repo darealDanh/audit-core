@@ -202,7 +202,34 @@ def test_the_sweep_skips_the_audits_own_run_directory(tmp_path):
 
     result = sweep.run(tmp_path, r"strcpy\(")
     assert [h.path for h in result.hits] == ["src/a.c"]
-    assert "reports" in sweep.SKIP_DIRS
+    assert "reports" in sweep.ROOT_ONLY_SKIP_DIRS
+
+
+def test_a_nested_source_directory_called_reports_is_still_scanned(tmp_path):
+    """The other direction, and the breakage the first version of this fix
+    caused. `_scan` filters `dirnames` at every os.walk level, so putting
+    `reports` in SKIP_DIRS excluded any directory of that name at any depth --
+    and `render` reports skipped files, never skipped directories.
+
+    On a project with an `app/reports/` or `src/reports/` source tree that is
+    a silent false negative in a vulnerability scanner, and `patterns --gate`
+    then reports PASS over it. The target was the audit's own run directory,
+    which is a direct child of the scanned root; a source directory that
+    happens to share the name is not.
+    """
+    (tmp_path / "src" / "reports").mkdir(parents=True)
+    (tmp_path / "src" / "reports" / "export.c").write_text("strcpy(a, b);\n")
+    (tmp_path / "src" / "core").mkdir()
+    (tmp_path / "src" / "core" / "ok.c").write_text("strcpy(c, d);\n")
+    # And the run directory at the root is still excluded, in the same tree.
+    run_dir = tmp_path / "reports" / "audit-20260105-120000" / "extract"
+    run_dir.mkdir(parents=True)
+    (run_dir / "export.c").write_text("strcpy(a, b);\n")
+
+    result = sweep.run(tmp_path, r"strcpy\(")
+    assert sorted(h.path for h in result.hits) == [
+        "src/core/ok.c", "src/reports/export.c"]
+    assert "reports" not in sweep.SKIP_DIRS
 
 
 def test_max_hits_is_clamped_to_the_modules_own_cap(tmp_path):

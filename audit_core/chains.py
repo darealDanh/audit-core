@@ -31,7 +31,7 @@ MAX_CANDIDATES = 100
 # `lock` (37), `account` (32), `flash` (21) and `cloud` (20) - words that
 # appear in nearly every finding on a single-product corpus, so two of them
 # together is not evidence of a chain. At three, with the generic set below,
-# the same run proposes 29 pairs and never reaches the cap, so every finding
+# the same run proposes 24 pairs and never reaches the cap, so every finding
 # is examined as an enabler. A list nobody can read is a mechanism nobody
 # uses, and the cross-group chain this exists to find is invisible inside 311
 # proposals just as surely as inside none.

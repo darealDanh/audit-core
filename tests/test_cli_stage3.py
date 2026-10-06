@@ -285,7 +285,9 @@ def test_coverage_record_clears_the_phase_gate_from_a_file(tmp_path):
     r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
             "--state", "analyzed", "--from-file", str(listing))
     assert r.returncode == 0, r.stderr
-    assert "2 unit(s) recorded as analyzed" in r.stdout
+    # On stderr, like cmd_rows' row-count notice: stdout carries the report,
+    # and with --json it must stay parseable.
+    assert "2 unit(s) recorded as analyzed" in r.stderr
 
     r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
             "--state", "not_audited", "--reason", "vendored",
@@ -396,3 +398,17 @@ def test_chain_compose_refuses_json_instead_of_ignoring_it(tmp_path):
     assert r.returncode == 1
     assert "--json" in r.stderr
     assert "rows --table cba_chains" in r.stderr
+
+
+def test_coverage_record_json_is_parseable(tmp_path):
+    """The write confirmation went to stdout ahead of the payload, so piping
+    to a JSON parser failed -- the same defect `cmd_rows` already fixed by
+    putting its notice on stderr, and the one `chain --compose --json`
+    refuses outright."""
+    dbp = _inventoried(tmp_path, "src/a.c")
+    r = run("coverage", "--db", dbp, "--record", "--phase", "audit",
+            "--state", "analyzed", "--unit", "src/a.c", "--json")
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(r.stdout)
+    assert payload["analyzed"] == 1
+    assert "recorded as analyzed" in r.stderr

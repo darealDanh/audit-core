@@ -471,7 +471,10 @@ def cmd_coverage(args: argparse.Namespace) -> int:
                 con, units=units, phase=args.phase or "",
                 state=args.state or "", reason=args.reason or "",
                 replace=args.replace)
-            print(coverage_mod.render_record(written))
+            # On stderr, like cmd_rows' row-count notice and for the same
+            # reason: `--json` is read by a parser, and a human-readable line
+            # ahead of the payload makes the whole output invalid JSON.
+            print(coverage_mod.render_record(written), file=sys.stderr)
         r = coverage_mod.report(con, phase=args.phase)
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
