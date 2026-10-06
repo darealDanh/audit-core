@@ -29,6 +29,7 @@ from audit_core import ceiling as ceiling_mod  # noqa: E402
 from audit_core import sweep as sweep_mod  # noqa: E402
 from audit_core import pivot as pivot_mod  # noqa: E402
 from audit_core import patterns as patterns_mod  # noqa: E402
+from audit_core import identity as identity_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -578,6 +579,31 @@ def cmd_patterns(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_identify(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=not args.path)
+    if con is None:
+        return 1
+    try:
+        if not args.path:
+            print(identity_mod.render(db_mod.rows(con, "cba_components")))
+            return 0
+        for name in ("kind", "identity", "evidence"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name} is required with --path", file=sys.stderr)
+                return 1
+        identity_mod.record(
+            con, path=args.path, kind=args.kind, identity=args.identity,
+            evidence=args.evidence, confidence=args.confidence or "",
+            version=args.version or "", replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"cba_components: {args.path} recorded as {args.identity!r}")
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -600,6 +626,7 @@ HANDLERS = {
     "sweep": cmd_sweep,
     "pivot": cmd_pivot,
     "patterns": cmd_patterns,
+    "identify": cmd_identify,
 }
 
 
@@ -728,6 +755,18 @@ def build_parser() -> argparse.ArgumentParser:
     pt.add_argument("--gate", action="store_true",
                     help="exit 1 if any registered pattern has never been swept")
     pt.add_argument("--json", action="store_true")
+
+    idf = sub.add_parser("identify", help="assert what a component is, with evidence that is not its filename")
+    idf.add_argument("--db", required=True, metavar="AUDIT_DB")
+    idf.add_argument("--path", default=None,
+                     help="the component; omit to list what is recorded")
+    idf.add_argument("--kind", default=None, choices=list(db_mod.COMPONENT_KINDS))
+    idf.add_argument("--identity", default=None, help="what you say it is")
+    idf.add_argument("--evidence", default=None,
+                     help="what you read out of it that says so")
+    idf.add_argument("--confidence", default=None, metavar="1-10")
+    idf.add_argument("--version", default=None)
+    idf.add_argument("--replace", action="store_true")
     return p
 
 

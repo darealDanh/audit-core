@@ -174,3 +174,36 @@ def test_coverage_without_gate_still_exits_zero_on_a_gap(tmp_path):
     db = seeded(tmp_path)
     r = run("coverage", "--db", db)
     assert r.returncode == 0
+
+
+def test_identify_rejects_evidence_that_repeats_the_filename(tmp_path):
+    db = seeded(tmp_path)
+    r = run("identify", "--db", db, "--path", "images/km0_boot_0C000020.elf",
+            "--kind", "binary", "--identity", "bootloader",
+            "--evidence", "the file is named km0_boot_0C000020.elf")
+    assert r.returncode == 1
+    assert "km0_boot" in r.stderr
+
+
+def test_identify_records_and_lists(tmp_path):
+    db = seeded(tmp_path)
+    assert run("identify", "--db", db,
+               "--path", "images/km0_boot_0C000020.elf", "--kind", "binary",
+               "--identity", "Realtek RTL8710 Wi-Fi driver image",
+               "--evidence", "contains 'rtl8710 wlan firmware' at 0x0C00A120; "
+                             "imports wifi_hal_init",
+               "--confidence", "8").returncode == 0
+    r = run("identify", "--db", db)
+    assert r.returncode == 0, r.stderr
+    assert "Realtek RTL8710" in r.stdout
+    assert "evidence:" in r.stdout
+
+
+def test_identify_rejects_a_confidence_outside_the_range(tmp_path):
+    db = seeded(tmp_path)
+    r = run("identify", "--db", db, "--path", "a.bin", "--kind", "binary",
+            "--identity", "x",
+            "--evidence", "entropy 7.9 across the file, no ELF header present",
+            "--confidence", "99")
+    assert r.returncode == 1
+    assert "1-10" in r.stderr

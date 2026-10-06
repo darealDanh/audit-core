@@ -134,10 +134,49 @@ def _validate_verdict(row: dict[str, str]) -> None:
             f"records the observation and the verdict together.")
 
 
+MIN_EVIDENCE_CHARS = 20
+
+
+def check_identity_evidence(path: str, evidence: str) -> None:
+    """Raise unless `evidence` says something the path does not already say.
+
+    `text.location_tokens` lowercases, splits on non-identifier characters
+    and drops anything under four characters, so `src/osal/Tss.c` and
+    "found under SRC/OSAL as TSS dot C file" reduce to the same token set -
+    which is the point. What survives the subtraction, after also dropping
+    `text.NOISE_WORDS` (English filler that would otherwise let a circular
+    claim slip through dressed as a sentence), is the part of the claim that
+    came from looking at the thing.
+
+    Public, unlike the `_validate_*` functions beside it, because
+    audit_core.identity re-exports it: identity.py imports db, so the rule
+    cannot live there without a cycle, and a leading underscore on a name
+    another module is meant to call is a lie about its scope.
+    """
+    evidence = (evidence or "").strip()
+    if len(evidence) < MIN_EVIDENCE_CHARS:
+        raise DbError(
+            f"identity_evidence is {len(evidence)} characters; at least "
+            f"{MIN_EVIDENCE_CHARS} are needed. Name what you looked at: a "
+            f"string and its offset, an import, a header field, a build "
+            f"artifact.")
+    novel = (text.location_tokens(evidence) - text.location_tokens(path)
+             - text.NOISE_WORDS)
+    if not novel:
+        raise DbError(
+            f"identity_evidence for {path!r} only repeats its own path. A "
+            f"filename is an assertion by whoever named it, not evidence: "
+            f"km0_boot_0C000020.elf was treated as a bootloader for a whole "
+            f"run on exactly this reasoning and holds a Wi-Fi driver. Cite "
+            f"something you read out of the component itself.")
+
+
 def _validate_component(row: dict[str, str]) -> None:
     kind = row.get("kind")
     if kind not in COMPONENT_KINDS:
         raise DbError(f"kind={kind!r} is not one of {', '.join(COMPONENT_KINDS)}")
+    check_identity_evidence(str(row.get("path", "")),
+                            str(row.get("identity_evidence", "") or ""))
     raw = str(row.get("confidence", "") or "").strip()
     if not raw:
         return
