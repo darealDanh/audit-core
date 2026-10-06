@@ -346,6 +346,24 @@ def test_the_coverage_gate_is_invoked_at_a_phase_exit():
         (ROOT / "workflows" / "audit.md").read_text(encoding="utf-8")
 
 
+def test_no_phase_gate_sits_inside_a_presented_blockquote():
+    """A gate the orchestrator PRESENTS is a gate that never runs. Shipped
+    once inside the USER GATE's `>` block, the coverage gate ran in neither
+    mode: interactively the orchestrator showed the user the command instead
+    of executing it, and unattended `source` mode skips the USER GATE step
+    outright (source.md Step 2 overrides), so it never appeared at all.
+
+    `>` is the marker for text addressed to the user. Every `--gate`
+    invocation must sit in executable prose, as Step 6's patterns gate does."""
+    for name in ("audit.md", "recon.md", "fpcheck.md"):
+        for line in (ROOT / "workflows" / name).read_text(
+                encoding="utf-8").splitlines():
+            if "audit.py" in line and "--gate" in line:
+                assert not line.lstrip().startswith(">"), (
+                    f"{name} presents a gate instead of running it: "
+                    f"{line.strip()}")
+
+
 def test_the_pivot_rule_is_stated_as_unconditional():
     """It must not soften into "where applicable". The whole value is that it
     forces the question on every false positive."""

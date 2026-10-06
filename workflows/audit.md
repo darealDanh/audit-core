@@ -199,6 +199,21 @@ Rewrite the resume note ([../references/resume-note-template.md](../references/r
 - Live-PoC status (how many `verified='live-poc'` vs `'source-only'`)
 - Updated "Quirks to remember"
 
+Then record coverage for this phase and check it, the same way Step 6 checks
+the pattern gate:
+
+```bash
+python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit
+```
+
+**Run it — do not present it.** It exits non-zero on an empty inventory, on any
+unit skipped for budget, and on any inventoried unit with no coverage row. The
+`--phase audit` scope is load-bearing: unscoped, a unit recon ruled on and this
+phase never opened still counts as analyzed, so the gate reports 100% and
+passes on exactly the failure it exists to catch. A budget skip is answered by
+`audit.py checkpoint` and a restart, never by skipping. Answer every failure it
+names before presenting the gate below.
+
 ## Step 9 — USER GATE
 
 > _Automated `source` mode supersedes this gate — proceed straight to fpcheck without pausing (see [source.md](source.md))._
@@ -209,13 +224,8 @@ Present:
 >
 > Next: the **fpcheck** phase for static false-positive elimination (see SKILL.md for your client's phase syntax).
 >
-> Record coverage for this phase and check it:
->
->     python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit
->
-> It exits non-zero on an empty inventory, on any unit skipped for budget, and
-> on any inventoried unit with no coverage row. A budget skip is answered by
-> `audit.py checkpoint` and a restart, never by skipping.
+> Coverage for this phase: A of B inventoried units analyzed; the `--phase audit`
+> gate passed (or: failed on N units, each now answered — list them).
 >
 > Say **go fpcheck** to proceed.
 >
@@ -229,5 +239,5 @@ Present:
 - [ ] Patch-bypass intel from Step 2 has been probed (look for "probe these sites" items reflected in findings)
 - [ ] Resume note rewrites complete
 - [ ] `audit.py patterns --gate` exits 0 — every registered pattern has been swept
-- [ ] `audit.py coverage --gate` exits 0, or every failure it names has been answered
+- [ ] `audit.py coverage --gate --phase audit` exits 0, or every failure it names has been answered
 - [ ] `audit.py chain` has been run and its proposals read

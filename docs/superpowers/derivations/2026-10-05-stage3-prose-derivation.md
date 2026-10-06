@@ -22,7 +22,7 @@ edit*, against the tree at `e7d567e`.
 | R3 | `workflows/recon.md:150-156` (Quality Checks, five bullets) | Five existing checkboxes, ending `- [ ] Resume note exists and includes the must-investigate leads list` | **(inserted; nothing replaced)** Two checkboxes appended after the existing five: one for `cba_inventory` + `audit.py coverage` naming a denominator, one for a `cba_components` row whose evidence is not the filename | A quality-check list that does not mention the new obligations is a list that will be read as complete without them. **Nothing dropped** — all five existing bullets keep their exact text and order. |
 | R4 | `workflows/audit.md:134-136` (between the end of Step 5's body and the `## Step 6 — Update group status` heading) | Step 5 ends at line 134 (`3. Update the resume note's "Quirks to remember" …`); line 136 is `## Step 6 — Update group status` | **(inserted; nothing replaced)** A whole new `## Step 6 — Sweep confirmed patterns, and look for chains` section between them: the **Patterns** half (`put --table cba_patterns`, `sweep --record`, `patterns --gate`, the `strncpy(dst, src, strlen(src))` post-mortem) and the **Chains** half (`chain`, `chain --compose`, and the note about findings recording neither `attacker_position` nor `boundary_crossed`) | Tasks 3 and 6 built sweep/patterns and chain; nothing invoked either. Both are structurally impossible for a per-group subagent — it sees only its own group — so they must live in the orchestrator's own step. **Nothing dropped** — Step 5's body ends before the insertion point and Step 6's body begins after it. |
 | R5 | `workflows/audit.md:136`, `:142`, `:158` (three headings) | `## Step 6 — Update group status`, `## Step 7 — Summary + resume note rewrite`, `## Step 8 — USER GATE` | Heading text only, renumbered: `## Step 7 — Update group status`, `## Step 8 — Summary + resume note rewrite`, `## Step 9 — USER GATE` | R4 inserts a new Step 6, so the three that follow shift by one. **Mechanical edit of three heading lines only; the bodies are not touched.** Three lines removed from the diff's point of view, three added, same text but for the digit. **No English instruction dropped** — the only changed token on each line is the step number. (Dispatch Correction 3: the USER GATE is old Step 8 → **Step 9**; the brief's prose says "Step 8" in one place and is wrong.) |
-| R6 | `workflows/audit.md:168` (inside the USER GATE blockquote: `> Say **go fpcheck** to proceed.`) | That line, preceded by the "Next: the **fpcheck** phase …" line and followed by the manual-compact line | **(inserted; nothing replaced)** A blockquoted block immediately *before* line 168: `> Record coverage for this phase and check it:` / `>` / `>     python3 __SKILL_DIR__/audit.py coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit` / `>` / `> It exits non-zero on an empty inventory, on any unit skipped for budget, and on any inventoried unit with no coverage row. A budget skip is answered by `audit.py checkpoint` and a restart, never by skipping.` | Task 4 built the gate; no phase exit consults it. **Dispatch Correction 1 overrides the brief here:** the brief writes `--gate` unscoped, which counts a unit "analyzed" if *any* phase recorded it. Reproduced on a real db — one inventoried unit analyzed by recon and never opened by audit: `--gate` → `1/1 analyzed (100.0%) PASS exit 0`; `--gate --phase audit` → `0/1 FAIL exit 1`. The unscoped form passes on precisely the failure the gate exists to catch, so the shipped line is `--gate --phase audit`. **Nothing dropped** — every existing blockquote line survives in order. |
+| R6 | `workflows/audit.md`: end of Step 8 (the resume-note rewrite), and `:168` inside the USER GATE blockquote | Step 8 ends with the bullet `- Updated "Quirks to remember"`; the gate step's blockquote runs from "Deep audit complete…" to the manual-compact line | **(inserted; nothing replaced)** **(a)** In **executable prose** at the end of Step 8, before `## Step 9 — USER GATE`: "Then record coverage for this phase and check it, the same way Step 6 checks the pattern gate", a fenced `coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit`, and **"Run it — do not present it."** plus the empty-inventory / budget-skip / unrecorded-unit explanation and why `--phase audit` is load-bearing. **(b)** Inside the presented blockquote, a line that **reports the outcome** to the user ("Coverage for this phase: A of B inventoried units analyzed; the `--phase audit` gate passed (or: failed on N units, each now answered)"). | Task 4 built the gate; no phase exit consults it. Two things had to be right, and the brief and the dispatch each got one of them wrong. **Scope — Dispatch Correction 1, right:** the brief's unscoped `--gate` counts a unit analyzed if *any* phase recorded it. Reproduced on a real db — one inventoried unit analysed by recon, never opened by audit: `--gate` → `1/1 analyzed (100.0%) PASS exit 0`; `--gate --phase audit` → `0/1 FAIL exit 1`. **Placement — Dispatch Correction 1, wrong, caught in review:** it said to insert "before the 'Say go fpcheck' line", which put the invocation inside the `>` block the orchestrator **presents to the user**. There it ran in neither mode — interactively the orchestrator shows the user the command instead of executing it, and unattended `source` mode skips the whole USER GATE step (`source.md` Step 2's override list), so it never appeared. The gate is now executable prose, matching Step 6's patterns gate; the blockquote keeps a line reporting the result so the user still sees the outcome. `workflows/source.md` needs no override, confirmed against its Step 2 list. **Nothing dropped** — every pre-existing blockquote line survives in order. |
 | R7 | `workflows/audit.md:172-178` (Quality Checks, five bullets) | Five existing checkboxes, ending `- [ ] Resume note rewrites complete` | **(inserted; nothing replaced)** Three checkboxes appended: `patterns --gate` exits 0, `coverage --gate` exits 0 or every failure answered, `audit.py chain` has been run and its proposals read | Same reason as R3. **Nothing dropped** — notably `- [ ] Patch-bypass intel from Step 2 has been probed …`, the check Stage 1 lost once already, keeps its exact text and position. |
 | R8 | `workflows/fpcheck.md:73-75` (between the end of Step 4's body and the `## Step 5 — Sanity-check verdict completeness` heading) | Line 73 is Step 4's closing **IMPORTANT for this phase** paragraph; line 75 is `## Step 5 — Sanity-check verdict completeness` | **(inserted; nothing replaced)** A whole new `## Step 5 — The pivot rule` section between them: the `audit.py pivot` invocation, the "writes the observation and the verdict as one act" paragraph, the **unconditional** paragraph, the 300-byte sliding-window post-mortem, and `pivot --check` | Task 2 built `pivot`; nothing invoked it. The post-mortem: a finding was correctly refuted by a mechanism that is itself the attack surface for a reference-set CRITICAL, and the verdict schema recorded only the refutation. **Nothing dropped** — the **IMPORTANT for this phase** static-only paragraph (a conduct prohibition, the category Stage 1 lost once) is above the insertion point and untouched. |
 | R9 | `workflows/fpcheck.md:75`, `:85`, `:95`, `:105` (four headings) | `## Step 5 — Sanity-check verdict completeness`, `## Step 6 — Assign final IDs`, `## Step 7 — Resume-note rewrite + fork plan`, `## Step 8 — USER GATE` | Heading text only, renumbered to Steps 6, 7, 8, 9 | R8 inserts a new Step 5. **Mechanical edit of four heading lines only; the bodies are not touched.** No English instruction dropped — only the digit changes. |
@@ -91,8 +91,8 @@ reconciled away.
 | H10 | `references/phase5-fp-check.md` | `@@ -119,0 +135 @@` | +1 / -0 | **R12** sixth quality gate |
 | H11 | `workflows/audit.md` | `@@ -136 +136,45 @@` | +45 / -1 | **R4 + R5** new Step 6 section; the removed line is the old `## Step 6 — Update group status` heading, re-emitted at the end of the hunk as `## Step 7 — Update group status` |
 | H12 | `workflows/audit.md` | `@@ -142 +186 @@` | +1 / -1 | **R5** `## Step 7 — Summary + resume note rewrite` → `## Step 8 — …` |
-| H13 | `workflows/audit.md` | `@@ -158 +202 @@` | +1 / -1 | **R5** `## Step 8 — USER GATE` → `## Step 9 — USER GATE` |
-| H14 | `workflows/audit.md` | `@@ -167,0 +212,8 @@` | +8 / -0 | **R6** the phase-scoped coverage gate in the USER GATE blockquote |
+| H13 | `workflows/audit.md` | `@@ -158 +202,16 @@` | +16 / -1 | **R5 + R6(a)** the removed line is the old `## Step 8 — USER GATE` heading, re-emitted at the end of the hunk as `## Step 9 — USER GATE`; the other 15 added lines are the coverage gate in **executable prose** at the end of Step 8. Git merges the two because they abut. |
+| H14 | `workflows/audit.md` | `@@ -167,0 +227,3 @@` | +3 / -0 | **R6(b)** the line inside the presented blockquote that reports the gate's outcome to the user |
 | H15 | `workflows/audit.md` | `@@ -178,0 +231,3 @@` | +3 / -0 | **R7** three quality checks |
 | H16 | `workflows/fpcheck.md` | `@@ -75 +75,30 @@` | +30 / -1 | **R8 + R9** new Step 5 section; the removed line is the old `## Step 5 — Sanity-check verdict completeness` heading, re-emitted at the end of the hunk as `## Step 6 — …` |
 | H17 | `workflows/fpcheck.md` | `@@ -85 +114 @@` | +1 / -1 | **R9** `## Step 6 — Assign final IDs` → `## Step 7 — …` |
@@ -156,9 +156,57 @@ Counting note, repeated so it cannot be read past: the brief's
 
 | Source | Deviation | Why |
 |---|---|---|
-| Dispatch Correction 1 | `coverage … --gate --phase audit`, not `--gate`, in `workflows/audit.md` (R6) and in the guard test's asserted string (R23) | Reproduced on a real db before editing: one inventoried unit analyzed by recon, never opened by audit → `--gate` reports `1/1 analyzed (100.0%)` and **PASS, exit 0**; `--gate --phase audit` reports `0/1` and **FAIL, exit 1**. `_states()` in `audit_core/coverage.py` aggregates with `MAX(c.state='analyzed')` over all phases unless `--phase` narrows it, so the unscoped gate passes on precisely the failure it exists to catch. |
+| Dispatch Correction 1 | `coverage … --gate --phase audit`, not `--gate` (R6, and the guard test's asserted string) — **scope accepted; placement corrected in review** | Scope: reproduced on a real db before editing — one inventoried unit analyzed by recon, never opened by audit → `--gate` reports `1/1 analyzed (100.0%)` and **PASS, exit 0**; `--gate --phase audit` reports `0/1` and **FAIL, exit 1**. `_states()` in `audit_core/coverage.py` aggregates with `MAX(c.state='analyzed')` over all phases unless `--phase` narrows it, so the unscoped gate passes on precisely the failure it exists to catch. Placement: the correction also said to insert it "before the 'Say go fpcheck' line", which put it inside the presented `>` block, where it executes in neither mode. Corrected in fix round 1 — see §2.6. |
 | Dispatch Correction 2 | Essential Principles numbered **11-15**, not `N…N+4` | The list runs 1-10 and ends at `## Economics Contract`. The `11.`/`12.` further down belong to *Lessons Learned* and were not touched. |
 | Dispatch Correction 3 | Renumber targets fixed: audit.md 6→7, 7→8, 8→9 (the USER GATE is **Step 9**, not Step 8 as the brief's prose says); fpcheck.md 5→6, 6→7, 7→8, 8→9 | Verified against the tree before editing. |
 | Dispatch Correction 4 | Step 9 (`SKILL.md`) done before Step 10 (lint rules), and `lint-skill` run immediately after the `SKILL.md` edit | `SKILL.md` already carried `audit.py put --table cba_patterns` and no `audit.py sweep`, so the new rule would have fired on the shipped skill. The R20 rationalization row carrying `audit.py sweep --record` is what heals it. `lint-skill` was clean at that checkpoint and clean again with both rules live. |
 | **Mine, not in the dispatch** | R17: `references/briefs/audit-brief.md` says "sweeps every registered pattern corpus-wide **with `audit.py sweep`** before the phase exits"; the brief's wording omits the verb | `skill_lint._live_markdown` walks `references/` with `rglob`, so `references/briefs/` is in scope. With the brief's verbatim wording the file names `--table cba_patterns` and no `audit.py sweep`, and the new `pattern-registered-without-sweep` rule fires on the shipped skill. Verified as a counterfactual: substituting the brief's exact wording back in makes the rule fire. Naming the verb is truthful (the orchestrator's Step 6 does run `audit.py sweep`) and is the minimal fix. |
 | **Mine, not in the dispatch** | §2's removed-line count uses `grep -c '^-'` minus `grep -c '^--- '` instead of the brief's `grep -c '^-[^-]'` | The brief's command cannot see a removed markdown bullet, which is the one substantive removal in this diff. Reported as 7 by the brief's command, 8 correctly. |
+
+### 2.6 Fix round 1 — the coverage gate was presented, not executed
+
+Found in review, after the first commit (`765d3dd`). The invocation added by R6
+sat inside the USER GATE's `>` blockquote, which is the text the orchestrator
+**reads out to the user**, not the commands it runs. Consequences:
+
+- **Interactively:** the orchestrator shows the user the command instead of
+  running it.
+- **Unattended `source` mode:** `source.md` rule 1 auto-resolves gates and its
+  Step 2 override list says `**USER GATE:** **skip**`, so the whole step —
+  and with it the gate — never appears.
+
+So one of the five mechanisms this stage exists to add shipped **inert**. The
+contrast that identifies the right shape is Step 6's `audit.py patterns --gate`,
+which is executable prose outside any blockquote and was correct as written.
+
+**Applied:** the invocation and its explanation moved into executable prose at
+the end of Step 8, before `## Step 9 — USER GATE`, carrying an explicit
+**"Run it — do not present it."**; the blockquote keeps a line reporting the
+*outcome*; the quality-check bullet now names the scoped form
+`audit.py coverage --gate --phase audit`. The `--gate --phase audit` form is
+unchanged — Correction 1's scoping was right, only its placement was wrong.
+`workflows/source.md` needed no edit: its Step 2 overrides name only the brief
+vars, the live-instance hygiene bullet and the USER GATE skip, so a gate in
+executable prose runs unattended. Verified against that list rather than assumed.
+
+**Incremental diff vs `765d3dd`** (`workflows/audit.md` only): 3 hunks,
+8 removed lines — the 7 blockquote lines that held the misplaced invocation
+(their instruction text re-emitted verbatim in the executable block, which also
+gained the scoping rationale and the "do not present it" warning) and the
+quality-check bullet `- [ ] \`audit.py coverage --gate\` exits 0, or every
+failure it names has been answered`, replaced by the same bullet naming
+`--gate --phase audit`. Both removed groups are lines **this task added**, not
+pre-existing shipped prose. **English instructions lost: 0.**
+
+**Effect on the full-task reconciliation: none.** Against the pre-task base
+`e7d567e` the diff is still **23 hunks and 8 removed lines**, and the 8 are the
+same 8 listed in §2.2 — the moved block never existed at `e7d567e`, so
+relocating it within the task changes which hunk carries it, not what was taken
+out of the shipped prose. Re-verified with a pattern that can see removed
+markdown bullets (`grep -c '^-'` minus `grep -c '^--- '`), never
+`grep -c '^-[^-]'`.
+
+**New guard:** `test_no_phase_gate_sits_inside_a_presented_blockquote` fails any
+`audit.py … --gate` line in `workflows/audit.md`, `recon.md` or `fpcheck.md`
+whose first non-space character is `>`. Confirmed it fires on the exact shipped
+shape before accepting it as a guard.
