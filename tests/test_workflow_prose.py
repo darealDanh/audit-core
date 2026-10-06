@@ -354,14 +354,20 @@ def test_no_phase_gate_sits_inside_a_presented_blockquote():
     outright (source.md Step 2 overrides), so it never appeared at all.
 
     `>` is the marker for text addressed to the user. Every `--gate`
-    invocation must sit in executable prose, as Step 6's patterns gate does."""
-    for name in ("audit.md", "recon.md", "fpcheck.md"):
-        for line in (ROOT / "workflows" / name).read_text(
-                encoding="utf-8").splitlines():
+    invocation must sit in executable prose, as Step 6's patterns gate does.
+
+    Scoped to `live_markdown()` - every file an install ships - not to the
+    three workflows this stage happened to edit. The defect is one file over
+    from wherever the guard stops looking, and `workflows/report.md`,
+    `source.md`, `deploy.md`, `verify.md` and the references can all grow a
+    gate later."""
+    for path in live_markdown():
+        for n, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
             if "audit.py" in line and "--gate" in line:
                 assert not line.lstrip().startswith(">"), (
-                    f"{name} presents a gate instead of running it: "
-                    f"{line.strip()}")
+                    f"{path.relative_to(ROOT)}:{n} presents a gate instead of "
+                    f"running it: {line.strip()}")
 
 
 def test_the_pivot_rule_is_stated_as_unconditional():

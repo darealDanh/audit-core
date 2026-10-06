@@ -136,9 +136,15 @@ Counting note, repeated so it cannot be read past: the brief's
 
 ### 2.4 Checks that back the "zero lost" claim rather than asserting it
 
-- Twenty-one of twenty-three hunks are pure insertions (`-0`). Insertion cannot
-  drop an instruction; only H11, H12, H13, H16, H17, H18, H19 and H20 remove
-  anything, and all eight removals are itemised above.
+- **Fifteen** of twenty-three hunks are pure insertions (`-0`). Insertion cannot
+  drop an instruction; the other **eight** — H11, H12, H13, H16, H17, H18, H19
+  and H20 — remove one line each, and all eight removals are itemised in §2.2.
+  (23 − 8 = 15. An earlier draft of this bullet said "twenty-one", which
+  contradicted the eight hunks its own next clause names; corrected in fix
+  round 2 after the reviewer recounted. Recorded rather than quietly amended,
+  because a summary figure nobody rechecks is this artifact's stated failure
+  mode: the itemisation in §2.2 is the evidence, and this bullet is only its
+  index.)
 - Not one step *body* appears in the diff. The renumbering touched heading
   lines only, which is what makes D1-D7 verifiable by inspection of eight
   lines rather than by re-reading two workflows.
