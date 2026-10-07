@@ -175,7 +175,8 @@ def cmd_bench(args: argparse.Namespace) -> int:
                              precision=precision)
 
     if args.json:
-        print(json.dumps(dataclasses.asdict(result), indent=2))
+        payload = dataclasses.asdict(result) | {"weighted_recall": result.weighted_recall}
+        print(json.dumps(payload, indent=2))
         return 0
 
     print(f"golden   {golden.name}")
@@ -196,7 +197,8 @@ def cmd_bench(args: argparse.Namespace) -> int:
               "against the same golden and pipeline")
     if result.severity is not None:
         s = result.severity
-        print(f"severity   {s.agreed}/{len(result.matched)} agree  "
+        scored = s.agreed + s.under_rated + s.over_rated + s.unrankable
+        print(f"severity   {s.agreed}/{scored} agree  "
               f"[{s.under_rated} under-rated, {s.over_rated} over-rated, "
               f"{s.unrankable} unrankable]")
         if s.under_rated:
@@ -206,6 +208,11 @@ def cmd_bench(args: argparse.Namespace) -> int:
             if d.steps > 0:
                 print(f"             {d.reference_id} ~ {d.finding_id}: "
                       f"{d.reference_severity} filed as {d.finding_severity}")
+        for d in s.deltas:
+            if d.steps == 0:
+                print(f"             {d.reference_id} ~ {d.finding_id}: "
+                      f"unrankable ({d.reference_severity!r} vs "
+                      f"{d.finding_severity!r})")
     if result.weighted_recall is not None:
         print(f"weighted recall  {result.weighted_recall:.3f} "
               f"(severity-credited; the gate floor is written against "

@@ -87,3 +87,43 @@ def test_severity_comparison_is_case_and_space_insensitive():
     agreement = bench.severity_agreement(refs, findings, (("R1", "F1"),))
     assert agreement.agreed == 1
     assert agreement.unrankable == 0
+
+
+def test_over_rated_pair_is_counted_and_keeps_full_credit():
+    """Pins the sign convention directly: a finding rated ABOVE its reference
+    has negative steps, is not under-rated, and loses no credit."""
+    refs = [ref("R1", severity="MEDIUM")]
+    findings = [finding("F1", "CRITICAL")]
+    matched = (("R1", "F1"),)
+    agreement = bench.severity_agreement(refs, findings, matched)
+
+    assert agreement.over_rated == 1
+    assert agreement.under_rated == 0
+    assert agreement.worst_steps == 0
+    assert agreement.deltas[0].steps < 0
+
+    result = bench.BenchResult(
+        recall=1.0, matched=matched, unmatched_references=(), candidates=(),
+        reference_count=1, finding_count=1, cost_per_match=None,
+        severity=agreement)
+    assert result.weighted_recall == pytest.approx(1.0)
+
+
+def test_non_string_severity_is_unrankable_not_an_exception():
+    refs = [ref("R1", severity=3), ref("R2")]
+    findings = [finding("F1", "HIGH"), finding("F2", None)]
+    agreement = bench.severity_agreement(
+        refs, findings, (("R1", "F1"), ("R2", "F2")))
+    assert agreement.unrankable == 2
+    assert agreement.agreed == 0
+
+
+def test_unrankable_pairs_keep_full_weighted_credit():
+    refs = [ref("R1", severity="SEV-1")]
+    findings = [finding("F1", "CRITICAL")]
+    matched = (("R1", "F1"),)
+    result = bench.BenchResult(
+        recall=1.0, matched=matched, unmatched_references=(), candidates=(),
+        reference_count=1, finding_count=1, cost_per_match=None,
+        severity=bench.severity_agreement(refs, findings, matched))
+    assert result.weighted_recall == pytest.approx(1.0)

@@ -71,3 +71,27 @@ def test_bench_prints_precision_and_its_caveat(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "precision  2/3 (66.7%)" in r.stdout
     assert "comparable only" in r.stdout
+
+
+def test_bench_json_includes_weighted_recall_matching_the_human_figure(tmp_path):
+    g, db = make_golden(tmp_path), make_db(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE cba_findings SET severity='LOW'")
+    con.commit(); con.close()
+    payload = json.loads(run("bench", "--golden", str(g), "--db", str(db),
+                             "--json").stdout)
+    assert "weighted_recall" in payload
+    assert payload["weighted_recall"] == 0.25      # CRITICAL filed LOW, 1 ref
+    human = run("bench", "--golden", str(g), "--db", str(db)).stdout
+    assert f"weighted recall  {payload['weighted_recall']:.3f}" in human
+
+
+def test_bench_severity_line_denominator_and_unrankable_pairs_named(tmp_path):
+    g, db = make_golden(tmp_path), make_db(tmp_path)
+    (g / "matches.json").write_text(json.dumps({"REF-1": "F-1", "REF-9": "F-9"}))
+    con = sqlite3.connect(db)
+    con.execute("UPDATE cba_findings SET severity='weird'")
+    con.commit(); con.close()
+    out = run("bench", "--golden", str(g), "--db", str(db)).stdout
+    assert "severity   0/1 agree" in out      # 1 scored, not len(matched)
+    assert "REF-1 ~ F-1: unrankable ('CRITICAL' vs 'weird')" in out

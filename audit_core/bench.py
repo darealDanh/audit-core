@@ -79,8 +79,10 @@ def _rank(severity: str) -> int | None:
     does not know is a reason to report that fact, not to lose the whole
     run's score partway through computing it.
     """
+    if not isinstance(severity, str):
+        return None
     try:
-        return SEVERITIES.index((severity or "").strip().upper())
+        return SEVERITIES.index(severity.strip().upper())
     except ValueError:
         return None
 
@@ -153,6 +155,13 @@ class BenchResult:
         match was mis-rated". Emitted ALONGSIDE `recall`, never instead -
         the >= 9/19 floor and the >= 12/19 target are written against
         `recall`, and silently restating them is not this figure's job.
+
+        Unrankable pairs (a severity outside the ladder, or not a string)
+        KEEP full credit. Crediting them 0 would punish a run for a golden's
+        vocabulary problem, and excluding them from the divisor would break
+        comparability with `recall`, which shares `reference_count`. The
+        consequence: an unrankable pair can mask a real under-rating, which
+        is why both the count and the pairs themselves are printed.
         """
         if self.severity is None or not self.reference_count:
             return None
