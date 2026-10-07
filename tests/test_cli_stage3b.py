@@ -236,3 +236,61 @@ def test_rerate_json_on_a_database_without_findings_is_an_empty_list(tmp_path):
     p = run("rerate", "--db", str(db), "--json")
     assert p.returncode == 0, p.stderr
     assert json.loads(p.stdout) == []
+
+
+FIXTURE_SCORES = ROOT / "tests" / "fixtures" / "target-scores-sample.csv"
+EVIDENCE = "advisory ZYXEL-SA-2026-02 issued 2026-02-14 for this SKU"
+
+
+def test_qualify_go_exits_zero():
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "zyxel", "--model", "emg3525-t50b",
+            "--supported", "yes", "--support-evidence", EVIDENCE)
+    assert p.returncode == 0, p.stderr
+    assert "GO" in p.stdout
+    assert "NO-GO" not in p.stdout
+
+
+def test_qualify_nogo_exits_one():
+    """The gate property. `coverage --gate` and `patterns --gate` both return
+    1 on failure and audit.py uses no other codes, so this matches them
+    rather than inventing a third."""
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "tenda", "--model", "ac18",
+            "--supported", "yes", "--support-evidence", EVIDENCE)
+    assert p.returncode == 1
+    assert "NO-GO" in p.stdout
+    assert "strip-mined" in p.stdout
+
+
+def test_qualify_rejects_circular_support_evidence():
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "zyxel", "--model", "emg3525-t50b",
+            "--supported", "yes",
+            "--support-evidence", "Zyxel EMG3525-T50B is supported")
+    assert p.returncode == 1
+    assert "NO-GO" in p.stdout
+    assert "checkable" in p.stdout
+
+
+def test_qualify_json_parses_and_carries_the_verdict():
+    """The verdict must be machine-readable, because the exit code cannot
+    distinguish NO-GO from an error."""
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "draytek", "--model", "vigor3910",
+            "--supported", "yes", "--support-evidence", EVIDENCE, "--json")
+    assert p.returncode == 0, p.stderr
+    payload = json.loads(p.stdout)
+    assert payload["verdict"] == "GO"
+    assert payload["score"]["rce_cves"] == 49
+    assert [f["name"] for f in payload["filters"]] == [
+        "proven-bad", "low-slop", "supported"]
+
+
+def test_qualify_with_a_bad_scores_path_errors_cleanly(tmp_path):
+    p = run("qualify", "--scores", str(tmp_path / "nope.csv"),
+            "--vendor", "zyxel", "--model", "emg3525-t50b",
+            "--supported", "yes", "--support-evidence", EVIDENCE)
+    assert p.returncode == 1
+    assert "cannot read" in p.stderr
+    assert p.stdout.strip() == ""
