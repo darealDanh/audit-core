@@ -48,7 +48,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 22 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 23 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -176,6 +176,7 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 | `readings.py` | - | A measurement that can be a value, `absent` (no table) or `empty` (table, no rows) - never a silent `0`. |
 | `indicators.py` | - | The four deterministic leading indicators and their dated snapshots. |
 | `rerate.py` | - | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
+| `qualify.py` | - | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -189,7 +190,7 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 45 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-two verbs
+### The twenty-three verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -197,6 +198,7 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
+qualify                                             firmware target gate
 ```
 
 ### Stage 3's five quality mechanisms

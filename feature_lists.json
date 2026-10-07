@@ -57,11 +57,18 @@
       "summary": "Deterministic leading indicators (parent spec 6.1), severity agreement and coverage in bench, an advisory severity re-rating report, and the four defects Stages 0 and 1 parked. Ships while the benchmark gates are deferred on cost, because nothing in it changes what an audit records."
     },
     {
+      "id": "stage4a",
+      "name": "qualify - the hard GO/NO-GO gate",
+      "status": "shipped",
+      "gate": "none - no audit run; scores an existing CSV",
+      "summary": "The first vertical slice of firmware-audit. Scores one vendor|model against the hunting plan's three filters and refuses to start a pipeline on a target that cannot pay. Deterministic work against _intel/target-scores.csv, verifiable at zero audit cost."
+    },
+    {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. The asus golden exists to guard against overfitting to tplink."
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices because eleven phases is not one plan: the first slice (qualify) shipped as stage4a; the remaining ten firmware-audit phases follow in later slices. The asus golden exists to guard against overfitting to tplink."
     },
     {
       "id": "stage5",
@@ -654,6 +661,26 @@
         "tests/test_readings.py",
         "tests/test_indicators.py"
       ]
+    },
+    {
+      "id": "qualify-gate",
+      "name": "Firmware target qualification",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage4a",
+      "verbs": [
+        "qualify"
+      ],
+      "modules": [
+        "audit_core/qualify.py"
+      ],
+      "tests": [
+        "tests/test_qualify.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage4a-qualify-design.md"
+      ],
+      "notes": "Three filters, each failing closed. Filter 3 (still supported) is the binding one and has no data behind it, so it is asserted with evidence that must name something checkable - a date, a version or a host. db.check_identity_evidence alone was measured accepting 'Zyxel NWA50AX is supported', which is why the checkable-reference rule exists."
     }
   ],
   "open_items": [

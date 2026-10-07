@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** branch `stage3b/measurement-hardening` (forked from `3aaebb5` on `main`) · **Tests:** 569 ·
+**Last updated:** 2026-10-07 · **HEAD:** branch `stage3b/measurement-hardening` (forked from `3aaebb5` on `main`) · **Tests:** 615 ·
 **Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -22,7 +22,7 @@ every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
 **Stages 0, 1, 2 and 3 are merged to `main`; Stage 3b is complete on branch
-`stage3b/measurement-hardening`.** Stages 4 and 5 have not been started.
+`stage3b/measurement-hardening`.** Stage 4a (`qualify`) is the first slice of Stage 4; the rest of Stages 4 and 5 have not been started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -31,7 +31,8 @@ benchmark-gated before it ships.
 | 2 | Structural change (`audit_core`, R1, R3) | 15 | 45 files, +9,074 / −70 | **merged** (`1f11f64`) — gate NOT run |
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged to its branch** — gate none, no audit run |
-| 4 | `firmware-audit` + monorepo | — | — | not started |
+| 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** — gate *none — no audit run* |
+| 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -329,6 +330,23 @@ This is the spec's own path, not a deviation. §6.1, acknowledged limitations:
 the gate is blind rather than merely deferred — which makes building them the
 first task, not a nice-to-have. They read an existing `audit.db` and cost
 nothing per run.
+
+### Stage 4a - `qualify`, the first slice of `firmware-audit`
+
+Stage 4 is being built as **vertical slices**, because eleven phases is not one
+plan. `audit.py qualify` is the first: a hard GO/NO-GO gate that scores one
+`vendor|model` against `_intel/target-scores.csv` (1,716 models) and refuses to
+start a firmware audit on a target that cannot pay. It refuses three things,
+each failing closed: a **strip-mined** target (too much already found, by
+VulDB share), a target **without enough RCE-class CVEs**, and a target that is
+**not still supported**. Filter 3 has no data behind it, so it is asserted with
+evidence that must name something checkable (a date, a firmware version or a
+vendor host); `db.check_identity_evidence` alone was measured accepting
+`"Zyxel NWA50AX is supported"`, and 0 of 1,716 models can self-certify with
+`"<vendor> <model> is supported"`. On real data `draytek/vigor3910` is GO (49
+RCE CVEs at 0% VulDB) and `tenda/ac18` is NO-GO on `low-slop` (51 CVEs at 67%
+VulDB). Verbs 22 to 23; tests 574 to 615. No audit and no benchmark was run;
+the remaining ten phases follow in later slices.
 
 ## 8. Next steps, in the order they make sense
 

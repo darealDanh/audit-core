@@ -81,7 +81,7 @@ Expected:
 
 ```
 PASS  tests       569 passed
-PASS  selftest    verbs 22 declared / tables 15 in schema.sql, 14 under contract / migrations 4
+PASS  selftest    verbs 23 declared / tables 15 in schema.sql, 14 under contract / migrations 4
 PASS  lint        skill lint: clean
 PASS  eol         6 CRLF files, 116 LF
 PASS  manifest    34 features ... all paths and verbs resolve
@@ -143,6 +143,16 @@ carries the procedure *and the exact five-file diff*. It needs four audit
 runs, so it stays held under the standing instruction above. Two guard tests
 in `tests/test_skill_lint.py` fail deliberately if the diff is applied without
 running the gate — that is the point of them; do not "fix" them.
+
+### What exists of Stage 4
+
+Stage 4 is built as vertical slices. The first, **`audit.py qualify`**
+(`audit_core/qualify.py`, Stage 4a), is a GO/NO-GO gate that scores a
+`vendor|model` against `_intel/target-scores.csv` and refuses a target that is
+strip-mined, short of RCE CVEs, or not evidenced as still supported. It runs
+at zero audit cost (`draytek/vigor3910` GO, `tenda/ac18` NO-GO). The remaining
+ten `firmware-audit` phases do not exist yet. Stage 4a ran no benchmark and
+did not change §3.
 
 ### Plan Stage 4
 
