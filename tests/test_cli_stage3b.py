@@ -228,3 +228,11 @@ def test_snapshot_and_compare_carry_units(tmp_path):
     b.write_text(json.dumps(snap2))
     r = run("indicators", "--compare", str(a), str(b))
     assert "45.2%" in r.stdout and "38.1%" in r.stdout and "-7.1%" in r.stdout
+
+
+def test_rerate_json_on_a_database_without_findings_is_an_empty_list(tmp_path):
+    db = tmp_path / "audit.db"
+    sqlite3.connect(db).close()
+    p = run("rerate", "--db", str(db), "--json")
+    assert p.returncode == 0, p.stderr
+    assert json.loads(p.stdout) == []

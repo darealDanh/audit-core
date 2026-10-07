@@ -248,8 +248,11 @@ def cmd_rerate(args: argparse.Namespace) -> int:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
         if readings_mod.table_state(con, "cba_findings") == readings_mod.ABSENT:
-            print("rerate: cba_findings is not in this database; nothing to "
-                  "examine.")
+            if args.json:
+                print("[]")
+            else:
+                print("rerate: cba_findings is not in this database; "
+                      "nothing to examine.")
             return 0
         chains_absent = readings_mod.table_state(
             con, "cba_chains") == readings_mod.ABSENT
