@@ -264,3 +264,21 @@ def test_every_chain_generic_token_is_above_the_token_floor():
     for word in chains.GENERIC_TOKENS:
         assert len(word) >= text.MIN_LOCATION_TOKEN, word
         assert word == word.lower(), word
+
+
+def test_compose_replace_preserves_columns_the_caller_omitted(con):
+    """db.put already merges on replace, but compose always put the optional
+    columns in the dict (as ""), so the merge overwrote the stored values."""
+    finding(con, "G1-F1", "G1", impact="leaks session_token")
+    finding(con, "G2-F1", "G2", attacker_position="needs session_token")
+    chains.compose(con, chain_id="C1", finding_ids="G1-F1, G2-F1",
+                   attacker_position="unauthenticated on the LAN",
+                   completeness="complete", pre_auth="yes",
+                   blocking_unknowns="whether the jar is shared")
+    chains.compose(con, chain_id="C1", finding_ids="G1-F1, G2-F1",
+                   attacker_position="unauthenticated on the LAN",
+                   completeness="partial", replace=True)
+    row = db.rows(con, "cba_chains", where={"id": "C1"})[0]
+    assert row["blocking_unknowns"] == "whether the jar is shared"
+    assert row["pre_auth"] == "yes"
+    assert row["completeness"] == "partial"   # what was passed still applies

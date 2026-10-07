@@ -108,3 +108,24 @@ def test_chain_proposal_noise_never_leaks_into_the_identity_rule():
     assert "memory" in chains.GENERIC_TOKENS
     assert "memory" not in __import__(
         "audit_core.text", fromlist=["text"]).NOISE_WORDS
+
+
+def test_record_replace_preserves_columns_the_caller_omitted(con):
+    """record always put version and confidence in the row (as ""), so a
+    --replace that did not mention them blanked what was stored."""
+    identity.record(
+        con, path="images/km0_boot_0C000020.elf", kind="binary",
+        identity="Realtek RTL8710 Wi-Fi driver image",
+        evidence="contains 'rtl8710 wlan firmware' at 0x0C00A120; imports "
+                 "wifi_hal_init; no reset vector at offset 0",
+        confidence="8", version="1.0.11")
+    identity.record(
+        con, path="images/km0_boot_0C000020.elf", kind="binary",
+        identity="Realtek RTL8710 Wi-Fi driver image (revised)",
+        evidence="contains 'rtl8710 wlan firmware' at 0x0C00A120; imports "
+                 "wifi_hal_init; no reset vector at offset 0",
+        replace=True)
+    row = db.rows(con, "cba_components")[0]
+    assert row["version"] == "1.0.11"
+    assert row["confidence"] == 8
+    assert row["asserted_identity"].endswith("(revised)")
