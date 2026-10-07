@@ -228,3 +228,42 @@ def test_a_label_that_slugs_to_nothing_is_labelled(tmp_path):
     p = indicators.snapshot_path(tmp_path, "t", datetime.date(2026, 10, 7), label="//")
     assert p.name == "2026-10-07-t-labelled.json"
     assert p.parent == tmp_path / "docs" / "indicators"
+
+
+def test_compare_names_what_moved():
+    a = {"schema_version": 1, "target": "t", "phase": None, "indicators": {
+        "coverage": {"state": "present", "value": 94.0},
+        "surfaces": {"state": "present", "value": 197}}}
+    b = {"schema_version": 1, "target": "t", "phase": None, "indicators": {
+        "coverage": {"state": "present", "value": 72.0},
+        "surfaces": {"state": "present", "value": 197}}}
+    deltas = {d.name: d for d in indicators.compare(a, b)}
+    assert deltas["coverage"].moved == "-22.0"
+    assert deltas["surfaces"].moved == "unchanged"
+
+
+def test_an_indicator_missing_from_one_snapshot_is_not_comparable():
+    """Review Focus 4. The older snapshot was taken before this indicator
+    existed. Reporting `+2` against a key that was absent invents a
+    measurement; so does reporting `-2` the other way."""
+    a = {"indicators": {"surfaces": {"state": "present", "value": 5}}}
+    b = {"indicators": {"surfaces": {"state": "present", "value": 5},
+                        "sweep_hits": {"state": "present", "value": 2}}}
+    deltas = {d.name: d for d in indicators.compare(a, b)}
+    assert deltas["sweep_hits"].moved == "not comparable"
+    assert deltas["sweep_hits"].before == "not in snapshot"
+    assert deltas["surfaces"].moved == "unchanged"
+
+
+def test_a_value_against_an_absent_reading_is_not_comparable():
+    """Same rule, different cause: the table did not exist when the first
+    snapshot was taken. 72% is not `+72` from absent."""
+    a = {"indicators": {"coverage": {"state": "absent", "note": "no table"}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": 72.0}}}
+    assert indicators.compare(a, b)[0].moved == "not comparable"
+
+
+def test_absent_on_both_sides_is_unchanged():
+    a = {"indicators": {"coverage": {"state": "absent", "note": "no table"}}}
+    b = {"indicators": {"coverage": {"state": "absent", "note": "no table"}}}
+    assert indicators.compare(a, b)[0].moved == "unchanged"

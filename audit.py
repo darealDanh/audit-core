@@ -209,6 +209,25 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
 
 def cmd_indicators(args: argparse.Namespace) -> int:
+    if not args.compare and not args.db:
+        print("indicators needs --db PATH, or --compare A B", file=sys.stderr)
+        return 1
+
+    if args.compare:
+        a_path, b_path = (pathlib.Path(p).expanduser() for p in args.compare)
+        for p in (a_path, b_path):
+            if not p.is_file():
+                print(f"not found: {p}", file=sys.stderr)
+                return 1
+        a = json.loads(a_path.read_text())
+        b = json.loads(b_path.read_text())
+        deltas = indicators_mod.compare(a, b)
+        if args.json:
+            print(json.dumps([dataclasses.asdict(d) for d in deltas], indent=2))
+        else:
+            print(indicators_mod.render_compare(a_path.name, b_path.name, deltas))
+        return 0
+
     db = pathlib.Path(args.db).expanduser()
     if not db.is_file():
         print(f"not found: {db}", file=sys.stderr)
@@ -813,7 +832,8 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
-    ind.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ind.add_argument("--db", metavar="AUDIT_DB")
+    ind.add_argument("--compare", nargs=2, metavar=("SNAPSHOT_A", "SNAPSHOT_B"))
     ind.add_argument("--target", default=None,
                      help="name for this run in the snapshot; defaults to the "
                           "database's parent directory name")

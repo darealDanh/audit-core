@@ -189,3 +189,64 @@ def write_snapshot(path: str | pathlib.Path, ind: Indicators) -> pathlib.Path:
             f"pass --label <word> to write a second snapshot of the same "
             f"target on the same day.") from None
     return path
+
+
+@dataclass(frozen=True, slots=True)
+class Delta:
+    name: str
+    before: str
+    after: str
+    moved: str
+
+
+def _fmt(entry: dict) -> str:
+    if entry.get("state") == ABSENT:
+        return "absent"
+    return str(entry.get("value"))
+
+
+def compare(a: dict, b: dict) -> tuple[Delta, ...]:
+    """Diff two snapshots, indicator by indicator.
+
+    An indicator present in one snapshot and not the other is reported as
+    `not comparable`, never as a delta against zero: the older snapshot was
+    taken before that indicator existed, and inventing a movement from
+    nothing to something is a fabricated measurement. The same holds when
+    either side is `absent` - a value against a missing table is not a
+    difference anyone can interpret.
+    """
+    names = sorted(set(a.get("indicators", {})) | set(b.get("indicators", {})))
+    out: list[Delta] = []
+    for name in names:
+        ea = a.get("indicators", {}).get(name)
+        eb = b.get("indicators", {}).get(name)
+        if ea is None or eb is None:
+            out.append(Delta(name,
+                             _fmt(ea) if ea else "not in snapshot",
+                             _fmt(eb) if eb else "not in snapshot",
+                             "not comparable"))
+            continue
+        before, after = _fmt(ea), _fmt(eb)
+        if ea.get("state") == ABSENT or eb.get("state") == ABSENT:
+            moved = "unchanged" if before == after else "not comparable"
+        elif ea.get("value") == eb.get("value"):
+            moved = "unchanged"
+        else:
+            diff = eb["value"] - ea["value"]
+            diff_str = str(diff)
+            moved = f"+{diff_str}" if diff >= 0 else diff_str
+        out.append(Delta(name, before, after, moved))
+    return tuple(out)
+
+
+def render_compare(a_name: str, b_name: str,
+                   deltas: tuple[Delta, ...]) -> str:
+    out = [f"comparing {a_name} -> {b_name}",
+           f"  {'indicator':<18} {'before':>12} {'after':>12}   moved"]
+    for d in deltas:
+        out.append(f"  {d.name:<18} {d.before:>12} {d.after:>12}   {d.moved}")
+    if any(d.moved == "not comparable" for d in deltas):
+        out.append("")
+        out.append("  `not comparable` means one snapshot has no reading for "
+                   "that indicator, not that it did not move.")
+    return "\n".join(out)

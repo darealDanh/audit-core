@@ -96,3 +96,23 @@ def test_a_relative_db_path_still_names_the_target_from_its_directory(tmp_path):
     assert p.returncode == 0, p.stderr
     names = [f.name for f in (root / "docs" / "indicators").glob("*.json")]
     assert len(names) == 1 and names[0].endswith("-myrun.json"), names
+
+
+def test_cli_compare_two_snapshots(tmp_path):
+    a = tmp_path / "a.json"
+    b = tmp_path / "b.json"
+    a.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None,
+                             "indicators": {"surfaces": {"state": "present",
+                                                         "value": 10}}}))
+    b.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None,
+                             "indicators": {"surfaces": {"state": "present",
+                                                         "value": 14}}}))
+    p = run("indicators", "--compare", str(a), str(b))
+    assert p.returncode == 0, p.stderr
+    assert "+4" in p.stdout
+
+
+def test_indicators_without_db_or_compare_is_an_error():
+    p = run("indicators")
+    assert p.returncode == 1
+    assert "--compare" in p.stderr
