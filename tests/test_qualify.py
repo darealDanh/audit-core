@@ -124,3 +124,106 @@ def test_columns_in_different_order_are_refused(tmp_path):
     with pytest.raises(qualify.QualifyError) as exc:
         qualify.load_scores(reordered)
     assert "wrong order" in str(exc.value)
+
+
+# Task 2: The three filters
+
+
+def test_proven_bad_accepts_a_span_overlapping_2024_2025():
+    scores = qualify.load_scores(FIXTURE)
+    r = qualify.filter_proven_bad(scores[("zyxel", "emg3525-t50b")])
+    assert r.passed is True
+    assert r.name == "proven-bad"
+
+
+def test_low_slop_is_an_AND_not_a_cve_threshold():
+    """DrayTek Vigor3910 has 49 RCE CVEs - well over the 20 threshold - at 0%
+    VulDB, and the hunting plan lists it as Tier A ("hunt these"). A filter
+    that rejected it on CVE count alone would throw away the plan's second-
+    best target. Tenda AC18, 51 CVEs at 67%, is the one to reject."""
+    scores = qualify.load_scores(FIXTURE)
+    high_cve_low_slop = qualify.filter_low_slop(scores[("draytek", "vigor3910")])
+    assert high_cve_low_slop.passed is True
+
+    strip_mined = qualify.filter_low_slop(scores[("tenda", "ac18")])
+    assert strip_mined.passed is False
+    assert "strip-mined" in strip_mined.reason
+
+
+def test_proven_bad_rejects_a_span_entirely_after_the_window():
+    s = qualify.Score(vendor="x", model="y", rce_cves=5, slop_pct=0.0,
+                      max_cvss=9.8, first_pub="2026-01-02",
+                      last_pub="2026-09-30", top_source="psirt@x.z")
+    r = qualify.filter_proven_bad(s)
+    assert r.passed is False
+    assert "does not reach" in r.reason
+
+
+def test_support_evidence_must_point_at_something_checkable():
+    """The rule this filter exists for. `check_identity_evidence` ALONE
+    accepts "Zyxel NWA50AX is supported" - verified 2026-10-07 - because
+    `supported` counts as a novel token. A claim that restates its own
+    conclusion is not evidence."""
+    circular = qualify.filter_supported(
+        "zyxel", "nwa50ax", True, "Zyxel NWA50AX is supported")
+    assert circular.passed is False
+
+    checkable = qualify.filter_supported(
+        "zyxel", "nwa50ax", True,
+        "advisory ZYXEL-SA-2026-02 issued 2026-02-14 for this SKU")
+    assert checkable.passed is True
+
+
+def test_declaring_a_target_unsupported_needs_no_evidence():
+    """Review Focus 5. NO-GO is already the safe direction. Requiring good
+    evidence to decline would push an operator toward asserting `yes`, which
+    inverts the whole point of the filter."""
+    r = qualify.filter_supported("tenda", "ac18", False, "")
+    assert r.passed is False
+    assert "not supported" in r.reason
+
+
+def test_vague_support_claims_are_all_rejected():
+    for vague in ("supported, still shipping firmware",
+                  "the vendor says it is supported and current",
+                  "it is definitely still a current product line"):
+        r = qualify.filter_supported("zyxel", "nwa50ax", True, vague)
+        assert r.passed is False, f"accepted vague evidence: {vague!r}"
+
+
+def test_a_hostname_or_a_version_is_also_checkable():
+    for good in ("EoS listing at zyxel.com shows no end-of-support date",
+                 "firmware 5.21 released for this model, per the vendor"):
+        r = qualify.filter_supported("zyxel", "nwa50ax", True, good)
+        assert r.passed is True, f"rejected checkable evidence: {good!r}"
+
+
+GOOD_EVIDENCE = "advisory ZYXEL-SA-2026-02 issued 2026-02-14 for this SKU"
+
+
+def test_a_target_passing_all_three_filters_is_GO():
+    scores = qualify.load_scores(FIXTURE)
+    q = qualify.qualify(scores, "zyxel", "emg3525-t50b", True, GOOD_EVIDENCE)
+    assert q.verdict == qualify.GO
+    assert q.go is True
+    assert all(f.passed for f in q.filters)
+
+
+def test_one_failing_filter_is_enough_for_NOGO():
+    scores = qualify.load_scores(FIXTURE)
+    q = qualify.qualify(scores, "tenda", "ac18", True, GOOD_EVIDENCE)
+    assert q.verdict == qualify.NOGO
+    assert [f.name for f in q.filters if not f.passed] == ["low-slop"]
+
+
+def test_an_unknown_model_is_NOGO_with_a_reason_not_a_crash():
+    """Review Focus 1, end to end. Both data-backed filters report the same
+    cause, and the verdict is NO-GO rather than a default pass."""
+    scores = qualify.load_scores(FIXTURE)
+    q = qualify.qualify(scores, "zyxel", "no-such-model", True, GOOD_EVIDENCE)
+    assert q.verdict == qualify.NOGO
+    assert q.score is None
+    reasons = {f.name: f.reason for f in q.filters if not f.passed}
+    assert reasons["proven-bad"] == "not in the scored target set"
+    assert reasons["low-slop"] == "not in the scored target set"
+    assert "not in the scored target set" in qualify.render(q)

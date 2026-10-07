@@ -17,7 +17,10 @@ from __future__ import annotations
 import csv
 import math
 import pathlib
+import re
 from dataclasses import dataclass
+
+from audit_core import db
 
 
 class QualifyError(Exception):
@@ -130,3 +133,172 @@ def find(scores: dict[tuple[str, str], Score],
          vendor: str, model: str) -> Score | None:
     """Case-insensitive lookup. None when the model is not in the scored set."""
     return scores.get((vendor.strip().lower(), model.strip().lower()))
+
+
+GO = "GO"
+NOGO = "NO-GO"
+
+WINDOW_START = "2024-01-01"
+WINDOW_END = "2025-12-31"
+"""The pre-AI-slop CVE window, from the hunting plan's filter 1:
+"a real RCE CVE in 2024-2025 (not 2026; pre-AI-slop lineage)"."""
+
+MAX_CVES_WHEN_SLOPPY = 20
+MAX_SLOP_PCT = 50.0
+"""Tier C, verbatim: "Anything with >20 CVEs and >50% VulDB."
+
+BOTH conditions, which is the whole point. DrayTek has 49 RCE CVEs at 0% slop
+and is a Tier A target; a CVE-count threshold alone would reject it.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class FilterResult:
+    name: str
+    passed: bool
+    reason: str
+
+
+def filter_proven_bad(score: Score | None) -> FilterResult:
+    """Filter 1: the model's CVE span overlaps 2024-2025.
+
+    An interval-overlap test, not "first_pub is in 2024", because that is what
+    `first_pub` and `last_pub` can honestly support. A model whose CVEs run
+    2023 to 2025 has pre-slop lineage; one whose CVEs are all 2026 does not.
+    Dates are ISO-8601, so string comparison is date comparison.
+    """
+    if score is None:
+        return FilterResult("proven-bad", False,
+                            "not in the scored target set")
+    if score.rce_cves < 1:
+        return FilterResult("proven-bad", False, "no RCE CVEs on record")
+    overlaps = score.first_pub <= WINDOW_END and score.last_pub >= WINDOW_START
+    if not overlaps:
+        return FilterResult(
+            "proven-bad", False,
+            f"CVE span {score.first_pub}..{score.last_pub} does not reach "
+            f"{WINDOW_START}..{WINDOW_END}")
+    return FilterResult(
+        "proven-bad", True,
+        f"{score.rce_cves} RCE CVE(s), span {score.first_pub}..{score.last_pub}")
+
+
+def filter_low_slop(score: Score | None) -> FilterResult:
+    """Filter 2: not strip-mined by the CVE paper mills."""
+    if score is None:
+        return FilterResult("low-slop", False, "not in the scored target set")
+    if score.rce_cves > MAX_CVES_WHEN_SLOPPY and score.slop_pct > MAX_SLOP_PCT:
+        return FilterResult(
+            "low-slop", False,
+            f"{score.rce_cves} CVEs at {score.slop_pct:g}% VulDB - "
+            f"strip-mined (Tier C: >{MAX_CVES_WHEN_SLOPPY} CVEs AND "
+            f">{MAX_SLOP_PCT:g}% VulDB)")
+    return FilterResult(
+        "low-slop", True,
+        f"{score.rce_cves} CVEs at {score.slop_pct:g}% VulDB, top source "
+        f"{score.top_source or 'unknown'}")
+
+
+CHECKABLE = re.compile(
+    r"\b(?:19|20)\d{2}\b"                      # a four-digit year
+    r"|\b\d+\.\d+(?:\.\d+)*\b"                 # a dotted version
+    r"|\b[a-z0-9-]+\.(?:com|net|org|tw|io|cn)\b",  # a hostname
+    re.I)
+"""Evidence must point at something a reader can go and verify.
+
+`db.check_identity_evidence` alone is NOT sufficient here, and that was
+measured rather than assumed: on 2026-10-07 it ACCEPTED "Zyxel NWA50AX is
+supported", because `supported` is a token the subject's name does not
+contain. A support claim that restates its own conclusion passes a
+novel-token test and tells a later reader nothing.
+
+A year, a version or a hostname is not proof - it is a handle. It gives the
+reader of a GO decision somewhere to look.
+"""
+
+
+def filter_supported(vendor: str, model: str, supported: bool,
+                     evidence: str) -> FilterResult:
+    """Filter 3, the binding one, with no data behind it.
+
+    Two checks, because the first alone lets a circular claim through:
+    `db.check_identity_evidence` for the length and novel-token floor already
+    used by `audit.py identify`, then `CHECKABLE` for a verifiable handle.
+
+    Declining needs no evidence. An operator who says the SKU is NOT supported
+    has already reached the safe answer, and demanding justification for it
+    would push people toward asserting `yes`.
+    """
+    if not supported:
+        return FilterResult("supported", False,
+                            "operator declared the SKU not supported")
+
+    subject = f"{vendor}/{model}"
+    try:
+        db.check_identity_evidence(subject, evidence or "")
+    except db.DbError as exc:
+        return FilterResult("supported", False, str(exc))
+
+    if not CHECKABLE.search(evidence):
+        return FilterResult(
+            "supported", False,
+            "evidence names nothing checkable - cite a date, a firmware "
+            "version, or a vendor host, so a later reader can verify this "
+            "GO rather than trust it")
+    return FilterResult("supported", True, evidence.strip())
+
+
+@dataclass(frozen=True, slots=True)
+class Qualification:
+    vendor: str
+    model: str
+    score: Score | None
+    filters: tuple[FilterResult, ...]
+    verdict: str
+
+    @property
+    def go(self) -> bool:
+        return self.verdict == GO
+
+
+def qualify(scores: dict[tuple[str, str], Score], vendor: str, model: str,
+            supported: bool, evidence: str) -> Qualification:
+    """All three filters. GO only when every one passes."""
+    score = find(scores, vendor, model)
+    filters = (
+        filter_proven_bad(score),
+        filter_low_slop(score),
+        filter_supported(vendor, model, supported, evidence),
+    )
+    verdict = GO if all(f.passed for f in filters) else NOGO
+    return Qualification(vendor=vendor, model=model, score=score,
+                         filters=filters, verdict=verdict)
+
+
+def render(q: Qualification) -> str:
+    out = [f"qualify {q.vendor}/{q.model}: {q.verdict}"]
+    if q.score is None:
+        out.append("  (not in the scored target set)")
+    for f in q.filters:
+        mark = "pass" if f.passed else "FAIL"
+        out.append(f"  {mark}  {f.name:<12} {f.reason}")
+    if not q.go:
+        out.append("")
+        out.append("  NO-GO. An EOL or strip-mined SKU pays zero and costs "
+                   "thousands of tokens; this gate exists to say so before "
+                   "the pipeline starts.")
+    return "\n".join(out)
+
+
+def to_json(q: Qualification) -> dict:
+    return {
+        "vendor": q.vendor,
+        "model": q.model,
+        "verdict": q.verdict,
+        "filters": [{"name": f.name, "passed": f.passed, "reason": f.reason}
+                    for f in q.filters],
+        "score": None if q.score is None else {
+            "rce_cves": q.score.rce_cves, "slop_pct": q.score.slop_pct,
+            "max_cvss": q.score.max_cvss, "first_pub": q.score.first_pub,
+            "last_pub": q.score.last_pub, "top_source": q.score.top_source},
+    }
