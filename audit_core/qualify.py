@@ -254,11 +254,11 @@ def filter_supported(vendor: str, model: str, supported: bool,
     # and irrelevant handles from passing.
     stripped = evidence
 
-    # Remove vendor and model names (case-insensitive), but only as standalone
-    # words. Use negative lookahead/lookbehind to avoid removing them when
-    # preceded/followed by dots or other word chars (e.g., "zyxel" in "zyxel.com").
-    stripped = re.sub(rf"(?<![.\w])\b{re.escape(vendor)}\b(?![.\w])", "", stripped, flags=re.I)
-    stripped = re.sub(rf"(?<![.\w])\b{re.escape(model)}\b(?![.\w])", "", stripped, flags=re.I)
+    # Remove vendor and model names (case-insensitive) when they are NOT
+    # immediately followed by a dot (to avoid breaking domain names like
+    # zyxel.com). This handles models ending in non-word chars like ).
+    stripped = re.sub(rf"{re.escape(vendor)}(?![\w.])", "", stripped, flags=re.I)
+    stripped = re.sub(rf"{re.escape(model)}(?![\w.])", "", stripped, flags=re.I)
 
     # Remove non-support patterns: CVSS scores, CVE IDs, scoring patterns
     stripped = re.sub(r"cvss\s*v?\d+(?:\.\d+)?", "", stripped, flags=re.I)

@@ -230,10 +230,21 @@ def test_an_unknown_model_is_NOGO_with_a_reason_not_a_crash():
 
 
 # FINDING 1: Model names can satisfy CHECKABLE
+def test_a_model_whose_own_name_is_checkable_cannot_self_certify():
+    """Exactly one real model, tenda/o3_firmware1.0.0.10\\(2478\\), has a
+    name containing a dotted number. Evidence that merely repeats vendor
+    and model must still FAIL - the name is not a handle the operator
+    supplied."""
+    vendor = "tenda"
+    model = "o3_firmware1.0.0.10\\(2478\\)"
+    r = qualify.filter_supported(vendor, model, True,
+                                 f"{vendor} {model} is supported")
+    assert r.passed is False
+    assert "checkable" in r.reason
+
+
 def test_model_name_in_evidence_does_not_make_it_checkable():
-    """The model itself can match CHECKABLE patterns. Tenda o3_firmware1.0.0.10
-    contains a dotted version. We strip vendor and model before checking, so
-    "tenda o3_firmware1.0.0.10 is supported" must FAIL, not pass on the model."""
+    """A simpler model name case: truncated version without special chars."""
     r = qualify.filter_supported(
         "tenda", "o3_firmware1.0.0.10", True,
         "tenda o3_firmware1.0.0.10 is supported")
