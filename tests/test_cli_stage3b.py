@@ -116,3 +116,39 @@ def test_indicators_without_db_or_compare_is_an_error():
     p = run("indicators")
     assert p.returncode == 1
     assert "--compare" in p.stderr
+
+
+def test_compare_rejects_invalid_json(tmp_path):
+    valid = tmp_path / "valid.json"
+    invalid = tmp_path / "invalid.json"
+    valid.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None,
+                                  "indicators": {"surfaces": {"state": "present",
+                                                              "value": 10}}}))
+    invalid.write_text("{ this is not valid json }")
+    p = run("indicators", "--compare", str(valid), str(invalid))
+    assert p.returncode == 1
+    assert "invalid JSON" in p.stderr
+
+
+def test_compare_rejects_non_dict_top_level(tmp_path):
+    valid = tmp_path / "valid.json"
+    invalid = tmp_path / "array.json"
+    valid.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None,
+                                  "indicators": {"surfaces": {"state": "present",
+                                                              "value": 10}}}))
+    invalid.write_text(json.dumps(["not", "a", "dict"]))
+    p = run("indicators", "--compare", str(valid), str(invalid))
+    assert p.returncode == 1
+    assert "top level must be a dict" in p.stderr
+
+
+def test_compare_rejects_missing_indicators_key(tmp_path):
+    valid = tmp_path / "valid.json"
+    missing = tmp_path / "missing.json"
+    valid.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None,
+                                  "indicators": {"surfaces": {"state": "present",
+                                                              "value": 10}}}))
+    missing.write_text(json.dumps({"schema_version": 1, "target": "t", "phase": None}))
+    p = run("indicators", "--compare", str(valid), str(missing))
+    assert p.returncode == 1
+    assert "missing 'indicators' key" in p.stderr

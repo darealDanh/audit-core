@@ -219,6 +219,21 @@ def cmd_indicators(args: argparse.Namespace) -> int:
             if not p.is_file():
                 print(f"not found: {p}", file=sys.stderr)
                 return 1
+        # Load and validate both snapshots
+        for p in (a_path, b_path):
+            try:
+                data = json.loads(p.read_text())
+                if not isinstance(data, dict):
+                    print(f"invalid snapshot {p}: top level must be a dict",
+                          file=sys.stderr)
+                    return 1
+                if "indicators" not in data:
+                    print(f"invalid snapshot {p}: missing 'indicators' key",
+                          file=sys.stderr)
+                    return 1
+            except json.JSONDecodeError as exc:
+                print(f"invalid JSON in {p}: {exc}", file=sys.stderr)
+                return 1
         a = json.loads(a_path.read_text())
         b = json.loads(b_path.read_text())
         deltas = indicators_mod.compare(a, b)

@@ -267,3 +267,56 @@ def test_absent_on_both_sides_is_unchanged():
     a = {"indicators": {"coverage": {"state": "absent", "note": "no table"}}}
     b = {"indicators": {"coverage": {"state": "absent", "note": "no table"}}}
     assert indicators.compare(a, b)[0].moved == "unchanged"
+
+
+def test_float_delta_does_not_render_more_than_six_decimal_places():
+    """Floating-point arithmetic produces noise like 0.09999999999999432.
+    Rounding to 6 places removes the artefact while preserving precision."""
+    a = {"indicators": {"coverage": {"state": "present", "value": 71.9}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": 72.0}}}
+    delta = indicators.compare(a, b)[0]
+    assert delta.moved == "+0.1"
+    # Verify no more than 6 decimal places in the moved field
+    parts = delta.moved.lstrip("+-").split(".")
+    if len(parts) > 1:
+        assert len(parts[1]) <= 6
+
+
+def test_a_string_value_is_not_comparable():
+    """Values that are not numeric cannot be compared."""
+    a = {"indicators": {"coverage": {"state": "present", "value": "a"}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": "b"}}}
+    assert indicators.compare(a, b)[0].moved == "not comparable"
+
+
+def test_a_null_value_is_not_comparable():
+    """Null values cannot be numerically compared."""
+    a = {"indicators": {"coverage": {"state": "present", "value": None}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": 5}}}
+    assert indicators.compare(a, b)[0].moved == "not comparable"
+
+
+def test_an_indicator_missing_from_snapshot_b_is_not_comparable():
+    """The reverse case of test_an_indicator_missing_from_one_snapshot_is_not_comparable:
+    B was taken before this indicator existed."""
+    a = {"indicators": {"surfaces": {"state": "present", "value": 5},
+                        "sweep_hits": {"state": "present", "value": 2}}}
+    b = {"indicators": {"surfaces": {"state": "present", "value": 5}}}
+    deltas = {d.name: d for d in indicators.compare(a, b)}
+    assert deltas["sweep_hits"].moved == "not comparable"
+    assert deltas["sweep_hits"].after == "not in snapshot"
+    assert deltas["surfaces"].moved == "unchanged"
+
+
+def test_present_to_absent_is_not_comparable():
+    """A value that vanishes (becomes absent) is not comparable to its prior value."""
+    a = {"indicators": {"coverage": {"state": "present", "value": 72.0}}}
+    b = {"indicators": {"coverage": {"state": "absent", "note": "table dropped"}}}
+    assert indicators.compare(a, b)[0].moved == "not comparable"
+
+
+def test_an_empty_state_entry_is_readable():
+    """An indicator with state=empty (empty table, not absent) is a real measurement."""
+    a = {"indicators": {"surfaces": {"state": "empty", "value": 0}}}
+    b = {"indicators": {"surfaces": {"state": "empty", "value": 0}}}
+    assert indicators.compare(a, b)[0].moved == "unchanged"

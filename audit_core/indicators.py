@@ -232,9 +232,15 @@ def compare(a: dict, b: dict) -> tuple[Delta, ...]:
         elif ea.get("value") == eb.get("value"):
             moved = "unchanged"
         else:
-            diff = eb["value"] - ea["value"]
-            diff_str = str(diff)
-            moved = f"+{diff_str}" if diff >= 0 else diff_str
+            # Only compute delta for numeric values (int or float, not bool)
+            ea_val = ea.get("value")
+            eb_val = eb.get("value")
+            if (isinstance(ea_val, (int, float)) and not isinstance(ea_val, bool) and
+                isinstance(eb_val, (int, float)) and not isinstance(eb_val, bool)):
+                diff = eb_val - ea_val
+                moved = f"{round(diff, 6):+}"
+            else:
+                moved = "not comparable"
         out.append(Delta(name, before, after, moved))
     return tuple(out)
 
@@ -242,9 +248,9 @@ def compare(a: dict, b: dict) -> tuple[Delta, ...]:
 def render_compare(a_name: str, b_name: str,
                    deltas: tuple[Delta, ...]) -> str:
     out = [f"comparing {a_name} -> {b_name}",
-           f"  {'indicator':<18} {'before':>12} {'after':>12}   moved"]
+           f"  {'indicator':<18} {'before':>15} {'after':>15}   moved"]
     for d in deltas:
-        out.append(f"  {d.name:<18} {d.before:>12} {d.after:>12}   {d.moved}")
+        out.append(f"  {d.name:<18} {d.before:>15} {d.after:>15}   {d.moved}")
     if any(d.moved == "not comparable" for d in deltas):
         out.append("")
         out.append("  `not comparable` means one snapshot has no reading for "
