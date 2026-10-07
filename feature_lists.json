@@ -870,6 +870,17 @@
       ],
       "note": "It blocks absent and lazy assertions and forces the claim into the output where a later reader can falsify it, but any 20+ character string containing a year and one novel token passes (e.g. \"it is not supported anymore as of 2020\"). Recorded as a known property of the rule, not a bug.",
       "destination": "none - known property"
+    },
+    {
+      "id": "qualify-negative-rce-branch-untested",
+      "severity": "low",
+      "summary": "The test row for a negative rce_cves uses a Unicode minus, so int() rejects it before the `rce_cves < 0` branch runs; that branch is therefore not exercised.",
+      "docs": [
+        "audit_core/qualify.py",
+        "tests/test_qualify.py"
+      ],
+      "note": "Found by the Stage 4a whole-branch re-review. The branch itself is present and correct - only its test coverage is illusory. Same class as the Task 2 test that substituted an easier input for the one its finding named.",
+      "destination": "a later firmware-audit slice"
     }
   ]
 }

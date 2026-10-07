@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** branch `stage4a/qualify` (forked from `7f1de0d` on `main`; **not yet merged**) · **Tests:** 621 ·
+**Last updated:** 2026-10-07 · **HEAD:** `main` at `3eb2a93` (Stage 4a merged), working tree clean · **Tests:** 621 ·
 **Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -31,7 +31,7 @@ benchmark-gated before it ships.
 | 2 | Structural change (`audit_core`, R1, R3) | 15 | 45 files, +9,074 / −70 | **merged** (`1f11f64`) — gate NOT run |
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
-| 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | on branch `stage4a/qualify`, **awaiting merge** — gate *none — no audit run* |
+| 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -219,7 +219,7 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **`main` is 111 commits ahead of `origin/main` and has never been pushed.**
+7. **`main` is 122 commits ahead of `origin/main` and has never been pushed.**
    `git pull` fails with an access-rights error; origin is unreachable from
    this machine. All completed stages exist only in this working copy.
 
@@ -354,8 +354,8 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Merge `stage4a/qualify` to `main`, then push `main`** once origin is
-   reachable. `main` is 111 commits ahead of `origin/main` (as of writing, from
+1. **Push `main` to `origin` `main`** once origin is
+   reachable. `main` is 122 commits ahead of `origin/main` (as of writing, from
    `git rev-list --count origin/main..main`); this branch adds its own on top.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for

@@ -1,6 +1,6 @@
 # Session handoff
 
-**Written:** 2026-10-07 · **Branch:** `stage4a/qualify` (from `7f1de0d` on `main`; **not yet merged**), working tree clean ·
+**Written:** 2026-10-07 · **Branch:** `main` at `3eb2a93` (Stage 4a merged), working tree clean ·
 **Tests:** 615 · **Gates:** 7/7 green
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -61,7 +61,7 @@ These are not style preferences. Each one has a specific, known cost.
 
 - **Branch:** `stage4a/qualify`, forked from `main` at `7f1de0d`.
   Stages 0-3 and 3b are merged to `main`; Stage 4a is complete on this branch, not yet merged.
-- **`main` is 111 commits ahead of `origin/main` and has never been pushed.**
+- **`main` is 122 commits ahead of `origin/main` and has never been pushed.**
   `git pull` fails with an access-rights error; origin is unreachable from
   this machine. Everything exists only in this working copy — **take that
   seriously before any destructive git operation.**
@@ -120,7 +120,7 @@ What remains:
 
 ### Merge and push
 
-Merge `stage4a/qualify` to `main`. `main` is 111 commits ahead of origin (from
+Merge `stage4a/qualify` to `main`. `main` is 122 commits ahead of origin (from
 `git rev-list --count origin/main..main` when written) and has never been
 pushed; pushing needs a reachable origin.
 
