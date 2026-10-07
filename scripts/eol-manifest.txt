@@ -1,0 +1,25 @@
+# Files that ship with CRLF line endings. Everything else tracked in this
+# repository ships with LF, and `scripts/harness.py --only eol` fails if either
+# side of that split moves.
+#
+# This is a contract, not an accident waiting to be tidied. Two reasons:
+#
+#   1. install.sh substitutes __SKILL_DIR__ line by line with sed. Normalising
+#      a file's endings rewrites every line of its diff, which is exactly how a
+#      prose edit hides an accidental deletion - the failure mode that cost
+#      this project five instructions across five rewrites in Stage 1.
+#   2. tests/test_install.py checks only that whatever shipped with CRLF keeps
+#      it through an install. It cannot notice a file that silently lost its
+#      CRLF before the install ran, because then there is nothing to preserve.
+#
+# Changing this list is allowed. Changing it silently is not: edit it in the
+# same commit as the file, and say why in the commit message.
+#
+# Paths are repository-relative, one per line. `#` starts a comment.
+
+SKILL.md
+references/phase0-source-detection.md
+references/phase2-feature-mapping.md
+references/phase4-deep-audit.md
+references/phase5-fp-check.md
+workflows/_audit-pipeline-v1-archive.md

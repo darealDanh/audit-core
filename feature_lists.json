@@ -1,0 +1,754 @@
+{
+  "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
+  "project": "codebase-audit",
+  "generated": "2026-10-07",
+  "schema_version": 1,
+  "head": "3aaebb5",
+  "status_enum": [
+    "shipped",
+    "held",
+    "planned",
+    "deferred"
+  ],
+  "area_enum": [
+    "core",
+    "cli",
+    "prose",
+    "harness",
+    "docs",
+    "install"
+  ],
+  "stages": [
+    {
+      "id": "stage0",
+      "name": "Instrumentation and goldens",
+      "status": "shipped",
+      "gate": "none - no behaviour change by design",
+      "summary": "Measurement before change. budget report, golden reference set, bench scorer, baseline recorded. SKILL.md and workflows/ left byte-identical deliberately."
+    },
+    {
+      "id": "stage1",
+      "name": "Cost wins that cannot touch quality",
+      "status": "shipped",
+      "gate": "budget report alone",
+      "summary": "Model/effort tiering, MCP preflight, audit.py verbs replacing inline heredocs, dispatch briefs as files, return contracts. First stage to edit the shipped skill; the installer fix was a hard dependency of the verbs."
+    },
+    {
+      "id": "stage2",
+      "name": "Structural change",
+      "status": "shipped",
+      "gate": "tplink re-run twice - cost must fall, recall >= 9/19",
+      "gate_status": "NOT RUN",
+      "summary": "audit_core extracted (db, extract, annotations, coverage, sweep, budget), R1 and R3 landed, vendored into the skill with phase semantics unchanged."
+    },
+    {
+      "id": "stage3",
+      "name": "Quality additions",
+      "status": "shipped",
+      "gate": "tplink re-run twice - cost must fall, recall >= 9/19; tiering half measured separately on precision",
+      "gate_status": "NOT RUN",
+      "summary": "Five mechanisms, each answering a named cause of a missed CRITICAL in the tplink post-mortem: pivot rule, sweep-on-confirm, coverage denominator, identity discipline, chain composition. The Sonnet tiering half is held - see feature sonnet-tiering."
+    },
+    {
+      "id": "stage3b",
+      "name": "Measurement hardening and parked defects",
+      "status": "planned",
+      "gate": "none - no audit run, no change to audit output",
+      "summary": "Deterministic leading indicators (parent spec 6.1), severity agreement and coverage in bench, an advisory severity re-rating report, and the four defects Stages 0 and 1 parked. Ships while the benchmark gates are deferred on cost, because nothing in it changes what an audit records."
+    },
+    {
+      "id": "stage4",
+      "name": "firmware-audit",
+      "status": "planned",
+      "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. The asus golden exists to guard against overfitting to tplink."
+    },
+    {
+      "id": "stage5",
+      "name": "Alignment",
+      "status": "planned",
+      "gate": "none stated",
+      "summary": "Backport the shared core to grey-audit and build its Stage 2/3 on the same spine."
+    }
+  ],
+  "features": [
+    {
+      "id": "budget-report",
+      "name": "Session economics report",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage0",
+      "verbs": [
+        "budget"
+      ],
+      "modules": [
+        "audit_core/budget.py",
+        "audit_core/transcript.py"
+      ],
+      "tests": [
+        "tests/test_budget_epochs.py",
+        "tests/test_budget_attribution.py",
+        "tests/test_transcript.py",
+        "tests/test_cli_budget.py"
+      ],
+      "notes": "Parses a Claude Code JSONL session into epochs, prefix, growth and attribution. Two measurement defects were found and fixed after the first baseline; see docs/baselines/2026-10-05-tplink-baseline.md."
+    },
+    {
+      "id": "golden-benchmark",
+      "name": "Golden reference scoring",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage0",
+      "verbs": [
+        "bench"
+      ],
+      "modules": [
+        "audit_core/bench.py",
+        "audit_core/goldens.py",
+        "audit_core/text.py"
+      ],
+      "tests": [
+        "tests/test_bench.py",
+        "tests/test_goldens.py",
+        "tests/test_cli_bench.py",
+        "tests/test_text.py"
+      ],
+      "docs": [
+        "tests/goldens/tplink-dl110v2-1.0.11/README.md"
+      ],
+      "notes": "Recall, cost per match and (since Stage 3) precision. matches.json and rejections.json are human adjudications and are never written by a tool."
+    },
+    {
+      "id": "mcp-preflight",
+      "name": "Project-scoped MCP preflight (R4)",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage1",
+      "verbs": [
+        "preflight"
+      ],
+      "modules": [
+        "audit_core/preflight.py"
+      ],
+      "tests": [
+        "tests/test_preflight.py"
+      ],
+      "notes": "Writes a config naming only the servers a run needs, to cut the MCP share of the context prefix. Its output has never reached a client that actually connected a real MCP server - see open_items."
+    },
+    {
+      "id": "dispatch-briefs",
+      "name": "Dispatch briefs as files (R6)",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage1",
+      "verbs": [
+        "brief"
+      ],
+      "modules": [
+        "audit_core/briefs.py"
+      ],
+      "tests": [
+        "tests/test_briefs.py",
+        "tests/test_brief_templates.py"
+      ],
+      "docs": [
+        "references/briefs/recon-brief.md",
+        "references/briefs/audit-brief.md",
+        "references/briefs/fpcheck-brief.md"
+      ],
+      "notes": "A brief is rendered to a file and its path passed to the subagent, rather than pasted into the prompt."
+    },
+    {
+      "id": "installer-ships-code",
+      "name": "Installer copies audit.py and audit_core",
+      "area": "install",
+      "status": "shipped",
+      "stage": "stage1",
+      "modules": [
+        "install.sh",
+        "install.ps1"
+      ],
+      "tests": [
+        "tests/test_install.py"
+      ],
+      "notes": "A hard dependency of R5, not an independent item: install.sh originally copied only prose, so the first workflow to invoke audit.py broke every installed copy. __SKILL_DIR__ is sed-substituted per client so each copy calls its own."
+    },
+    {
+      "id": "model-tiering",
+      "name": "Model and reasoning-effort tiering",
+      "area": "prose",
+      "status": "shipped",
+      "stage": "stage1",
+      "docs": [
+        "SKILL.md"
+      ],
+      "tests": [
+        "tests/test_skill_lint.py"
+      ],
+      "notes": "The measured 18.0% thinking term. Mechanical work only - the quality-risking half is held, see sonnet-tiering."
+    },
+    {
+      "id": "return-contracts",
+      "name": "Subagent return contracts (R2)",
+      "area": "prose",
+      "status": "shipped",
+      "stage": "stage1",
+      "docs": [
+        "SKILL.md"
+      ],
+      "tests": [
+        "tests/test_workflow_prose.py"
+      ],
+      "notes": "Everything stays in SQL and the artifact; widen the query, never the return."
+    },
+    {
+      "id": "audit-db",
+      "name": "Validated, bounded audit.db access",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "init",
+        "put",
+        "rows",
+        "status"
+      ],
+      "modules": [
+        "audit_core/db.py",
+        "audit_core/workspace.py",
+        "audit_core/schema.sql"
+      ],
+      "tests": [
+        "tests/test_db.py",
+        "tests/test_db_stage3.py",
+        "tests/test_workspace.py",
+        "tests/test_cli.py"
+      ],
+      "notes": "TABLE_SPECS is the single contract: columns, required columns and validators. db.py is the only writer. put(replace=True) merges rather than replaces - a bare INSERT OR REPLACE dropped columns a different workflow step writes."
+    },
+    {
+      "id": "extract-fanout",
+      "name": "Extract once, fan out without a cap (R1)",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "extract"
+      ],
+      "modules": [
+        "audit_core/extract.py"
+      ],
+      "tests": [
+        "tests/test_extract.py"
+      ],
+      "notes": "The orchestrator never holds raw material. Carries a batch-boundary one-writer assertion."
+    },
+    {
+      "id": "context-ceiling",
+      "name": "Context ceiling with checkpoint-restart (R3)",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "checkpoint"
+      ],
+      "modules": [
+        "audit_core/ceiling.py"
+      ],
+      "tests": [
+        "tests/test_ceiling.py"
+      ],
+      "notes": "Projection plus an external check, so a run survives its own length."
+    },
+    {
+      "id": "annotation-journal",
+      "name": "Append-only annotation journal",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "note"
+      ],
+      "modules": [
+        "audit_core/annotations.py"
+      ],
+      "tests": [
+        "tests/test_annotations.py"
+      ],
+      "notes": "Comprehension that survives a restart. Bounded index; tolerant of a CRLF-terminated line."
+    },
+    {
+      "id": "corpus-sweep",
+      "name": "Bounded corpus sweep for a confirmed pattern",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "sweep"
+      ],
+      "modules": [
+        "audit_core/sweep.py"
+      ],
+      "tests": [
+        "tests/test_sweep.py"
+      ],
+      "notes": "ROOT_ONLY_SKIP_DIRS holds 'reports' and is applied only at the walk root - skipping it at any depth hid a real strcpy in src/reports/export.c."
+    },
+    {
+      "id": "skill-lint",
+      "name": "Shipped skill linted against the economics contract",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "lint-skill"
+      ],
+      "modules": [
+        "audit_core/skill_lint.py"
+      ],
+      "tests": [
+        "tests/test_skill_lint.py"
+      ],
+      "notes": "The only automated check on prose that is not a content assertion. Pins the retired queries and the __SKILL_DIR__ sentinel."
+    },
+    {
+      "id": "selftest-contract",
+      "name": "Three independent internal consistency checks",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage2",
+      "verbs": [
+        "selftest"
+      ],
+      "modules": [
+        "audit.py"
+      ],
+      "tests": [
+        "tests/test_cli_stage2.py",
+        "tests/test_cli_stage3.py"
+      ],
+      "notes": "Verbs vs parser, TABLE_SPECS vs schema.sql, MIGRATIONS vs the frozen pre-Stage-3 baseline. Each compares two structures built independently - a tool's output is only trustworthy against something it did not produce."
+    },
+    {
+      "id": "db-migrations",
+      "name": "In-place column migration",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "modules": [
+        "audit_core/db.py",
+        "audit_core/baseline-pre-stage3.sql"
+      ],
+      "tests": [
+        "tests/test_migrate.py"
+      ],
+      "notes": "SQLite has no ADD COLUMN IF NOT EXISTS and CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so editing schema.sql repairs nothing on a database that already exists. connect() refuses an unmigrated database; selftest proves the loop against a frozen baseline."
+    },
+    {
+      "id": "pivot-rule",
+      "name": "A FALSE_POSITIVE must say what refuted it",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "verbs": [
+        "pivot"
+      ],
+      "modules": [
+        "audit_core/pivot.py"
+      ],
+      "tests": [
+        "tests/test_pivot.py"
+      ],
+      "notes": "And what that refutation enables. A dismissal that leaves no trail loses the observation underneath it. All failure checks precede the first write."
+    },
+    {
+      "id": "sweep-on-confirm",
+      "name": "An unswept registered pattern is a reportable gap",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "verbs": [
+        "patterns"
+      ],
+      "modules": [
+        "audit_core/patterns.py",
+        "audit_core/sweep.py"
+      ],
+      "tests": [
+        "tests/test_patterns.py"
+      ],
+      "notes": "A confirmed bug becomes a registered pattern; sweep.record marks it swept and refuses a truncated result. One instance of a bug class is rarely the only one."
+    },
+    {
+      "id": "coverage-gate",
+      "name": "Coverage denominator with a phase-exit gate",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "verbs": [
+        "coverage"
+      ],
+      "modules": [
+        "audit_core/coverage.py"
+      ],
+      "tests": [
+        "tests/test_coverage.py"
+      ],
+      "notes": "Analyzed over inventoried, with a reason for every gap. The gate must be --phase scoped; unscoped it reported PASS/100% on a run whose audited phase never opened the only unit. It gates but does not block."
+    },
+    {
+      "id": "identity-discipline",
+      "name": "An asserted identity needs non-circular evidence",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "verbs": [
+        "identify"
+      ],
+      "modules": [
+        "audit_core/identity.py",
+        "audit_core/db.py",
+        "audit_core/text.py"
+      ],
+      "tests": [
+        "tests/test_identity.py"
+      ],
+      "notes": "Evidence that is not the component's own filename, at least MIN_EVIDENCE_CHARS long, with novel tokens after text.NOISE_WORDS filtering. 'the file is named km0_boot_0C000020.elf' is the circular reasoning this rejects."
+    },
+    {
+      "id": "chain-composition",
+      "name": "Cross-group exploit chain proposal",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "verbs": [
+        "chain",
+        "dedup"
+      ],
+      "modules": [
+        "audit_core/chains.py"
+      ],
+      "tests": [
+        "tests/test_chains.py"
+      ],
+      "notes": "Measured on the real corpus for the first time and found unusable as designed - 100 candidates capped, 33 of 45 findings never examined as enablers and nothing saying so. Retuned to 24 candidates uncapped, all 45 examined, with unexamined findings reported."
+    },
+    {
+      "id": "precision-metric",
+      "name": "Precision scored alongside recall",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage3",
+      "modules": [
+        "audit_core/bench.py"
+      ],
+      "tests": [
+        "tests/test_bench.py"
+      ],
+      "notes": "The 'before' half of the held tiering gate. Currently 39/40 against 47.4% recall - the signature of an FP-check that is not filtering much, which is why the output carries its caveat on the same screen as the figure."
+    },
+    {
+      "id": "sonnet-tiering",
+      "name": "Sonnet downgrade for feature mapping and FP-check",
+      "area": "prose",
+      "status": "held",
+      "stage": "stage3",
+      "docs": [
+        "docs/baselines/2026-10-05-stage3-tiering-gate.md"
+      ],
+      "tests": [
+        "tests/test_skill_lint.py"
+      ],
+      "notes": "Spec-mandated, deliberately not applied: no precision baseline exists on the current configuration, so there is no 'before' to measure against. The gate document carries the exact five-file diff; applying it later is transcription. Two guard tests keep it from being applied by accident."
+    },
+    {
+      "id": "verification-harness",
+      "name": "Seven-gate verification harness",
+      "area": "harness",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "modules": [
+        "scripts/harness.py",
+        "Makefile",
+        ".github/workflows/ci.yml"
+      ],
+      "tests": [
+        "tests/test_harness.py"
+      ],
+      "notes": "tests, selftest, lint, eol, manifest, install, bench. Five of the seven were previously run by hand from memory in an order nobody wrote down; eol and manifest were not checked by anything at all. The install gate refuses to run if its sandbox HOME resolves to the real one and asserts afterwards that all four real destinations' mtimes did not move."
+    },
+    {
+      "id": "eol-contract",
+      "name": "Enforced CRLF/LF manifest",
+      "area": "harness",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "modules": [
+        "scripts/eol-manifest.txt"
+      ],
+      "tests": [
+        "tests/test_harness.py"
+      ],
+      "notes": "Nothing previously pinned which files carry CRLF. test_install.py checks only that whatever shipped with CRLF keeps it through an install, which cannot notice a file that lost its CRLF before the install ran."
+    },
+    {
+      "id": "project-docs",
+      "name": "Progress, handoff, architecture and feature inventory",
+      "area": "docs",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "docs": [
+        "progress.md",
+        "SESSION_HANDOFF.md",
+        "ARCHITECTURE.md",
+        "feature_lists.json"
+      ],
+      "notes": "Written so another agent can resume without reading a compacted transcript."
+    },
+    {
+      "id": "firmware-audit",
+      "name": "firmware-audit sibling skill",
+      "area": "prose",
+      "status": "planned",
+      "stage": "stage4",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "notes": "Spec section 4: qualify as a hard gate, diff before hunt, two non-transferable hunt lanes, decide replacing verify, emulation as a capability rather than a phase."
+    },
+    {
+      "id": "monorepo-restructure",
+      "name": "Monorepo restructure",
+      "area": "install",
+      "status": "planned",
+      "stage": "stage4",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "notes": "Spec section 3.1. Submodule plus sync.sh is the fallback if grey-audit must keep its separate history."
+    },
+    {
+      "id": "cross-target-pattern-library",
+      "name": "Cross-target pattern library",
+      "area": "core",
+      "status": "deferred",
+      "stage": "stage4",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "notes": "Spec section 3.5.2. Recorded as a deliberate omission from Stage 3; destination Stage 4."
+    },
+    {
+      "id": "grey-audit-backport",
+      "name": "Backport the core to grey-audit",
+      "area": "core",
+      "status": "planned",
+      "stage": "stage5",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "notes": "Spec section 7, Stage 5. Build grey-audit's Stage 2/3 - hunt, fpcheck, verify, report, Lanes B/C/D - on the shared spine."
+    },
+    {
+      "id": "leading-indicators",
+      "name": "Deterministic leading indicators",
+      "area": "cli",
+      "status": "planned",
+      "stage": "stage3b",
+      "verbs_planned": [
+        "indicators"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "notes": "Coverage percentage, surfaces opened, sweep hit counts and not_audited rows, with dated JSON snapshots under docs/indicators/ and a --compare that names what moved. The between-milestone substitute the parent spec 6.1 names and nobody built. Three of the four have no data in any existing audit.db, so they ship verified against fixtures."
+    },
+    {
+      "id": "severity-agreement",
+      "name": "Severity agreement scoring in bench",
+      "area": "core",
+      "status": "planned",
+      "stage": "stage3b",
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "notes": "Additive: recall keeps its meaning so 9/19 and the >=12/19 target stay valid, with severity-weighted recall emitted alongside. Measurable today for free against the stored baseline; the expected result is four under-rated matches with REF-17 the worst delta."
+    },
+    {
+      "id": "bench-coverage",
+      "name": "Coverage scoring in bench",
+      "area": "core",
+      "status": "planned",
+      "stage": "stage3b",
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "notes": "Parent spec 6.1 defines bench as scoring recall, precision, coverage and cost per finding. It scores three of the four."
+    },
+    {
+      "id": "rerate-report",
+      "name": "Advisory severity re-rating report",
+      "area": "cli",
+      "status": "planned",
+      "stage": "stage3b",
+      "verbs_planned": [
+        "rerate"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "notes": "Reports findings whose recorded severity disagrees with their own cited evidence, and stores nothing. Its own verb rather than part of bench because it needs no golden set, so it works on every real client audit rather than only the one corpus with a reference set."
+    },
+    {
+      "id": "absent-not-zero",
+      "name": "absent is not zero, in every new reader",
+      "area": "core",
+      "status": "planned",
+      "stage": "stage3b",
+      "docs": [
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "notes": "A pre-Stage-2 database has no cba_coverage table; reporting 0% claims total failure where the truth is no data. Every reader added in Stage 3b distinguishes a value, absent (no table) and empty (table, no rows). Same shape as the unscoped coverage gate that reported PASS/100% on a run that never opened the only unit."
+    }
+  ],
+  "open_items": [
+    {
+      "id": "stage2-gate-not-run",
+      "severity": "high",
+      "summary": "The Stage 2 gate has never been run. Its document is a procedure, not a measurement.",
+      "docs": [
+        "docs/baselines/2026-10-05-stage2-gate.md"
+      ],
+      "note": "A benchmark run now measures Stage 2 and Stage 3 together. That sequencing is the operator's call, not a defect in either document."
+    },
+    {
+      "id": "stage3-gate-not-run",
+      "severity": "high",
+      "summary": "The Stage 3 gate has never been run.",
+      "docs": [
+        "docs/baselines/2026-10-05-stage3-gate.md"
+      ],
+      "note": "Requires two full tplink re-runs. Cost must fall and recall must stay at or above 9/19."
+    },
+    {
+      "id": "no-precision-baseline",
+      "severity": "high",
+      "summary": "No precision baseline exists on the current configuration, so the held Sonnet tiering change has no 'before' measurement.",
+      "docs": [
+        "docs/baselines/2026-10-05-stage3-tiering-gate.md"
+      ],
+      "note": "This is why sonnet-tiering is held rather than shipped."
+    },
+    {
+      "id": "install-ps1-never-executed",
+      "severity": "medium",
+      "summary": "install.ps1 has never been executed - there is no PowerShell on the development machine.",
+      "docs": [
+        "install.ps1"
+      ],
+      "note": "Its Bash sibling is covered by tests/test_install.py and the harness install gate. The PowerShell path is reviewed, not run."
+    },
+    {
+      "id": "preflight-never-connected",
+      "severity": "medium",
+      "summary": "preflight output has never reached a client that actually connected a real MCP server.",
+      "docs": [
+        "audit_core/preflight.py"
+      ],
+      "note": "The file is produced and its shape is tested; the end of the loop is unverified."
+    },
+    {
+      "id": "replace-blanks-optional-columns",
+      "severity": "low",
+      "summary": "chain --compose --replace and identify --replace still blank optional columns when their flags are omitted.",
+      "docs": [
+        "audit_core/chains.py",
+        "audit_core/identity.py",
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "note": "Real, pre-existing, parked with a ruling. The Stage 3 fix-wave report claimed otherwise; that claim is recorded as wrong so it is not trusted.",
+      "destination": "stage3b"
+    },
+    {
+      "id": "main-unpushed",
+      "severity": "medium",
+      "summary": "main is 84 commits ahead of origin/main and has never been pushed; origin is unreachable from this machine.",
+      "note": "All three completed stages exist only in this working copy. git pull fails with an access-rights error."
+    },
+    {
+      "id": "severity-agreement-not-scored",
+      "severity": "high",
+      "summary": "Nothing scores severity agreement, and nothing re-rates a finding once its chain is known. Of the nine reference CRITICALs the audit did find, four were rated below the reference - REF-17, a pre-auth authentication bypass, was filed LOW.",
+      "docs": [
+        "docs/superpowers/specs/2026-10-05-stage0-findings-for-later-stages.md",
+        "audit_core/bench.py",
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "note": "bench loads `severity` on both sides and compares neither. Recall therefore understates the problem: half the findings that were made were under-rated. Severity is a claim about reachability and consequence, and the pipeline fixes it at discovery time, before chain composition runs. Recorded at the end of Stage 0 as an input to later stages; never actioned.",
+      "destination": "stage3b"
+    },
+    {
+      "id": "asus-golden-missing",
+      "severity": "medium",
+      "summary": "The Stage 4 gate requires the asus golden to pass, and no asus golden set exists.",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "note": "Spec section 7: tplink >= 12/19 at <= $45 AND asus passing, the second target being the guard against overfitting. Building that golden set is the real first task of Stage 4, not a sub-step of it. tests/goldens/ currently holds one target."
+    },
+    {
+      "id": "preflight-server-flattens-keep",
+      "severity": "medium",
+      "summary": "`--server NAME=COMMAND` silently overwrites a `--keep`-copied server of the same name with a bare {\"command\": ...}, discarding args and env.",
+      "docs": [
+        "audit_core/preflight.py",
+        "audit.py",
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "note": "Reproduced 2026-10-07: --from-config src.json --keep autorev --server autorev=uvx writes {\"command\": \"uvx\"} and exits 0, losing the args and env that made the server work. This is precisely the degradation load_servers' docstring says --keep exists to prevent. Untested in either direction.",
+      "destination": "stage3b"
+    },
+    {
+      "id": "briefs-one-error-class-per-run",
+      "severity": "low",
+      "summary": "audit_core.briefs.render raises on missing placeholders and returns, so empty ones surface only on the next run.",
+      "docs": [
+        "audit_core/briefs.py",
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "note": "Reproduced 2026-10-07: a template with one missing and one empty placeholder reports only the missing one; fixing it then reports the empty one. An operator fixing one class discovers the other a run later.",
+      "destination": "stage3b"
+    },
+    {
+      "id": "fpcheck-batch-id-inconsistency",
+      "severity": "low",
+      "summary": "workflows/fpcheck.md letters batches A, B, C while references/phase5-fp-check.md's worked example uses B1.",
+      "docs": [
+        "workflows/fpcheck.md",
+        "references/phase5-fp-check.md",
+        "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+      ],
+      "note": "The artifact path pattern was unified in Stage 1; the identifiers themselves were not. Carried forward from Stage 1 and still present.",
+      "destination": "stage3b"
+    },
+    {
+      "id": "monorepo-question-open",
+      "severity": "low",
+      "summary": "Spec section 10: whether grey-audit joins the monorepo or consumes the core as a submodule is undecided.",
+      "docs": [
+        "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
+      ],
+      "note": "The design assumes the monorepo; the submodule-plus-sync.sh fallback is specified in sections 3.1 and 8. The decision blocks the Stage 4 restructure, not the firmware phases."
+    }
+  ]
+}

@@ -15,3 +15,6 @@ __pycache__/
 
 # Custom
 chat.json
+
+# Harness reports
+harness-*.json
