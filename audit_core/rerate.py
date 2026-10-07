@@ -11,6 +11,14 @@ no severity. The mutating version stays unbuilt until a benchmark run can
 show it helps; this report is the evidence for that decision, gathered at
 zero cost and zero risk.
 
+Known limitation: matches are not negation-aware. G4-F4 on the tplink corpus
+is the known instance: its text reads "rather than an authentication bypass"
+while its attacker_position is `authenticated-user`, yet the auth-bypass rule
+fires. A negation guard is deferred until a second corpus shows the pattern
+recurs; one example is not enough evidence, and a guard tuned to it would be
+corpus overfitting (a look-back guard would also have suppressed G2-F6, a true
+positive, over an unrelated "not" in a neighbouring column).
+
 Precedent for the shape: `coverage --gate` reports and does not block.
 """
 from __future__ import annotations
@@ -62,6 +70,10 @@ CHAIN_FLOOR = "CRITICAL"
 
 A bug reachable without credentials, as one step of a chain somebody has
 already composed, is the shape of every finding in the reference set.
+
+NOTE: this floor has never run on any corpus. The only real audit database
+has no `cba_chains` table, so the pre-auth-chain rule is untested against
+real data.
 """
 
 
@@ -69,6 +81,7 @@ already composed, is the shape of every finding in the reference set.
 class Signal:
     rule: str
     evidence: str
+    column: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +100,7 @@ def _rank(severity: str) -> int | None:
 
 
 def _excerpt(text: str, match: re.Match, width: int = 60) -> str:
+    """`text` must already be whitespace-collapsed (match offsets refer to it)."""
     start = max(0, match.start() - width // 2)
     end = min(len(text), match.end() + width // 2)
     return ("..." if start else "") + text[start:end].strip() + (
@@ -99,6 +113,10 @@ def _pre_auth_chain_members(con: sqlite3.Connection) -> set[str]:
     `cba_chains.finding_ids` is a comma-separated list, so this splits rather
     than joins. An absent table yields an empty set, and the caller says so
     in the report rather than pretending the rule ran.
+
+    `pre_auth` is free TEXT and no format is pinned anywhere in the repo. The
+    accepted values are exactly "1", "true" and "yes" (case-insensitive);
+    anything else, including "yes - before login", is treated as NOT pre-auth.
     """
     if table_state(con, "cba_chains") == ABSENT:
         return set()
@@ -119,19 +137,23 @@ def examine(con: sqlite3.Connection) -> tuple[Flag, ...]:
 
     for row in con.execute(f"SELECT {columns} FROM cba_findings ORDER BY id"):
         finding_id, severity = row[0], row[1]
-        blob = "\n".join(str(c) for c in row[2:] if c)
+        cells = [(name, " ".join(str(c).split()))
+                 for name, c in zip(_TEXT_COLUMNS, row[2:]) if c]
 
         signals: list[Signal] = []
         floors: list[str] = []
         for rule in RULES:
-            match = rule.pattern.search(blob)
-            if match:
-                signals.append(Signal(rule.id, _excerpt(blob, match)))
-                floors.append(rule.floor)
+            for name, text in cells:
+                match = rule.pattern.search(text)
+                if match:
+                    signals.append(Signal(rule.id, _excerpt(text, match), name))
+                    floors.append(rule.floor)
+                    break
         if finding_id in chain_members:
             signals.append(Signal(
                 "pre-auth-chain",
-                "member of a composed chain recorded as pre_auth"))
+                "member of a composed chain recorded as pre_auth",
+                "cba_chains"))
             floors.append(CHAIN_FLOOR)
 
         if not floors:
@@ -156,7 +178,8 @@ def render(flags: tuple[Flag, ...], *, chains_absent: bool = False) -> str:
             out.append(f"  {f.finding_id}  filed {f.severity}, "
                        f"evidence implies at least {f.implied_floor}")
             for s in f.signals:
-                out.append(f"      [{s.rule}] {s.evidence}")
+                where = f" in {s.column}" if s.column else ""
+                out.append(f"      [{s.rule}{where}] {s.evidence}")
             out.append("")
     out.append("This is advisory. No severity has been changed and no row "
                "written; re-rating is a judgement for a human, and the "

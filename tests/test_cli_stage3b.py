@@ -157,7 +157,6 @@ def test_compare_rejects_missing_indicators_key(tmp_path):
 def test_rerate_does_not_modify_the_database(tmp_path):
     """The safety property, asserted rather than assumed. If a future change
     makes this verb write, the mtime and the row contents catch it."""
-    import os
     db = tmp_path / "audit.db"
     con = sqlite3.connect(db)
     con.execute("CREATE TABLE cba_findings (id TEXT PRIMARY KEY, "

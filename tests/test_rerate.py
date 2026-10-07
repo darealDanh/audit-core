@@ -1,7 +1,5 @@
 import sqlite3
 
-import pytest
-
 from audit_core import rerate
 
 FINDINGS_DDL = """
@@ -116,4 +114,78 @@ def test_an_unrankable_severity_is_skipped_rather_than_raising():
     _add(con, "G1-F9", "SEV-2", root_cause="reached without authentication")
     con.commit()
     assert rerate.examine(con) == ()
+    con.close()
+
+
+def _chain(con, cid, ids, pre_auth):
+    con.execute("INSERT INTO cba_chains (id, finding_ids, attacker_position, "
+                "pre_auth, completeness) VALUES (?, ?, 'LAN', ?, 'complete')",
+                (cid, ids, pre_auth))
+
+
+def test_chain_membership_is_a_comma_split_not_a_substring():
+    con = _con()
+    _add(con, "G1-F1", "LOW")
+    _add(con, "G1-F10", "LOW")
+    _chain(con, "C1", "G1-F10", "true")
+    con.commit()
+    assert {f.finding_id for f in rerate.examine(con)} == {"G1-F10"}
+    con.close()
+
+
+def test_a_chain_not_marked_pre_auth_flags_nothing():
+    con = _con()
+    _add(con, "G1-F1", "LOW")
+    _chain(con, "C1", "G1-F1", "false")
+    con.commit()
+    assert rerate.examine(con) == ()
+    con.close()
+
+
+def test_the_strongest_floor_wins_not_the_weakest():
+    con = _con()
+    _add(con, "G1-F1", "LOW", root_cause="reached without authentication")
+    _chain(con, "C1", "G1-F1", "yes")
+    con.commit()
+    (flag,) = rerate.examine(con)
+    assert flag.implied_floor == "CRITICAL"
+    assert {s.rule for s in flag.signals} == {"unauthenticated-reach",
+                                              "pre-auth-chain"}
+    con.close()
+
+
+def test_a_finding_exactly_at_the_floor_is_not_flagged():
+    con = _con()
+    _add(con, "G1-F1", "HIGH", root_cause="reached without authentication")
+    con.commit()
+    assert rerate.examine(con) == ()
+    con.close()
+
+
+def test_render_says_when_the_chain_rule_did_not_run():
+    out = rerate.render((), chains_absent=True)
+    assert "cba_chains is not in this database" in out
+    assert "cba_chains is not" not in rerate.render((), chains_absent=False)
+
+
+def test_empty_segments_in_finding_ids_are_ignored():
+    con = _con()
+    _add(con, "G1-F1", "LOW")
+    _add(con, "G2-F2", "LOW")
+    _chain(con, "C1", "G1-F1,,G2-F2,", "1")
+    con.commit()
+    assert {f.finding_id for f in rerate.examine(con)} == {"G1-F1", "G2-F2"}
+    con.close()
+
+
+def test_signal_names_its_column_and_excerpt_has_no_newlines():
+    con = _con()
+    _add(con, "G1-F7", "LOW", root_cause="a\nb",
+         attacker_position="unauthenticated\nLAN")
+    con.commit()
+    (flag,) = rerate.examine(con)
+    (sig,) = flag.signals
+    assert sig.column == "attacker_position"
+    assert "\n" not in sig.evidence
+    assert "[unauthenticated-reach in attacker_position]" in rerate.render((flag,))
     con.close()
