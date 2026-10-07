@@ -28,7 +28,11 @@ def record(con: sqlite3.Connection, *, path: str, kind: str, identity: str,
            "identity_evidence": evidence}
     # Optional columns are OMITTED when not given, not written as "": on
     # --replace db.put merges over the stored row, so an absent key keeps its
-    # value and a present one overwrites it.
+    # value and a present one overwrites it. Consequence: an omitted or empty
+    # optional field KEEPS the stored value and cannot be cleared this way; to
+    # blank one deliberately, write an explicit placeholder value. (Accepted:
+    # silently destroying a column another step wrote is worse than a loud
+    # limitation.)
     for key, value in (("confidence", confidence), ("version", version)):
         if value:
             row[key] = value

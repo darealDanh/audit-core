@@ -129,3 +129,36 @@ def test_record_replace_preserves_columns_the_caller_omitted(con):
     assert row["version"] == "1.0.11"
     assert row["confidence"] == 8
     assert row["asserted_identity"].endswith("(revised)")
+
+
+_EVID = ("contains 'rtl8710 wlan firmware' at 0x0C00A120; imports "
+         "wifi_hal_init; no reset vector at offset 0")
+
+
+def test_record_insert_without_optional_columns_stores_null(con):
+    identity.record(con, path="images/a.elf", kind="binary",
+                    identity="Realtek RTL8710 Wi-Fi driver image",
+                    evidence=_EVID)
+    row = db.rows(con, "cba_components")[0]
+    assert row["version"] is None
+    assert row["confidence"] is None
+
+
+def test_confidence_zero_is_rejected_not_dropped(con):
+    """"0" is truthy, so the key is kept and the validator rejects it."""
+    with pytest.raises(db.DbError, match="outside 1-10"):
+        identity.record(con, path="images/a.elf", kind="binary",
+                        identity="Realtek RTL8710 Wi-Fi driver image",
+                        evidence=_EVID, confidence="0")
+    assert db.rows(con, "cba_components") == []
+
+
+def test_confidence_empty_is_null_and_eight_is_stored(con):
+    identity.record(con, path="images/a.elf", kind="binary",
+                    identity="Realtek RTL8710 Wi-Fi driver image",
+                    evidence=_EVID, confidence="")
+    identity.record(con, path="images/b.elf", kind="binary",
+                    identity="Realtek RTL8710 Wi-Fi driver image",
+                    evidence=_EVID, confidence="8")
+    got = {r["path"]: r["confidence"] for r in db.rows(con, "cba_components")}
+    assert got == {"images/a.elf": None, "images/b.elf": 8}

@@ -79,6 +79,6 @@ def merge_server(kept: dict | None, command: str) -> dict:
     """
     if not kept:
         return {"command": command}
-    merged = dict(kept)
+    merged = copy.deepcopy(kept)   # args/env must not alias the caller's
     merged["command"] = command
     return merged

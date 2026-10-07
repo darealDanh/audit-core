@@ -282,3 +282,14 @@ def test_compose_replace_preserves_columns_the_caller_omitted(con):
     assert row["blocking_unknowns"] == "whether the jar is shared"
     assert row["pre_auth"] == "yes"
     assert row["completeness"] == "partial"   # what was passed still applies
+
+
+def test_compose_insert_without_optional_columns_stores_null(con):
+    finding(con, "G1-F1", "G1", impact="leaks session_token")
+    finding(con, "G2-F1", "G2", attacker_position="needs session_token")
+    chains.compose(con, chain_id="C1", finding_ids="G1-F1, G2-F1",
+                   attacker_position="unauthenticated on the LAN",
+                   completeness="complete")
+    row = db.rows(con, "cba_chains", where={"id": "C1"})[0]
+    assert row["blocking_unknowns"] is None
+    assert row["pre_auth"] is None

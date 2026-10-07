@@ -208,7 +208,11 @@ def compose(con: sqlite3.Connection, *, chain_id: str, finding_ids: str,
            "attacker_position": attacker_position, "completeness": completeness}
     # Optional columns are OMITTED when not given, not written as "": on
     # --replace db.put merges over the stored row, so an absent key keeps its
-    # value and a present one overwrites it.
+    # value and a present one overwrites it. Consequence: an omitted or empty
+    # optional field KEEPS the stored value and cannot be cleared this way; to
+    # blank one deliberately, write an explicit placeholder value. (Accepted:
+    # silently destroying a column another step wrote is worse than a loud
+    # limitation.)
     for key, value in (("pre_auth", pre_auth),
                        ("blocking_unknowns", blocking_unknowns)):
         if value:

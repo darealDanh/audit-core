@@ -162,3 +162,4 @@ def test_missing_and_empty_placeholders_are_reported_together():
     message = str(exc.value)
     assert "MISSING" in message
     assert "EMPTY" in message
+    assert "--allow-empty" in message   # the actionable hint survives

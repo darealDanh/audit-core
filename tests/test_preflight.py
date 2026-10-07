@@ -220,3 +220,13 @@ def test_merge_does_not_mutate_the_kept_definition():
     assert kept == {"command": "old", "args": ["a"]}
     assert merged["command"] == "new"
     assert merged["args"] == ["a"]
+
+
+def test_merge_does_not_alias_nested_values_of_the_kept_definition():
+    """dict(kept) is shallow: args and env are shared with the caller."""
+    kept = {"command": "old", "args": ["a"], "env": {"K": "v"}}
+    merged = preflight.merge_server(kept, "new")
+    merged["args"].append("b")
+    merged["env"]["K2"] = "v2"
+    assert kept["args"] == ["a"]
+    assert kept["env"] == {"K": "v"}

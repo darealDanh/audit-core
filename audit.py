@@ -975,7 +975,8 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--pre-auth", dest="pre_auth", default=None)
     ch.add_argument("--blocking-unknowns", dest="blocking_unknowns",
                     default=None)
-    ch.add_argument("--replace", action="store_true")
+    ch.add_argument("--replace", action="store_true",
+        help="overwrite an existing row; an omitted or empty optional field KEEPS the stored value and cannot be cleared this way; to blank one deliberately, write an explicit placeholder value")
     ch.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
@@ -1070,7 +1071,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="what you read out of it that says so")
     idf.add_argument("--confidence", default=None, metavar="1-10")
     idf.add_argument("--version", default=None)
-    idf.add_argument("--replace", action="store_true")
+    idf.add_argument("--replace", action="store_true",
+        help="overwrite an existing row; an omitted or empty optional field KEEPS the stored value and cannot be cleared this way; to blank one deliberately, write an explicit placeholder value")
     return p
 
 
