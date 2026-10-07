@@ -45,6 +45,10 @@ possible place to find out.
 1. Decide GO or NO-GO for one `vendor|model` against the hunting plan's three
    filters, with a stated reason per filter.
 2. Fail closed on every filter, including the one with no data behind it.
+   *Correction, 2026-10-07 (whole-branch review):* "fail closed" holds for
+   **absent** data - a missing row, a missing assertion, missing evidence. It
+   does not hold for **asserted-false** data: an operator who states a false
+   support claim with a concrete-looking string gets a GO (see §4.3, §7).
 3. Make the GO decision auditable later: the evidence that justified it is in
    the output.
 
@@ -149,6 +153,12 @@ evidence only when it points at something a reader can go and verify.
 All seven rows were run against the candidate rule before this spec was
 written; they are measurements, not illustrations.
 
+*Correction, 2026-10-07 (whole-branch review):* the table can read as though
+the rule discriminates **support** claims. It does not. It discriminates
+**concrete strings from vague ones**: `"it is not supported anymore as of 2020"`
+passes (it contains a year), and that is inherent to a floor that checks for a
+verifiable handle rather than for truth, not a bug.
+
 **Unknown is NO-GO, never a warning.** No assertion, or an assertion whose
 evidence fails the check, fails the filter. This is the fail-closed direction on
 the filter the plan calls binding, and the cost of being wrong is asymmetric: a
@@ -201,7 +211,7 @@ change, not forked here.
 
 | Risk | Mitigation |
 |---|---|
-| The evidence check is too lenient and rubber-stamps a support claim | The existing check alone WAS too lenient — verified, see §4.3 — which is why the checkable-reference requirement exists. Both parts are tested |
+| The evidence check is too lenient and rubber-stamps a support claim | The existing check alone WAS too lenient — verified, see §4.3 — which is why the checkable-reference requirement exists. *Correction, 2026-10-07:* testing both parts does not address the rule's ceiling. The rule blocks absent and vague claims and puts the assertion in the output, where a later reader can falsify it; it does not resist a motivated operator, and any 20+ character string with a year and one novel token passes (recorded as `qualify-f3-not-adversarial`) |
 | The evidence check is too strict and blocks a legitimate GO | Fails in the cheap direction — one re-run with better evidence, against a week of wasted work |
 | `target-scores.csv`'s schema changes and the loader breaks silently | The loader validates its header and refuses an unexpected one rather than reading columns positionally |
 | A GO is issued and the target is EOL anyway | The evidence string is in the output; the decision is auditable after the fact |

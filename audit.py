@@ -948,8 +948,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "not an option: answer no")
     ql.add_argument("--support-evidence", default="",
                     help="what makes the support claim checkable - a date, a "
-                         "firmware version, or a vendor host. Required when "
-                         "--supported yes")
+                         "firmware version, or a vendor host. With "
+                         "--supported yes the gate demands it and answers "
+                         "NO-GO without it")
     ql.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")

@@ -263,7 +263,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (615 tests). |
+| `tests` | yes | The pytest suite (621 tests). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |

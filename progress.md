@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** branch `stage4a/qualify` (forked from `7f1de0d` on `main`; **not yet merged**) · **Tests:** 615 ·
+**Last updated:** 2026-10-07 · **HEAD:** branch `stage4a/qualify` (forked from `7f1de0d` on `main`; **not yet merged**) · **Tests:** 621 ·
 **Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -169,6 +169,23 @@ gained `readings.py`, `indicators.py` and `rerate.py`. No `indicators` harness
 gate was added: it needs a database, the only one lives outside the repo, and a
 gate that SKIPs everywhere but one machine is noise.
 
+### Stage 4a - `qualify`, the first slice of `firmware-audit`
+
+Stage 4 is being built as **vertical slices**, because eleven phases is not one
+plan. `audit.py qualify` is the first: a hard GO/NO-GO gate that scores one
+`vendor|model` against `_intel/target-scores.csv` (1,716 models) and refuses to
+start a firmware audit on a target that cannot pay. It refuses three things,
+each failing closed: a **strip-mined** target (too much already found, by
+VulDB share), a target **without enough RCE-class CVEs**, and a target that is
+**not still supported**. Filter 3 has no data behind it, so it is asserted with
+evidence that must name something checkable (a date, a firmware version or a
+vendor host); `db.check_identity_evidence` alone was measured accepting
+`"Zyxel NWA50AX is supported"`, and 0 of 1,716 models can self-certify with
+`"<vendor> <model> is supported"`. On real data `draytek/vigor3910` is GO (49
+RCE CVEs at 0% VulDB) and `tenda/ac18` is NO-GO on `low-slop` (51 CVEs at 67%
+VulDB). Verbs 22 to 23; tests 574 to 621. No audit and no benchmark was run;
+the remaining ten phases follow in later slices.
+
 ---
 
 ## 3. What was deliberately not done
@@ -257,7 +274,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 615 tests |
+| `tests` | The pytest suite — 621 tests |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -330,23 +347,6 @@ This is the spec's own path, not a deviation. §6.1, acknowledged limitations:
 the gate is blind rather than merely deferred — which makes building them the
 first task, not a nice-to-have. They read an existing `audit.db` and cost
 nothing per run.
-
-### Stage 4a - `qualify`, the first slice of `firmware-audit`
-
-Stage 4 is being built as **vertical slices**, because eleven phases is not one
-plan. `audit.py qualify` is the first: a hard GO/NO-GO gate that scores one
-`vendor|model` against `_intel/target-scores.csv` (1,716 models) and refuses to
-start a firmware audit on a target that cannot pay. It refuses three things,
-each failing closed: a **strip-mined** target (too much already found, by
-VulDB share), a target **without enough RCE-class CVEs**, and a target that is
-**not still supported**. Filter 3 has no data behind it, so it is asserted with
-evidence that must name something checkable (a date, a firmware version or a
-vendor host); `db.check_identity_evidence` alone was measured accepting
-`"Zyxel NWA50AX is supported"`, and 0 of 1,716 models can self-certify with
-`"<vendor> <model> is supported"`. On real data `draytek/vigor3910` is GO (49
-RCE CVEs at 0% VulDB) and `tenda/ac18` is NO-GO on `low-slop` (51 CVEs at 67%
-VulDB). Verbs 22 to 23; tests 574 to 615. No audit and no benchmark was run;
-the remaining ten phases follow in later slices.
 
 ## 8. Next steps, in the order they make sense
 

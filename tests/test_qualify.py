@@ -91,24 +91,26 @@ def test_nan_and_inf_are_rejected(tmp_path):
         "good,model,10,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
     scores = qualify.load_scores(nan_file)
     assert ("bad", "nan") not in scores
-    assert ("bad", "inf") not in scores
+    assert scores[("bad", "inf")].max_cvss is None  # unread field: row kept
     assert ("good", "model") in scores
-    assert len(scores) == 1
+    assert len(scores) == 2
 
 
 def test_invalid_numeric_ranges_are_rejected(tmp_path):
-    """Negative rce_cves and max_cvss outside 0-10 are impossible. Reject them."""
+    """Negative rce_cves and slop_pct outside 0-100 are impossible. Reject
+    them. max_cvss is handled separately: no filter reads it, so a bad one
+    keeps the row (see test_bad_max_cvss_keeps_the_row_as_none)."""
     invalid = tmp_path / "invalid.csv"
     invalid.write_text(
         "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
         "bad,negative_rce,−1,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
-        "bad,high_cvss,10,0.5,11.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
-        "bad,low_cvss,10,0.5,-0.5,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "bad,neg_slop,10,-5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "bad,big_slop,10,100.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
         "good,model,10,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
     scores = qualify.load_scores(invalid)
     assert ("bad", "negative_rce") not in scores
-    assert ("bad", "high_cvss") not in scores
-    assert ("bad", "low_cvss") not in scores
+    assert ("bad", "neg_slop") not in scores
+    assert ("bad", "big_slop") not in scores
     assert ("good", "model") in scores
     assert len(scores) == 1
 
@@ -374,3 +376,79 @@ def test_to_json_with_no_score():
     assert payload["score"] is None
     assert payload["vendor"] == "unknown"
     assert payload["verdict"] == "NO-GO"
+
+
+def test_bad_max_cvss_keeps_the_row_as_none(tmp_path):
+    """No filter reads max_cvss, so a blank, non-numeric or out-of-range value
+    must not make the model look absent from the scored set."""
+    f = tmp_path / "cvss.csv"
+    f.write_text(
+        "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "v,blank,10,0.5,,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,text,10,0.5,high,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,over,10,0.5,11.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,under,10,0.5,-0.5,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,ok,10,0.5,7.5,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
+    scores = qualify.load_scores(f)
+    assert len(scores) == 5
+    for m in ("blank", "text", "over", "under"):
+        assert scores[("v", m)].max_cvss is None
+    assert scores[("v", "ok")].max_cvss == 7.5
+    q = qualify.qualify(scores, "v", "blank", False, "")
+    assert qualify.to_json(q)["score"]["max_cvss"] is None
+    assert q.filters[0].passed and "not in the scored" not in q.filters[0].reason
+
+
+def test_slop_pct_outside_0_100_is_rejected_not_passed(tmp_path):
+    f = tmp_path / "slop.csv"
+    f.write_text(
+        "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "v,neg,50,-10,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,zero,50,0,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "v,full,50,100,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
+    scores = qualify.load_scores(f)
+    assert ("v", "neg") not in scores
+    assert ("v", "zero") in scores and ("v", "full") in scores
+
+
+def test_qualification_stores_normalised_vendor_and_model():
+    scores = {("draytek", "vigor3910"): qualify.Score(
+        "draytek", "vigor3910", 49, 0.0, 9.8, "2024-01-01", "2025-06-01", "x")}
+    q = qualify.qualify(scores, "  DrayTek ", " Vigor3910", False, "")
+    assert (q.vendor, q.model) == ("draytek", "vigor3910")
+    assert qualify.render(q).startswith("qualify draytek/vigor3910:")
+    assert qualify.to_json(q)["vendor"] == "draytek"
+
+
+REAL_CSV = pathlib.Path.home() / "Documents/Offsec/Opswat/Devices/_intel/target-scores.csv"
+
+
+@pytest.mark.skipif(not REAL_CSV.exists(), reason="real scored set not present")
+def test_no_model_self_certifies_under_any_punctuation_template():
+    """Every live model, every template: vendor+model plus sentence
+    punctuation must never pass. Strings come from load_scores, not retyped."""
+    templates = ["{v} {m} is supported", "{v} {m}. it is supported",
+                 "{v} {m}, it is supported", "{v} {m}: it is supported",
+                 "{v} {m}; it is supported", "{v} {m} . it is supported",
+                 "it is supported by {v} {m}", "it is supported by {v} {m}.",
+                 "still supported: {v} {m}"]
+    scores = qualify.load_scores(REAL_CSV)
+    assert len(scores) == 1716
+    leaks = []
+    for (v, m) in scores:
+        for t in templates:
+            if qualify.filter_supported(v, m, True, t.format(v=v, m=m)).passed:
+                leaks.append((t, v, m))
+    assert leaks == []
+
+
+def test_the_tenda_period_case_is_refused():
+    v, m = "tenda", "o3_firmware1.0.0.10\\(2478\\)"
+    r = qualify.filter_supported(v, m, True, f"{v} {m}. it is supported")
+    assert r.passed is False
+
+
+def test_a_real_hostname_still_counts_after_the_lookahead_narrowing():
+    r = qualify.filter_supported(
+        "zyxel", "nwa50ax", True, "EoS listing at zyxel.com shows no end date")
+    assert r.passed is True

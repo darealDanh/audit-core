@@ -826,6 +826,50 @@
         "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
       ],
       "note": "The design assumes the monorepo; the submodule-plus-sync.sh fallback is specified in sections 3.1 and 8. The decision blocks the Stage 4 restructure, not the firmware phases."
+    },
+    {
+      "id": "qualify-not-discoverable",
+      "severity": "medium",
+      "summary": "`qualify` is not discoverable by an operator: it appears in ARCHITECTURE.md, feature_lists.json and `audit.py --help` only.",
+      "docs": [
+        "ARCHITECTURE.md",
+        "docs/superpowers/specs/2026-10-07-stage4a-qualify-design.md"
+      ],
+      "note": "SKILL.md is deliberately the WRONG home: it is codebase-audit's operating contract and this verb gates firmware audits, so listing it there would mislead an orchestrating model into thinking it is part of that pipeline. The right home is firmware-audit's own SKILL.md, which does not exist yet.",
+      "destination": "the slice that creates firmware-audit's SKILL.md"
+    },
+    {
+      "id": "qualify-duplicate-model-keys",
+      "severity": "low",
+      "summary": "`load_scores` silently keeps the last row for a duplicate (vendor, model).",
+      "docs": [
+        "audit_core/qualify.py",
+        "docs/superpowers/specs/2026-10-07-stage4a-qualify-design.md"
+      ],
+      "note": "All 1,716 live keys are unique (verified), so this is latent: it bites only if the regenerated CSV ever gains a duplicate.",
+      "destination": "unscheduled"
+    },
+    {
+      "id": "qualify-footer-wording",
+      "severity": "low",
+      "summary": "The supported-case NO-GO footer is redundant and hedges.",
+      "docs": [
+        "audit_core/qualify.py",
+        "docs/superpowers/plans/2026-10-07-stage4a-qualify.md"
+      ],
+      "note": "It reads \"...so findings pay zero. It pays zero and costs thousands...\" and says \"either the operator declared it unsupported or the support claim is not checkable\" although the filter line directly above states which.",
+      "destination": "unscheduled"
+    },
+    {
+      "id": "qualify-f3-not-adversarial",
+      "severity": "medium",
+      "summary": "Filter 3 is not a gate against an operator who wants a GO.",
+      "docs": [
+        "audit_core/qualify.py",
+        "docs/superpowers/specs/2026-10-07-stage4a-qualify-design.md"
+      ],
+      "note": "It blocks absent and lazy assertions and forces the claim into the output where a later reader can falsify it, but any 20+ character string containing a year and one novel token passes (e.g. \"it is not supported anymore as of 2020\"). Recorded as a known property of the rule, not a bug.",
+      "destination": "none - known property"
     }
   ]
 }

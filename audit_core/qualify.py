@@ -45,7 +45,7 @@ class Score:
     model: str
     rce_cves: int
     slop_pct: float
-    max_cvss: float
+    max_cvss: float | None
     first_pub: str
     last_pub: str
     top_source: str
@@ -100,17 +100,23 @@ def load_scores(path: str | pathlib.Path) -> dict[tuple[str, str], Score]:
                 try:
                     rce_cves = int(row["rce_cves"])
                     slop_pct = float(row["slop_pct"])
-                    max_cvss = float(row["max_cvss"])
 
                     # Reject impossible values; fail closed on every check
                     if rce_cves < 0:
                         continue
-                    if not (0 <= max_cvss <= 10):
-                        continue
                     if not math.isfinite(slop_pct):
                         continue
-                    if not math.isfinite(max_cvss):
-                        continue
+                    if not (0 <= slop_pct <= 100):
+                        continue  # a negative slop would pass low-slop
+
+                    # max_cvss is read by no filter: keep the row, drop the
+                    # value, rather than claiming the model is not in the set.
+                    try:
+                        max_cvss = float(row["max_cvss"])
+                        if not (math.isfinite(max_cvss) and 0 <= max_cvss <= 10):
+                            max_cvss = None
+                    except (ValueError, TypeError):
+                        max_cvss = None
 
                     score = Score(
                         vendor=row["vendor"].strip().lower(),
@@ -259,11 +265,14 @@ def filter_supported(vendor: str, model: str, supported: bool,
     # and irrelevant handles from passing.
     stripped = evidence
 
-    # Remove vendor and model names (case-insensitive) when they are NOT
-    # immediately followed by a dot (to avoid breaking domain names like
-    # zyxel.com). This handles models ending in non-word chars like ).
-    stripped = re.sub(rf"{re.escape(vendor)}(?![\w.])", "", stripped, flags=re.I)
-    stripped = re.sub(rf"{re.escape(model)}(?![\w.])", "", stripped, flags=re.I)
+    # Remove vendor and model names (case-insensitive) unless they continue
+    # as a word or as a hostname (zyxel.com). The lookahead is TLD-specific
+    # on purpose: a bare `.` also protected "<model>. it is supported",
+    # which let a sentence-ending period self-certify.
+    for name in (vendor, model):
+        stripped = re.sub(
+            rf"{re.escape(name)}(?!\w|\.(?:com|net|org|tw|io|cn)\b)",
+            "", stripped, flags=re.I)
 
     # Remove non-support patterns: CVSS scores, CVE IDs, scoring patterns
     stripped = re.sub(r"cvss\s*v?\d+(?:\.\d+)?", "", stripped, flags=re.I)
@@ -302,7 +311,8 @@ def qualify(scores: dict[tuple[str, str], Score], vendor: str, model: str,
         filter_supported(vendor, model, supported, evidence),
     )
     verdict = GO if all(f.passed for f in filters) else NOGO
-    return Qualification(vendor=vendor, model=model, score=score,
+    return Qualification(vendor=vendor.strip().lower(),
+                         model=model.strip().lower(), score=score,
                          filters=filters, verdict=verdict)
 
 
