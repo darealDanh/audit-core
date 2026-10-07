@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-07 · **HEAD:** `3aaebb5` on `main`, working tree clean ·
-**Tests:** 491 · **Gates:** 7/7 green
+**Written:** 2026-10-07 · **Branch:** `stage3b/measurement-hardening` (from `3aaebb5`), working tree clean ·
+**Tests:** 569 · **Gates:** 7/7 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,8 +59,8 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `main` at `3aaebb5`, clean. Stages 0–3 merged. No open branches,
-  no SDD workspace (deleted after the Stage 3 merge).
+- **Branch:** `stage3b/measurement-hardening`, forked from `main` at `3aaebb5`.
+  Stages 0-3 merged to `main`; Stage 3b complete on this branch, not yet merged.
 - **`main` is 84 commits ahead of `origin/main` and has never been pushed.**
   `git pull` fails with an access-rights error; origin is unreachable from
   this machine. Everything exists only in this working copy — **take that
@@ -80,11 +80,11 @@ make all          # all seven gates, ~30s
 Expected:
 
 ```
-PASS  tests       491 passed
-PASS  selftest    verbs 20 declared / tables 15 in schema.sql, 14 under contract / migrations 4
+PASS  tests       569 passed
+PASS  selftest    verbs 22 declared / tables 15 in schema.sql, 14 under contract / migrations 4
 PASS  lint        skill lint: clean
 PASS  eol         6 CRLF files, 116 LF
-PASS  manifest    29 features ... all paths and verbs resolve
+PASS  manifest    34 features ... all paths and verbs resolve
 PASS  install     92 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  bench       recall 9/19, 45 findings, precision 39/40, $73.15 per match
 ```
@@ -107,44 +107,34 @@ zero-audit-cost: it changes code, changes prose, or scores an `audit.db` that
 already exists.
 
 This matches spec §6.1, which runs the benchmark at milestones only and uses
-**deterministic leading indicators** in between — indicators that have never
-been built. Building them is therefore the first task.
+**deterministic leading indicators** in between — indicators, now built in Stage 3b
+(`audit.py indicators`). This stage did not run a benchmark and did not change
+the deferral.
 
 ## 4. What to do next
 
-### Option A — build the deterministic leading indicators (recommended)
+Stage 3b (measurement hardening) is done on branch
+`stage3b/measurement-hardening`; the leading indicators, severity agreement,
+coverage in `bench`, `rerate` and the four parked defects are no longer options.
+What remains:
 
-Spec §6.1 names four: coverage percentage, surfaces opened, sweep hit counts,
-`not_audited` row count. Nothing emits them. They read an existing `audit.db`
-and cost nothing per run, and until they exist, deferring the gate is blind
-rather than merely deferred.
+### Merge and push
 
-### Option B — close the `bench` measurement gaps
+Merge `stage3b/measurement-hardening` to `main`. `main` is 84 commits ahead of
+origin and has never been pushed; pushing needs a reachable origin.
 
-Two, both scoring an `audit.db` that already exists:
+### Take a second indicator snapshot
 
-- **Severity agreement.** `bench` loads `severity` on both sides and compares
-  neither. Four of the nine reference CRITICALs the audit found were rated
-  below the reference, one of them a pre-authentication auth bypass filed as
-  LOW. Until this is scored, Stage 4's ≥ 12/19 target can be hit while still
-  mis-rating half of what it finds.
-  See `docs/superpowers/specs/2026-10-05-stage0-findings-for-later-stages.md` §1.
-- **Coverage.** §6.1 says `bench` reports recall, precision, **coverage** and
-  cost per finding. It reports three of the four.
+The first snapshot reads `absent` for coverage, sweep hits and `not_audited`,
+because the only `audit.db` that exists predates those tables. A comparison
+needs a second datapoint, which needs an audit run, which the standing
+instruction in §3 forbids until the operator asks.
 
-Then the pipeline change the same finding implies: a step that **re-derives
-severity once reachability and chain composition are known**, rather than
-fixing it at discovery time.
+### Decide what `rerate` is for
 
-### Option C — close the parked defects
-
-The preflight `--server` flatten, the briefs one-error-class-per-run, the
-`--replace` column blanking, the fpcheck batch-id mismatch. All small, all
-verified open on 2026-10-07.
-
-### Option D — push `main`
-
-84 commits are local-only. Needs a reachable origin.
+On the real corpus it flags 9 findings, recovers G1-F4 and G1-F7 (2 of the 4
+known under-rated) without the golden set, and has one known negation false
+positive (G4-F4). Nothing mutates severity; that waits on a benchmark run.
 
 ### Held, not forgotten — the tiering gate
 
@@ -154,19 +144,18 @@ runs, so it stays held under the standing instruction above. Two guard tests
 in `tests/test_skill_lint.py` fail deliberately if the diff is applied without
 running the gate — that is the point of them; do not "fix" them.
 
-### Option E — plan Stage 4
+### Plan Stage 4
 
-`firmware-audit` plus the monorepo restructure, spec §4 and §3.1. Note the
-gate requires **two** targets: tplink ≥ 12/19 at ≤ $45 *and* the asus golden
+`firmware-audit` plus the monorepo restructure, spec §4 and §3.1. The gate
+requires **two** targets: tplink >= 12/19 at <= $45 *and* the asus golden
 passing, to guard against overfitting. The asus golden does not exist yet, so
 building it is the real first task.
 
-Given the 97.5% precision against 47.4% recall, Stage 4's ≥ 12/19 target is a
-**recall** problem. Spend the effort on breadth, not on filtering.
+Stage 3b measured severity: `severity 5/9 agree`, 4 under-rated, `weighted
+recall 0.382` against `recall 9/19`. Stage 4's target is a **recall** problem,
+but a finding made and filed LOW is not a finding found, so watch both.
 
-Spec §10 is still undecided — whether `grey-audit` joins the monorepo or
-consumes the core as a submodule. It blocks the restructure, not the firmware
-phases, so it can be decided alongside rather than first.
+Spec §10 is still undecided and blocks the restructure, not the firmware phases.
 
 ---
 
@@ -210,8 +199,8 @@ following the shipped workflow exactly produced FAIL / exit 1 on a correct run.
 Kept here so nobody re-trusts them:
 
 - A Stage 3 fix-wave report claimed `chain --compose --replace` and
-  `identify --replace` no longer blank optional columns. **They still do.**
-  The behaviour is real, pre-existing, and parked with a ruling.
+  `identify --replace` no longer blank optional columns. **They still did.**
+  The claim was wrong when made; the defect was fixed for real in Stage 3b.
 - A Stage 3 derivation miscounted its own hunks as 21 against an actual 15,
   and the wrong figure propagated into both an implementer report and a review
   brief.

@@ -139,3 +139,15 @@ def test_an_unknown_gate_is_rejected_rather_than_ignored():
     """`--only typo` silently running nothing and exiting 0 is the worst
     possible outcome for a gate runner wired into CI."""
     assert harness.main(["--only", "no-such-gate"]) == 2
+
+
+def test_selftest_reports_every_verb_the_parser_declares():
+    """The manifest gate checks feature_lists.json against audit.py. This
+    checks audit.py against itself, so a verb added to HANDLERS without a
+    subparser fails here rather than at a user's first invocation."""
+    import subprocess
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "audit.py"), "selftest"],
+        capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "22 declared, all dispatchable" in proc.stdout
