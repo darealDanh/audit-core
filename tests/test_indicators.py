@@ -1,3 +1,5 @@
+import datetime
+import pathlib
 import sqlite3
 
 import pytest
@@ -190,3 +192,15 @@ def test_sweep_hits_absent_when_pattern_hits_missing(tmp_path):
     assert ind.sweep_hits.is_absent
     assert "cba_pattern_hits" in ind.sweep_hits.note
     con.close()
+
+
+def test_snapshot_path_is_dated_and_named_for_the_target(tmp_path):
+    p = indicators.snapshot_path(
+        tmp_path, "tplink-dl110v2", datetime.date(2026, 10, 7))
+    assert p == tmp_path / "docs" / "indicators" / "2026-10-07-tplink-dl110v2.json"
+
+
+def test_a_label_distinguishes_two_snapshots_on_one_day(tmp_path):
+    p = indicators.snapshot_path(
+        tmp_path, "tplink", datetime.date(2026, 10, 7), label="after-r3")
+    assert p.name == "2026-10-07-tplink-after-r3.json"

@@ -13,6 +13,10 @@ reading comes from a later run.
 """
 from __future__ import annotations
 
+import datetime
+import json
+import pathlib
+import re
 import sqlite3
 from dataclasses import dataclass
 
@@ -140,3 +144,44 @@ def to_json(ind: Indicators) -> dict:
         "indicators": {k: getattr(ind, k).as_json() for k in
                        ("coverage", "surfaces", "sweep_hits", "not_audited")},
     }
+
+
+SNAPSHOT_DIR = ("docs", "indicators")
+_SAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+class IndicatorError(Exception):
+    """A snapshot cannot be written where it was asked for."""
+
+
+def snapshot_path(root: str | pathlib.Path, target: str,
+                  when: datetime.date, label: str | None = None) -> pathlib.Path:
+    """`docs/indicators/YYYY-MM-DD-<target>[-<label>].json`.
+
+    The target and label are slugged, because they reach the filesystem: a
+    target named from a directory can carry a slash, and a path separator in
+    a filename component silently writes somewhere nobody looked.
+    """
+    stem = _SAFE.sub("-", target).strip("-") or "unnamed"
+    if label:
+        stem += "-" + (_SAFE.sub("-", label).strip("-") or "labelled")
+    return pathlib.Path(root).joinpath(*SNAPSHOT_DIR) / f"{when:%Y-%m-%d}-{stem}.json"
+
+
+def write_snapshot(path: str | pathlib.Path, ind: Indicators) -> pathlib.Path:
+    """Write, and refuse to overwrite.
+
+    `docs/indicators/` follows the `docs/baselines/` rule: a measurement is
+    never edited in place, so a superseded one stays visible in git history.
+    Silently overwriting today's snapshot with this afternoon's would destroy
+    the morning's measurement and leave no trace that it existed.
+    """
+    path = pathlib.Path(path)
+    if path.exists():
+        raise IndicatorError(
+            f"{path} already exists. Measurements are never edited in place -- "
+            f"pass --label <word> to write a second snapshot of the same "
+            f"target on the same day.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(to_json(ind), indent=2) + "\n")
+    return path

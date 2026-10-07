@@ -2,6 +2,7 @@
 """audit.py - verb dispatch for the audit suite."""
 import argparse
 import dataclasses
+import datetime
 import hashlib
 import json
 import pathlib
@@ -31,6 +32,7 @@ from audit_core import pivot as pivot_mod  # noqa: E402
 from audit_core import patterns as patterns_mod  # noqa: E402
 from audit_core import identity as identity_mod  # noqa: E402
 from audit_core import chains as chains_mod  # noqa: E402
+from audit_core import indicators as indicators_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -203,6 +205,38 @@ def cmd_bench(args: argparse.Namespace) -> int:
     if result.suppressed_candidates:
         print(f"({result.suppressed_candidates} candidate(s) suppressed by "
               f"rejections.json)")
+    return 0
+
+
+def cmd_indicators(args: argparse.Namespace) -> int:
+    db = pathlib.Path(args.db).expanduser()
+    if not db.is_file():
+        print(f"not found: {db}", file=sys.stderr)
+        return 1
+    # Read-only and UNGATED on purpose. db.connect() rejects a database that
+    # predates the Stage 3 columns, and that database is precisely what this
+    # verb exists to measure.
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        ind = indicators_mod.collect(
+            con, target=args.target or db.parent.name, phase=args.phase)
+    finally:
+        con.close()
+
+    if args.json:
+        print(json.dumps(indicators_mod.to_json(ind), indent=2))
+    else:
+        print(indicators_mod.render(ind))
+
+    if args.snapshot:
+        path = indicators_mod.snapshot_path(
+            args.root, ind.target, datetime.date.today(), label=args.label)
+        try:
+            written = indicators_mod.write_snapshot(path, ind)
+        except indicators_mod.IndicatorError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(f"snapshot: {written}")
     return 0
 
 
@@ -741,6 +775,7 @@ HANDLERS = {
     "selftest": cmd_selftest,
     "budget": cmd_budget,
     "bench": cmd_bench,
+    "indicators": cmd_indicators,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -776,6 +811,22 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--db", required=True, metavar="AUDIT_DB")
     n.add_argument("--cost", type=float, default=None)
     n.add_argument("--json", action="store_true")
+    ind = sub.add_parser("indicators",
+                         help="deterministic leading indicators for one run")
+    ind.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ind.add_argument("--target", default=None,
+                     help="name for this run in the snapshot; defaults to the "
+                          "database's parent directory name")
+    ind.add_argument("--phase", default=None,
+                     help="scope coverage and not_audited to one phase")
+    ind.add_argument("--json", action="store_true")
+    ind.add_argument("--snapshot", action="store_true",
+                     help="also write docs/indicators/<date>-<target>.json")
+    ind.add_argument("--label", default=None,
+                     help="distinguish a second snapshot of the same target "
+                          "on the same day")
+    ind.add_argument("--root", default=str(pathlib.Path(__file__).resolve().parent),
+                     metavar="DIR")
     i = sub.add_parser("init", help="create an audit run directory and its schema")
     i.add_argument("--root", default=".", metavar="DIR")
     i.add_argument("--timestamp", default=None, metavar="TS")
