@@ -1,0 +1,5 @@
+vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves
+zyxel,emg3525-t50b,13,0,9.8,2024-05-21,2026-02-24,security@zyxel.com.tw,zyxel.com,CVE-2024-0001
+draytek,vigor3910,49,0,9.8,2024-09-18,2025-02-27,psirt@draytek.com,draytek.com,CVE-2024-41585
+tenda,ac18,51,67,9.8,2024-03-15,2025-12-21,cna@vuldb.com,vuldb.com,CVE-2024-0002
+broken,row,notanumber,,9.8,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0003
