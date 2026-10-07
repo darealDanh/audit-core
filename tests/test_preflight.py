@@ -180,3 +180,53 @@ def test_cli_preflight_warns_when_it_writes_zero_servers(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "warning" in r.stderr.lower()
     assert json.loads(out.read_text())["mcpServers"] == {}
+
+
+def test_server_merges_over_a_kept_definition(tmp_path):
+    """Reproduced 2026-10-07: `--keep autorev --server autorev=uvx` wrote
+    {"command": "uvx"} and exited 0, discarding args and env.
+
+    That is the exact degradation load_servers' docstring says --keep exists
+    to prevent - a config --strict-mcp-config accepts and that then exposes a
+    server which cannot start. On a firmware audit it is the IDA server
+    arriving broken with no warning."""
+    src = tmp_path / "src.json"
+    src.write_text(json.dumps({"mcpServers": {"autorev": {
+        "command": "uvx", "args": ["autorev-mcp", "--db", "x.i64"],
+        "env": {"K": "v"}}}}))
+    out = tmp_path / "out.json"
+    p = subprocess.run(
+        [sys.executable, str(ROOT / "audit.py"), "preflight",
+         "--from-config", str(src), "--keep", "autorev",
+         "--server", "autorev=uvx-new", "--out", str(out)],
+        capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    server = json.loads(out.read_text())["mcpServers"]["autorev"]
+    assert server["command"] == "uvx-new"       # the override applies
+    assert server["args"] == ["autorev-mcp", "--db", "x.i64"]   # nothing else lost
+    assert server["env"] == {"K": "v"}
+
+
+def test_server_without_a_kept_definition_is_still_a_bare_command():
+    """The untested half. A --server naming something --keep never copied
+    must still produce a working single-key definition."""
+    assert preflight.merge_server(None, "uvx") == {"command": "uvx"}
+    assert preflight.merge_server({}, "uvx") == {"command": "uvx"}
+
+
+def test_merge_does_not_mutate_the_kept_definition():
+    kept = {"command": "old", "args": ["a"]}
+    merged = preflight.merge_server(kept, "new")
+    assert kept == {"command": "old", "args": ["a"]}
+    assert merged["command"] == "new"
+    assert merged["args"] == ["a"]
+
+
+def test_merge_does_not_alias_nested_values_of_the_kept_definition():
+    """dict(kept) is shallow: args and env are shared with the caller."""
+    kept = {"command": "old", "args": ["a"], "env": {"K": "v"}}
+    merged = preflight.merge_server(kept, "new")
+    merged["args"].append("b")
+    merged["env"]["K2"] = "v2"
+    assert kept["args"] == ["a"]
+    assert kept["env"] == {"K": "v"}

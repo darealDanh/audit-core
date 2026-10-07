@@ -10,8 +10,11 @@ import pathlib
 import sqlite3
 from dataclasses import dataclass
 
+from audit_core import indicators as indicators_mod
 from audit_core import text
+from audit_core.db import SEVERITIES
 from audit_core.goldens import Reference
+from audit_core.readings import Reading
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +31,102 @@ class Candidate:
     reference_id: str
     finding_id: str
     reason: str
+
+
+UNDER_RATING_PENALTY = 0.25
+"""Credit lost per ladder step a match is under-rated.
+
+A quarter per step, so a CRITICAL filed LOW (three steps) keeps a quarter of
+its credit and a CRITICAL filed INFORMATIONAL (four) keeps none. The exact
+figure is a judgement, not a measurement - it is named here so that changing
+it is a visible decision rather than an edit buried in an expression.
+
+Over-rating costs nothing. Calling a medium a high is noise; it is not a
+vulnerability anybody failed to find, and recall is a question about finding.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class SeverityDelta:
+    reference_id: str
+    finding_id: str
+    reference_severity: str
+    finding_severity: str
+    steps: int
+    """Ladder steps the finding sits BELOW the reference. Negative means the
+    finding was rated higher than the reference."""
+
+
+@dataclass(frozen=True, slots=True)
+class SeverityAgreement:
+    """Whether a match that was found was also rated correctly.
+
+    Recall asks whether the audit found the bug. This asks whether it
+    understood what it found. The two are independent: an audit can reach
+    12/19 while filing an authentication bypass as a low-severity overflow,
+    which is what the tplink run did on four of its nine matches.
+    """
+    agreed: int
+    under_rated: int
+    over_rated: int
+    unrankable: int
+    worst_steps: int
+    deltas: tuple[SeverityDelta, ...]
+
+
+def _rank(severity: str) -> int | None:
+    """Index on the ladder, or None for a severity outside the vocabulary.
+
+    None rather than an exception: a golden carrying a severity this codebase
+    does not know is a reason to report that fact, not to lose the whole
+    run's score partway through computing it.
+    """
+    if not isinstance(severity, str):
+        return None
+    try:
+        return SEVERITIES.index(severity.strip().upper())
+    except ValueError:
+        return None
+
+
+def severity_agreement(
+    refs: list[Reference],
+    findings: list[RunFinding],
+    matched: tuple[tuple[str, str], ...],
+) -> SeverityAgreement:
+    ref_by_id = {r.id: r for r in refs}
+    finding_by_id = {f.id: f for f in findings}
+
+    agreed = under = over = unrankable = 0
+    worst = 0
+    deltas: list[SeverityDelta] = []
+
+    for ref_id, finding_id in matched:
+        reference = ref_by_id.get(ref_id)
+        found = finding_by_id.get(finding_id)
+        if reference is None or found is None:
+            continue
+        r_rank, f_rank = _rank(reference.severity), _rank(found.severity)
+        if r_rank is None or f_rank is None:
+            unrankable += 1
+            deltas.append(SeverityDelta(
+                ref_id, finding_id, reference.severity, found.severity, 0))
+            continue
+        steps = f_rank - r_rank          # ladder is strongest-first
+        if steps == 0:
+            agreed += 1
+            continue
+        if steps > 0:
+            under += 1
+            worst = max(worst, steps)
+        else:
+            over += 1
+        deltas.append(SeverityDelta(
+            ref_id, finding_id, reference.severity, found.severity, steps))
+
+    return SeverityAgreement(agreed=agreed, under_rated=under, over_rated=over,
+                             unrankable=unrankable, worst_steps=worst,
+                             deltas=tuple(deltas))
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +147,33 @@ class BenchResult:
     the case for both tplink pairs now that `tss` is under the token floor.
     """
     precision: Precision | None = None
+    severity: SeverityAgreement | None = None
+    coverage: Reading | None = None
+
+    @property
+    def weighted_recall(self) -> float | None:
+        """Recall crediting a match in full only where severity agrees.
+
+        None, not 0.0, when severity was not scored: 0.0 reads as "every
+        match was mis-rated". Emitted ALONGSIDE `recall`, never instead -
+        the >= 9/19 floor and the >= 12/19 target are written against
+        `recall`, and silently restating them is not this figure's job.
+
+        Unrankable pairs (a severity outside the ladder, or not a string)
+        KEEP full credit. Crediting them 0 would punish a run for a golden's
+        vocabulary problem, and excluding them from the divisor would break
+        comparability with `recall`, which shares `reference_count`. The
+        consequence: an unrankable pair can mask a real under-rating, which
+        is why both the count and the pairs themselves are printed.
+        """
+        if self.severity is None or not self.reference_count:
+            return None
+        credit = float(self.severity.agreed + self.severity.over_rated
+                       + self.severity.unrankable)
+        for d in self.severity.deltas:
+            if d.steps > 0:
+                credit += max(0.0, 1.0 - UNDER_RATING_PENALTY * d.steps)
+        return credit / self.reference_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +234,24 @@ def precision_from_db(db_path: str | pathlib.Path) -> Precision | None:
         needs_verification=counts.get("NEEDS_VERIFICATION", 0))
 
 
+def coverage_from_db(db_path: str | pathlib.Path) -> Reading:
+    """Analyzed over inventoried, or the reason there is no such fraction.
+
+    Reports the whole-run figure (phase=None), not the phase-scoped figure
+    that the coverage exit gate answers.
+
+    Opened read-only and ungated, for the same reason `load_findings_from_db`
+    is: bench must keep scoring run directories older than the current
+    schema, and `db.connect()` rejects exactly those.
+    """
+    path = pathlib.Path(db_path)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return indicators_mod.coverage_reading(con)
+    finally:
+        con.close()
+
+
 def load_findings_from_db(db_path: str | pathlib.Path) -> list[RunFinding]:
     con = sqlite3.connect(f"file:{pathlib.Path(db_path)}?mode=ro", uri=True)
     try:
@@ -127,6 +271,7 @@ def score(
     rejected: frozenset[tuple[str, str]] = frozenset(),
     cost_usd: float | None = None,
     precision: Precision | None = None,
+    coverage: Reading | None = None,
 ) -> BenchResult:
     """Score `findings` against `refs`.
 
@@ -179,6 +324,8 @@ def score(
     recall = len(matched) / len(refs) if refs else 0.0
     cost_per_match = (cost_usd / len(matched)) if (cost_usd is not None and matched) else None
 
+    agreement = severity_agreement(refs, findings, tuple(matched))
+
     return BenchResult(
         recall=recall,
         matched=tuple(matched),
@@ -189,4 +336,6 @@ def score(
         cost_per_match=cost_per_match,
         suppressed_candidates=suppressed,
         precision=precision,
+        severity=agreement,
+        coverage=coverage,
     )

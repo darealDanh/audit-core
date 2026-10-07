@@ -28,9 +28,9 @@ The dispatch brief is a template at `references/briefs/fpcheck-brief.md`,
 rendered per batch by `audit.py brief`. Do not paste its contents into a
 dispatch — render it and send the path (spec rule R6):
 
-    python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit B1 --run "$AUDIT_DIR" \
-      --var batch_id=B1 --var finding_ids='...' --var run_dir="$AUDIT_DIR" \
-      --var source_access='...' --var artifact_path="$AUDIT_DIR/artifacts/phase5-B1.md"
+    python3 __SKILL_DIR__/audit.py brief --phase fpcheck --unit A --run "$AUDIT_DIR" \
+      --var batch_id=A --var finding_ids='...' --var run_dir="$AUDIT_DIR" \
+      --var source_access='...' --var artifact_path="$AUDIT_DIR/artifacts/phase5-A.md"
 
 The *Canonical FP Rules Summary* below remains the authority for the Hard
 Exclusions, Precedent rules and Capability Validity checks the brief tells

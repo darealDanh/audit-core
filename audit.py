@@ -2,6 +2,7 @@
 """audit.py - verb dispatch for the audit suite."""
 import argparse
 import dataclasses
+import datetime
 import hashlib
 import json
 import pathlib
@@ -31,6 +32,9 @@ from audit_core import pivot as pivot_mod  # noqa: E402
 from audit_core import patterns as patterns_mod  # noqa: E402
 from audit_core import identity as identity_mod  # noqa: E402
 from audit_core import chains as chains_mod  # noqa: E402
+from audit_core import indicators as indicators_mod  # noqa: E402
+from audit_core import rerate as rerate_mod  # noqa: E402
+from audit_core import readings as readings_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -168,12 +172,17 @@ def cmd_bench(args: argparse.Namespace) -> int:
     rejected = goldens_mod.load_rejections(golden / "rejections.json")
     findings = bench_mod.load_findings_from_db(db)
     precision = bench_mod.precision_from_db(db)
+    coverage_reading = bench_mod.coverage_from_db(db)
     result = bench_mod.score(refs, findings, adjudicated,
                              rejected=rejected, cost_usd=args.cost,
-                             precision=precision)
+                             precision=precision, coverage=coverage_reading)
 
     if args.json:
-        print(json.dumps(dataclasses.asdict(result), indent=2))
+        payload = dataclasses.asdict(result) | {
+            "weighted_recall": result.weighted_recall,
+            "coverage": result.coverage.as_json() if result.coverage is not None else None,
+        }
+        print(json.dumps(payload, indent=2))
         return 0
 
     print(f"golden   {golden.name}")
@@ -192,6 +201,30 @@ def cmd_bench(args: argparse.Namespace) -> int:
               f"[+{p.duplicates} dup, {p.needs_verification} undecided]")
         print("           what this run's own FP-check kept; comparable only "
               "against the same golden and pipeline")
+    if result.severity is not None:
+        s = result.severity
+        scored = s.agreed + s.under_rated + s.over_rated + s.unrankable
+        print(f"severity   {s.agreed}/{scored} agree  "
+              f"[{s.under_rated} under-rated, {s.over_rated} over-rated, "
+              f"{s.unrankable} unrankable]")
+        if s.under_rated:
+            print(f"           worst {s.worst_steps} ladder step(s) low; "
+                  f"recall counts these in full, weighted recall does not")
+        for d in s.deltas:
+            if d.steps > 0:
+                print(f"             {d.reference_id} ~ {d.finding_id}: "
+                      f"{d.reference_severity} filed as {d.finding_severity}")
+        for d in s.deltas:
+            if d.steps == 0:
+                print(f"             {d.reference_id} ~ {d.finding_id}: "
+                      f"unrankable ({d.reference_severity!r} vs "
+                      f"{d.finding_severity!r})")
+    if result.coverage is not None:
+        print(f"coverage   {result.coverage.render('%')}")
+    if result.weighted_recall is not None:
+        print(f"weighted recall  {result.weighted_recall:.3f} "
+              f"(severity-credited; the gate floor is written against "
+              f"`recall` above)")
     if result.cost_per_match is not None:
         print(f"cost per matched finding  ${result.cost_per_match:.2f}")
     if result.unmatched_references:
@@ -203,6 +236,105 @@ def cmd_bench(args: argparse.Namespace) -> int:
     if result.suppressed_candidates:
         print(f"({result.suppressed_candidates} candidate(s) suppressed by "
               f"rejections.json)")
+    return 0
+
+
+def cmd_rerate(args: argparse.Namespace) -> int:
+    db = pathlib.Path(args.db).expanduser()
+    if not db.is_file():
+        print(f"not found: {db}", file=sys.stderr)
+        return 1
+    # Read-only, and ungated for the same reason `indicators` is.
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        if readings_mod.table_state(con, "cba_findings") == readings_mod.ABSENT:
+            if args.json:
+                print("[]")
+            else:
+                print("rerate: cba_findings is not in this database; "
+                      "nothing to examine.")
+            return 0
+        chains_absent = readings_mod.table_state(
+            con, "cba_chains") == readings_mod.ABSENT
+        flags = rerate_mod.examine(con)
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dataclasses.asdict(f) for f in flags], indent=2))
+    else:
+        print(rerate_mod.render(flags, chains_absent=chains_absent))
+    return 0
+
+
+def cmd_indicators(args: argparse.Namespace) -> int:
+    if not args.compare and not args.db:
+        print("indicators needs --db PATH, or --compare A B", file=sys.stderr)
+        return 1
+
+    if args.compare:
+        a_path, b_path = (pathlib.Path(p).expanduser() for p in args.compare)
+        for p in (a_path, b_path):
+            if not p.is_file():
+                print(f"not found: {p}", file=sys.stderr)
+                return 1
+        # Load and validate both snapshots
+        for p in (a_path, b_path):
+            try:
+                data = json.loads(p.read_text())
+                if not isinstance(data, dict):
+                    print(f"invalid snapshot {p}: top level must be a dict",
+                          file=sys.stderr)
+                    return 1
+                if "indicators" not in data:
+                    print(f"invalid snapshot {p}: missing 'indicators' key",
+                          file=sys.stderr)
+                    return 1
+                if data.get("schema_version") != indicators_mod.SCHEMA_VERSION:
+                    print(f"snapshot {p}: schema_version "
+                          f"{data.get('schema_version')!r} is not "
+                          f"{indicators_mod.SCHEMA_VERSION}; refusing to compare",
+                          file=sys.stderr)
+                    return 1
+            except json.JSONDecodeError as exc:
+                print(f"invalid JSON in {p}: {exc}", file=sys.stderr)
+                return 1
+        a = json.loads(a_path.read_text())
+        b = json.loads(b_path.read_text())
+        deltas = indicators_mod.compare(a, b)
+        if args.json:
+            print(json.dumps([dataclasses.asdict(d) for d in deltas], indent=2))
+        else:
+            print(indicators_mod.render_compare(a_path.name, b_path.name, deltas))
+        return 0
+
+    db = pathlib.Path(args.db).expanduser()
+    if not db.is_file():
+        print(f"not found: {db}", file=sys.stderr)
+        return 1
+    # Read-only and UNGATED on purpose. db.connect() rejects a database that
+    # predates the Stage 3 columns, and that database is precisely what this
+    # verb exists to measure.
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        ind = indicators_mod.collect(
+            con, target=args.target or db.resolve().parent.name, phase=args.phase)
+    finally:
+        con.close()
+
+    if args.json:
+        print(json.dumps(indicators_mod.to_json(ind), indent=2))
+    else:
+        print(indicators_mod.render(ind))
+
+    if args.snapshot:
+        path = indicators_mod.snapshot_path(
+            args.root, ind.target, datetime.date.today(), label=args.label)
+        try:
+            written = indicators_mod.write_snapshot(path, ind)
+        except indicators_mod.IndicatorError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(f"snapshot: {written}", file=sys.stderr)
     return 0
 
 
@@ -241,7 +373,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         if not sep or not name or not command:
             print(f"bad --server {spec!r}; expected NAME=COMMAND", file=sys.stderr)
             return 1
-        servers[name] = {"command": command}
+        servers[name] = preflight_mod.merge_server(servers.get(name), command)
     out = pathlib.Path(args.out).expanduser()
     try:
         preflight_mod.write_config(out, servers, force=args.force)
@@ -741,6 +873,8 @@ HANDLERS = {
     "selftest": cmd_selftest,
     "budget": cmd_budget,
     "bench": cmd_bench,
+    "indicators": cmd_indicators,
+    "rerate": cmd_rerate,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -776,6 +910,29 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--db", required=True, metavar="AUDIT_DB")
     n.add_argument("--cost", type=float, default=None)
     n.add_argument("--json", action="store_true")
+    rr = sub.add_parser("rerate",
+                        help="report findings rated below the floor their own "
+                             "evidence implies (advisory; stores nothing)")
+    rr.add_argument("--db", required=True, metavar="AUDIT_DB")
+    rr.add_argument("--json", action="store_true")
+    ind = sub.add_parser("indicators",
+                         help="deterministic leading indicators for one run")
+    ind.add_argument("--db", metavar="AUDIT_DB")
+    ind.add_argument("--compare", nargs=2, metavar=("SNAPSHOT_A", "SNAPSHOT_B"))
+    ind.add_argument("--target", default=None,
+                     help="name for this run in the snapshot; defaults to the "
+                          "database's parent directory name")
+    ind.add_argument("--phase", default=None,
+                     help="scope coverage and not_audited to one phase")
+    ind.add_argument("--json", action="store_true")
+    ind.add_argument("--snapshot", action="store_true",
+                     help="also write docs/indicators/<date>-<target>.json")
+    ind.add_argument("--label", default=None,
+                     help="distinguish a second snapshot of the same target "
+                          "on the same day")
+    ind.add_argument("--root", default=".", metavar="DIR",
+                     help="snapshots land under <root>/docs/indicators/; "
+                          "defaults to the current directory")
     i = sub.add_parser("init", help="create an audit run directory and its schema")
     i.add_argument("--root", default=".", metavar="DIR")
     i.add_argument("--timestamp", default=None, metavar="TS")
@@ -832,7 +989,8 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--pre-auth", dest="pre_auth", default=None)
     ch.add_argument("--blocking-unknowns", dest="blocking_unknowns",
                     default=None)
-    ch.add_argument("--replace", action="store_true")
+    ch.add_argument("--replace", action="store_true",
+        help="overwrite an existing row; an omitted or empty optional field KEEPS the stored value and cannot be cleared this way; to blank one deliberately, write an explicit placeholder value")
     ch.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
@@ -927,7 +1085,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="what you read out of it that says so")
     idf.add_argument("--confidence", default=None, metavar="1-10")
     idf.add_argument("--version", default=None)
-    idf.add_argument("--replace", action="store_true")
+    idf.add_argument("--replace", action="store_true",
+        help="overwrite an existing row; an omitted or empty optional field KEEPS the stored value and cannot be cleared this way; to blank one deliberately, write an explicit placeholder value")
     return p
 
 

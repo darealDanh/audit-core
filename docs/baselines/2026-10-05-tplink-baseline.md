@@ -334,3 +334,23 @@ missed:     REF-1, REF-2, REF-4, REF-7, REF-8, REF-9, REF-10, REF-11, REF-15, RE
 adjudication log for both pairs, the `rejections.json` contract, the token
 rule and the five generic word tokens that survive the floor and remain
 latent.
+
+---
+
+## Appended 2026-10-07 — severity agreement (Stage 3b)
+
+Re-scored with `audit.py bench` after Stage 3b added severity agreement. **The
+underlying run is unchanged**; this is the same stored `audit.db` read by a
+scorer that now compares a dimension it previously loaded and ignored. No
+audit was run.
+
+| Metric | Value |
+|---|---|
+| Recall (unchanged) | 9/19 |
+| Severity agreement | 5/9 |
+| Under-rated | 4 |
+| Worst delta | 3 ladder steps (REF-17, CRITICAL filed LOW) |
+| Weighted recall | 7.25/19 |
+
+Recall is unchanged by design: it is matched on root cause and location, and
+that is what the ≥ 9/19 floor and the ≥ 12/19 target are written against.

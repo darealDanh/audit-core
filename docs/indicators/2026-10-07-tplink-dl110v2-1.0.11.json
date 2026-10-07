@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "target": "tplink-dl110v2-1.0.11",
+  "phase": null,
+  "indicators": {
+    "coverage": {
+      "state": "absent",
+      "note": "cba_coverage / cba_inventory are not in this database (it predates Stage 2)"
+    },
+    "surfaces": {
+      "state": "present",
+      "value": 197,
+      "detail": [
+        [
+          "G1",
+          9
+        ],
+        [
+          "G2",
+          30
+        ],
+        [
+          "G3",
+          64
+        ],
+        [
+          "G4",
+          21
+        ],
+        [
+          "G5",
+          39
+        ],
+        [
+          "G6",
+          34
+        ]
+      ]
+    },
+    "sweep_hits": {
+      "state": "absent",
+      "note": "cba_pattern_hits is not in this database"
+    },
+    "not_audited": {
+      "state": "absent",
+      "note": "cba_coverage is not in this database"
+    }
+  }
+}

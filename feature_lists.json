@@ -52,7 +52,7 @@
     {
       "id": "stage3b",
       "name": "Measurement hardening and parked defects",
-      "status": "planned",
+      "status": "shipped",
       "gate": "none - no audit run, no change to audit output",
       "summary": "Deterministic leading indicators (parent spec 6.1), severity agreement and coverage in bench, an advisory severity re-rating report, and the four defects Stages 0 and 1 parked. Ships while the benchmark gates are deferred on cost, because nothing in it changes what an audit records."
     },
@@ -553,67 +553,107 @@
       "id": "leading-indicators",
       "name": "Deterministic leading indicators",
       "area": "cli",
-      "status": "planned",
+      "status": "shipped",
       "stage": "stage3b",
-      "verbs_planned": [
-        "indicators"
-      ],
       "docs": [
         "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
-        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
+        "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md",
+        "docs/indicators/README.md",
+        "docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json"
       ],
-      "notes": "Coverage percentage, surfaces opened, sweep hit counts and not_audited rows, with dated JSON snapshots under docs/indicators/ and a --compare that names what moved. The between-milestone substitute the parent spec 6.1 names and nobody built. Three of the four have no data in any existing audit.db, so they ship verified against fixtures."
+      "notes": "Coverage percentage, surfaces opened, sweep hit counts and not_audited rows, with dated JSON snapshots under docs/indicators/ and a --compare that names what moved. The between-milestone substitute the parent spec 6.1 names and nobody built. Three of the four have no data in any existing audit.db, so they ship verified against fixtures.",
+      "verbs": [
+        "indicators"
+      ],
+      "modules": [
+        "audit_core/indicators.py",
+        "audit_core/readings.py"
+      ],
+      "tests": [
+        "tests/test_indicators.py",
+        "tests/test_readings.py",
+        "tests/test_cli_stage3b.py"
+      ]
     },
     {
       "id": "severity-agreement",
       "name": "Severity agreement scoring in bench",
       "area": "core",
-      "status": "planned",
+      "status": "shipped",
       "stage": "stage3b",
       "docs": [
         "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
-      "notes": "Additive: recall keeps its meaning so 9/19 and the >=12/19 target stay valid, with severity-weighted recall emitted alongside. Measurable today for free against the stored baseline; the expected result is four under-rated matches with REF-17 the worst delta."
+      "notes": "Additive: recall keeps its meaning so 9/19 and the >=12/19 target stay valid, with severity-weighted recall emitted alongside. Measurable today for free against the stored baseline; the expected result is four under-rated matches with REF-17 the worst delta.",
+      "modules": [
+        "audit_core/bench.py"
+      ],
+      "tests": [
+        "tests/test_bench_severity.py",
+        "tests/test_cli_bench.py"
+      ]
     },
     {
       "id": "bench-coverage",
       "name": "Coverage scoring in bench",
       "area": "core",
-      "status": "planned",
+      "status": "shipped",
       "stage": "stage3b",
       "docs": [
         "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
-      "notes": "Parent spec 6.1 defines bench as scoring recall, precision, coverage and cost per finding. It scores three of the four."
+      "notes": "Parent spec 6.1 defines bench as scoring recall, precision, coverage and cost per finding. It scores three of the four.",
+      "modules": [
+        "audit_core/bench.py",
+        "audit_core/coverage.py"
+      ],
+      "tests": [
+        "tests/test_bench.py",
+        "tests/test_cli_bench.py"
+      ]
     },
     {
       "id": "rerate-report",
       "name": "Advisory severity re-rating report",
       "area": "cli",
-      "status": "planned",
+      "status": "shipped",
       "stage": "stage3b",
-      "verbs_planned": [
-        "rerate"
-      ],
       "docs": [
         "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
-      "notes": "Reports findings whose recorded severity disagrees with their own cited evidence, and stores nothing. Its own verb rather than part of bench because it needs no golden set, so it works on every real client audit rather than only the one corpus with a reference set."
+      "notes": "Reports findings whose recorded severity disagrees with their own cited evidence, and stores nothing. Its own verb rather than part of bench because it needs no golden set, so it works on every real client audit rather than only the one corpus with a reference set.",
+      "verbs": [
+        "rerate"
+      ],
+      "modules": [
+        "audit_core/rerate.py"
+      ],
+      "tests": [
+        "tests/test_rerate.py",
+        "tests/test_cli_stage3b.py"
+      ]
     },
     {
       "id": "absent-not-zero",
       "name": "absent is not zero, in every new reader",
       "area": "core",
-      "status": "planned",
+      "status": "shipped",
       "stage": "stage3b",
       "docs": [
         "docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md",
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
-      "notes": "A pre-Stage-2 database has no cba_coverage table; reporting 0% claims total failure where the truth is no data. Every reader added in Stage 3b distinguishes a value, absent (no table) and empty (table, no rows). Same shape as the unscoped coverage gate that reported PASS/100% on a run that never opened the only unit."
+      "notes": "A pre-Stage-2 database has no cba_coverage table; reporting 0% claims total failure where the truth is no data. Every reader added in Stage 3b distinguishes a value, absent (no table) and empty (table, no rows). Same shape as the unscoped coverage gate that reported PASS/100% on a run that never opened the only unit.",
+      "modules": [
+        "audit_core/readings.py"
+      ],
+      "tests": [
+        "tests/test_readings.py",
+        "tests/test_indicators.py"
+      ]
     }
   ],
   "open_items": [
@@ -673,7 +713,9 @@
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
       "note": "Real, pre-existing, parked with a ruling. The Stage 3 fix-wave report claimed otherwise; that claim is recorded as wrong so it is not trusted.",
-      "destination": "stage3b"
+      "destination": "stage3b",
+      "status": "closed",
+      "closed_in": "stage3b"
     },
     {
       "id": "main-unpushed",
@@ -692,7 +734,9 @@
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
       "note": "bench loads `severity` on both sides and compares neither. Recall therefore understates the problem: half the findings that were made were under-rated. Severity is a claim about reachability and consequence, and the pipeline fixes it at discovery time, before chain composition runs. Recorded at the end of Stage 0 as an input to later stages; never actioned.",
-      "destination": "stage3b"
+      "destination": "stage3b",
+      "status": "closed",
+      "closed_in": "stage3b"
     },
     {
       "id": "asus-golden-missing",
@@ -714,7 +758,9 @@
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
       "note": "Reproduced 2026-10-07: --from-config src.json --keep autorev --server autorev=uvx writes {\"command\": \"uvx\"} and exits 0, losing the args and env that made the server work. This is precisely the degradation load_servers' docstring says --keep exists to prevent. Untested in either direction.",
-      "destination": "stage3b"
+      "destination": "stage3b",
+      "status": "closed",
+      "closed_in": "stage3b"
     },
     {
       "id": "briefs-one-error-class-per-run",
@@ -726,7 +772,9 @@
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
       "note": "Reproduced 2026-10-07: a template with one missing and one empty placeholder reports only the missing one; fixing it then reports the empty one. An operator fixing one class discovers the other a run later.",
-      "destination": "stage3b"
+      "destination": "stage3b",
+      "status": "closed",
+      "closed_in": "stage3b"
     },
     {
       "id": "fpcheck-batch-id-inconsistency",
@@ -739,7 +787,9 @@
         "docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md"
       ],
       "note": "The artifact path pattern was unified in Stage 1; the identifiers themselves were not. Carried forward from Stage 1 and still present.",
-      "destination": "stage3b"
+      "destination": "stage3b",
+      "status": "closed",
+      "closed_in": "stage3b"
     },
     {
       "id": "monorepo-question-open",

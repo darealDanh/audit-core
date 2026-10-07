@@ -52,6 +52,8 @@ A battle-tested methodology for auditing applications at scale. The workflow div
    `audit.py identify` refuses evidence that only repeats the path.
 15. **Chains cross groups, so something must look across them.**
    `audit.py chain` proposes; a human composes.
+16. **Measure between milestones.** `audit.py indicators` reports the four leading indicators (`--snapshot` records them); `audit.py rerate`
+   lists findings rated below their own evidence, and writes nothing.
 
 ## Economics Contract
 

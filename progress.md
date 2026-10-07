@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** `3aaebb5` on `main` · **Tests:** 491 ·
+**Last updated:** 2026-10-07 · **HEAD:** branch `stage3b/measurement-hardening` (forked from `3aaebb5` on `main`) · **Tests:** 569 ·
 **Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,8 +21,8 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0, 1, 2 and 3 are complete and merged to `main`.** Stages 4 and 5 have
-not been started.
+**Stages 0, 1, 2 and 3 are merged to `main`; Stage 3b is complete on branch
+`stage3b/measurement-hardening`.** Stages 4 and 5 have not been started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -30,6 +30,7 @@ not been started.
 | 1 | Cost wins that cannot touch quality | 26 | 32 files, +4,055 / −361 | **merged** (`c7d5944`) |
 | 2 | Structural change (`audit_core`, R1, R3) | 15 | 45 files, +9,074 / −70 | **merged** (`1f11f64`) — gate NOT run |
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
+| 3b | Measurement hardening and parked defects | 20 | see branch | **merged to its branch** — gate none, no audit run |
 | 4 | `firmware-audit` + monorepo | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -135,6 +136,40 @@ uncapped, all 45 examined.
 
 ---
 
+### Stage 3b — Measurement hardening and parked defects
+
+No audit was run and no audit output changed; the benchmark gates stay
+deferred (§7). Delivered:
+
+- **Leading indicators** — `audit.py indicators` reports coverage percentage,
+  surfaces opened, sweep hit counts and `not_audited` rows from an existing
+  `audit.db`, with dated snapshots under `docs/indicators/` and `--compare`.
+  The first snapshot (tplink) reads `surfaces opened 197` and `absent` for the
+  other three, because that database predates the tables. That is the honest
+  reading and is the reason it is committed.
+- **`absent` is not `0`** — `audit_core/readings.py`; every new reader
+  distinguishes a value, absent (no table) and empty (table, no rows).
+- **Severity agreement in `bench`**, additive. On the real corpus:
+  `severity 5/9 agree [4 under-rated, 0 over-rated, 0 unrankable]`, worst 3
+  ladder steps. The pairs are REF-12~G1-F4 (MEDIUM), REF-14~G1-F2 (HIGH),
+  REF-16~G3-F4 (HIGH) and REF-17~G1-F7 (LOW), all against CRITICAL references.
+  `weighted recall 0.382` (7.25/19) sits alongside `recall 9/19`, which is
+  unchanged.
+- **Coverage in `bench`** — it now scores all four of the spec's figures.
+- **`audit.py rerate`** — advisory, stores nothing, needs no golden set. On the
+  real corpus it flags 9 findings and recovers G1-F4 and G1-F7, two of the four
+  known under-rated, with one known negation false positive (G4-F4).
+- **Four parked defects closed** — `--replace` column blanking, the preflight
+  `--server` flatten, `briefs` one-error-class-per-run, and the fpcheck batch
+  identifier mismatch.
+
+Verbs went 20 to 22 (`indicators`, `rerate`); tests 491 to 569; `audit_core`
+gained `readings.py`, `indicators.py` and `rerate.py`. No `indicators` harness
+gate was added: it needs a database, the only one lives outside the repo, and a
+gate that SKIPs everywhere but one machine is noise.
+
+---
+
 ## 3. What was deliberately not done
 
 | Item | Why | Where it is recorded |
@@ -161,10 +196,11 @@ These are recorded in the gate documents and in `feature_lists.json`'s
 5. **`preflight` output has never reached a client that actually connected a
    real MCP server.** The file is produced and its shape is tested; the end of
    the loop is unverified.
-6. **`chain --compose --replace` and `identify --replace` still blank optional
-   columns** when their flags are omitted. Real, pre-existing, parked with a
-   ruling. The Stage 3 fix-wave report claimed otherwise — that claim is
-   recorded as wrong so it is not trusted.
+6. **`chain --compose --replace` and `identify --replace` blanked optional
+   columns** when their flags were omitted. Fixed in Stage 3b (`--replace`
+   now preserves columns the caller did not pass). The Stage 3 fix-wave report
+   had claimed this earlier; that claim was wrong at the time and is kept in
+   SESSION_HANDOFF §6 so it is not trusted.
 7. **`main` is 84 commits ahead of `origin/main` and has never been pushed.**
    `git pull` fails with an access-rights error; origin is unreachable from
    this machine. All four completed stages exist only in this working copy.
@@ -175,9 +211,10 @@ Recorded at the time in
 [`docs/superpowers/specs/2026-10-05-stage0-findings-for-later-stages.md`](docs/superpowers/specs/2026-10-05-stage0-findings-for-later-stages.md)
 and
 [`…stage1-findings-for-later-stages.md`](docs/superpowers/specs/2026-10-05-stage1-findings-for-later-stages.md).
-Re-verified against the tree on 2026-10-07; the ones below are still open.
+Re-verified against the tree on 2026-10-07. Items 8, 10, 11 and 12 were closed
+in Stage 3b (marked below); 9 and 13 remain open.
 
-8. **Severity agreement is not scored, and nothing re-rates a finding once its
+8. **[closed in Stage 3b]** **Severity agreement is not scored, and nothing re-rates a finding once its
    chain is known.** Of the nine reference CRITICALs the audit *did* find, four
    were rated below the reference — REF-17, a pre-authentication
    authentication bypass, was filed **LOW** because the overflow was scored on
@@ -187,13 +224,13 @@ Re-verified against the tree on 2026-10-07; the ones below are still open.
    chain composition runs.
 9. **No asus golden set exists**, and the Stage 4 gate requires one. Building
    it is the first task of Stage 4, not a sub-step.
-10. **`audit.py preflight --server NAME=COMMAND` silently flattens a
+10. **[closed in Stage 3b]** **`audit.py preflight --server NAME=COMMAND` silently flattens a
     `--keep`-copied server** of the same name to `{"command": …}`, discarding
     `args` and `env` — the exact degradation `--keep` exists to prevent.
     Reproduced 2026-10-07; exits 0. Untested in either direction.
-11. **`briefs.render` reports one error class per run** — missing placeholders
+11. **[closed in Stage 3b]** **`briefs.render` reports one error class per run** — missing placeholders
     first, empty ones only after those are fixed.
-12. **Batch identifiers still disagree**: `workflows/fpcheck.md` letters them
+12. **[closed in Stage 3b]** **Batch identifiers disagreed**: `workflows/fpcheck.md` letters them
     `A, B, C`; `references/phase5-fp-check.md`'s worked example uses `B1`.
 13. **Spec §10 is undecided**: whether `grey-audit` joins the monorepo or
     consumes the core as a submodule. Blocks the Stage 4 restructure, not the
@@ -219,7 +256,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 491 tests |
+| `tests` | The pytest suite — 569 tests |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -295,28 +332,19 @@ nothing per run.
 
 ## 8. Next steps, in the order they make sense
 
-Items 1-5 are now **Stage 3b**: designed in
-[`specs/2026-10-07-stage3b-measurement-hardening-design.md`](docs/superpowers/specs/2026-10-07-stage3b-measurement-hardening-design.md)
-and planned in
-[`plans/2026-10-07-stage3b-measurement-hardening.md`](docs/superpowers/plans/2026-10-07-stage3b-measurement-hardening.md)
-— 10 tasks, 112 steps, awaiting execution.
+Everything below is zero-audit-cost. The five items that used to head this list
+(leading indicators, severity agreement, coverage in `bench`, re-rating, the
+parked defects) shipped as Stage 3b and are recorded in §2.
 
-Everything below is zero-audit-cost: it either changes code, changes prose, or
-scores an `audit.db` that already exists.
-
-1. **Build the deterministic leading indicators** (spec §6.1) — the
-   between-milestone substitute for the expensive gate.
-2. **Score severity agreement in `bench`** — four of the nine CRITICALs
-   already found were under-rated, so the Stage 4 target of ≥ 12/19 is
-   measured against a metric known to be wrong.
-3. **Score coverage in `bench`** — §6.1 says `bench` reports recall,
-   precision, **coverage** and cost per finding. It reports three of the four.
-4. **Add a re-rating step to the pipeline** — severity is fixed at discovery
-   time, before chain composition runs.
-5. **Close the parked defects** — the preflight flatten, the briefs error
-   ordering, the `--replace` blanking, the batch-id mismatch.
-6. **Push `main`** once origin is reachable. 84 commits are local-only.
-7. **Plan Stage 4** — `firmware-audit` plus the monorepo restructure. Gate:
-   tplink ≥ 12/19 at ≤ $45, *and* the asus golden must pass, which means
+1. **Push `main`** once origin is reachable. 84 commits are local-only on
+   `main`, plus this stage's 20 on `stage3b/measurement-hardening`.
+2. **Take a second indicator snapshot** after the next audit run. The first
+   (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
+   three of four indicators, so there is nothing to compare against yet.
+3. **Decide what to do with `rerate`'s report** once a benchmark run exists to
+   test it against. It is advisory and stores nothing; mutating severity is
+   deliberately not done.
+4. **Plan Stage 4** — `firmware-audit` plus the monorepo restructure. Gate:
+   tplink >= 12/19 at <= $45, *and* the asus golden must pass, which means
    building a second golden set first. Spec §10 (monorepo vs submodule) needs
    deciding at the same time.

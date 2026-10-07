@@ -118,7 +118,10 @@ Reads one run directory's database and emits the four figures §6.1 names.
 | Sweep hit counts | `cba_pattern_hits` | total, and count by `pattern_id` |
 | `not_audited` rows | `cba_coverage` where `state='not_audited'` | count, and count by reason |
 
-Flags: `--db PATH` (required), `--json`, `--snapshot`, `--compare A B`.
+Flags: `--db PATH`, `--json`, `--snapshot`, `--compare A B`.
+
+*Corrected 2026-10-07:* this said `--db PATH (required)`. It is optional:
+`--compare` needs no database. One of `--db` or `--compare` is required.
 
 ### 4.2 Snapshots and comparison
 
@@ -186,9 +189,13 @@ added, reusing `audit_core.coverage`, and degrades per §4.3.
 ### 4.6 `audit.py rerate` — advisory, stores nothing
 
 Reports findings whose recorded severity disagrees with what their own cited
-evidence implies: a finding whose text names a consumer branch, an
-authentication path, or a chain membership recorded in `cba_chains`, filed
+evidence implies: a finding whose text names an authentication path, or
+that is a member of a chain recorded in `cba_chains` as pre-auth, filed
 below the severity that reachability implies.
+
+*Corrected 2026-10-07:* this named three evidence classes, including "a
+consumer branch". Only the authentication path and chain membership are
+implemented; the module argues for deliberately few rules.
 
 **It prints. It writes no row, and it changes no stored severity.** The
 mutating version the Stage 0 finding implies remains available later, once a
