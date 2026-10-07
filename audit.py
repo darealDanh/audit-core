@@ -360,7 +360,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         if not sep or not name or not command:
             print(f"bad --server {spec!r}; expected NAME=COMMAND", file=sys.stderr)
             return 1
-        servers[name] = {"command": command}
+        servers[name] = preflight_mod.merge_server(servers.get(name), command)
     out = pathlib.Path(args.out).expanduser()
     try:
         preflight_mod.write_config(out, servers, force=args.force)

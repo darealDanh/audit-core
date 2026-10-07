@@ -67,3 +67,18 @@ def write_config(path: str | pathlib.Path,
 
 def launch_command(config_path: str | pathlib.Path) -> str:
     return f"claude --strict-mcp-config --mcp-config {pathlib.Path(config_path)}"
+
+
+def merge_server(kept: dict | None, command: str) -> dict:
+    """Apply a `--server NAME=COMMAND` override to a kept definition.
+
+    Replacing the whole object discards `args` and `env`, which is exactly
+    the degradation `load_servers` exists to prevent: the result is a config
+    `--strict-mcp-config` accepts and that then exposes a server unable to
+    start. Overriding the command alone keeps the rest.
+    """
+    if not kept:
+        return {"command": command}
+    merged = dict(kept)
+    merged["command"] = command
+    return merged
