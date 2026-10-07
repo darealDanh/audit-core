@@ -47,13 +47,19 @@ def render(template_text: str,
         return value
 
     out = _PLACEHOLDER.sub(replace, template_text)
+    problems: list[str] = []
     if missing:
-        raise BriefError(
-            "unsubstituted placeholder(s): " + ", ".join(sorted(set(missing))))
+        problems.append("unsubstituted placeholder(s): "
+                        + ", ".join(sorted(set(missing))))
     if empty:
-        raise BriefError(
-            "empty value for placeholder(s): " + ", ".join(sorted(set(empty)))
-            + " (pass --allow-empty if the section is genuinely empty)")
+        problems.append("empty value for placeholder(s): "
+                        + ", ".join(sorted(set(empty)))
+                        + " (pass --allow-empty if the section is genuinely "
+                          "empty)")
+    if problems:
+        # One raise, both classes. Reporting only the first sends an operator
+        # away to fix one thing and back to discover the other.
+        raise BriefError("; ".join(problems))
     return out
 
 

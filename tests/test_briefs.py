@@ -151,3 +151,14 @@ def test_cli_brief_allow_empty_renders_the_empty_section(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert (run / "briefs" / "audit-G7-brief.md").read_text() == "audit G7 known "
+
+
+def test_missing_and_empty_placeholders_are_reported_together():
+    """Reproduced 2026-10-07: render raised on `missing` and returned, so an
+    operator fixed the missing placeholder, re-ran, and only then discovered
+    the empty one. Two round trips for one template."""
+    with pytest.raises(briefs.BriefError) as exc:
+        briefs.render("a {MISSING} and {EMPTY}", {"EMPTY": "   "})
+    message = str(exc.value)
+    assert "MISSING" in message
+    assert "EMPTY" in message
