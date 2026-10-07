@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-07 · **Branch:** `stage3b/measurement-hardening` (from `3aaebb5`), working tree clean ·
-**Tests:** 569 · **Gates:** 7/7 green
+**Written:** 2026-10-07 · **Branch:** `stage4a/qualify` (from `7f1de0d` on `main`; **not yet merged**), working tree clean ·
+**Tests:** 615 · **Gates:** 7/7 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,9 +59,9 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage3b/measurement-hardening`, forked from `main` at `3aaebb5`.
-  Stages 0-3 merged to `main`; Stage 3b complete on this branch, not yet merged.
-- **`main` is 84 commits ahead of `origin/main` and has never been pushed.**
+- **Branch:** `stage4a/qualify`, forked from `main` at `7f1de0d`.
+  Stages 0-3 and 3b are merged to `main`; Stage 4a is complete on this branch, not yet merged.
+- **`main` is 111 commits ahead of `origin/main` and has never been pushed.**
   `git pull` fails with an access-rights error; origin is unreachable from
   this machine. Everything exists only in this working copy — **take that
   seriously before any destructive git operation.**
@@ -80,11 +80,11 @@ make all          # all seven gates, ~30s
 Expected:
 
 ```
-PASS  tests       569 passed
+PASS  tests       615 passed
 PASS  selftest    verbs 23 declared / tables 15 in schema.sql, 14 under contract / migrations 4
 PASS  lint        skill lint: clean
-PASS  eol         6 CRLF files, 116 LF
-PASS  manifest    34 features ... all paths and verbs resolve
+PASS  eol         6 CRLF files, 134 LF
+PASS  manifest    35 features ... all paths and verbs resolve
 PASS  install     92 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  bench       recall 9/19, 45 findings, precision 39/40, $73.15 per match
 ```
@@ -113,15 +113,16 @@ the deferral.
 
 ## 4. What to do next
 
-Stage 3b (measurement hardening) is done on branch
-`stage3b/measurement-hardening`; the leading indicators, severity agreement,
+Stage 3b (measurement hardening) is merged to `main`, and Stage 4a (`qualify`) is
+done on branch `stage4a/qualify`; the leading indicators, severity agreement,
 coverage in `bench`, `rerate` and the four parked defects are no longer options.
 What remains:
 
 ### Merge and push
 
-Merge `stage3b/measurement-hardening` to `main`. `main` is 84 commits ahead of
-origin and has never been pushed; pushing needs a reachable origin.
+Merge `stage4a/qualify` to `main`. `main` is 111 commits ahead of origin (from
+`git rev-list --count origin/main..main` when written) and has never been
+pushed; pushing needs a reachable origin.
 
 ### Take a second indicator snapshot
 

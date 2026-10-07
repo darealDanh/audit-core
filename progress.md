@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** branch `stage3b/measurement-hardening` (forked from `3aaebb5` on `main`) · **Tests:** 615 ·
+**Last updated:** 2026-10-07 · **HEAD:** branch `stage4a/qualify` (forked from `7f1de0d` on `main`; **not yet merged**) · **Tests:** 615 ·
 **Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,8 +21,8 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0, 1, 2 and 3 are merged to `main`; Stage 3b is complete on branch
-`stage3b/measurement-hardening`.** Stage 4a (`qualify`) is the first slice of Stage 4; the rest of Stages 4 and 5 have not been started.
+**Stages 0, 1, 2, 3 and 3b are merged to `main`; Stage 4a is complete on branch
+`stage4a/qualify`, awaiting merge.** Stage 4a (`qualify`) is the first slice of Stage 4; the rest of Stages 4 and 5 have not been started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -30,8 +30,8 @@ benchmark-gated before it ships.
 | 1 | Cost wins that cannot touch quality | 26 | 32 files, +4,055 / −361 | **merged** (`c7d5944`) |
 | 2 | Structural change (`audit_core`, R1, R3) | 15 | 45 files, +9,074 / −70 | **merged** (`1f11f64`) — gate NOT run |
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
-| 3b | Measurement hardening and parked defects | 20 | see branch | **merged to its branch** — gate none, no audit run |
-| 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** — gate *none — no audit run* |
+| 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
+| 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | on branch `stage4a/qualify`, **awaiting merge** — gate *none — no audit run* |
 | 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -202,9 +202,9 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **`main` is 84 commits ahead of `origin/main` and has never been pushed.**
+7. **`main` is 111 commits ahead of `origin/main` and has never been pushed.**
    `git pull` fails with an access-rights error; origin is unreachable from
-   this machine. All four completed stages exist only in this working copy.
+   this machine. All completed stages exist only in this working copy.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -257,7 +257,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 569 tests |
+| `tests` | The pytest suite — 615 tests |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -354,8 +354,9 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Push `main`** once origin is reachable. 84 commits are local-only on
-   `main`, plus this stage's 20 on `stage3b/measurement-hardening`.
+1. **Merge `stage4a/qualify` to `main`, then push `main`** once origin is
+   reachable. `main` is 111 commits ahead of `origin/main` (as of writing, from
+   `git rev-list --count origin/main..main`); this branch adds its own on top.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.
