@@ -15,7 +15,7 @@ has no `cba_coverage` table at all.
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 ABSENT = "absent"
 EMPTY = "empty"
@@ -68,6 +68,8 @@ def table_state(con: sqlite3.Connection, *names: str) -> str:
     be reported when one side does not exist, and reporting it from the half
     that does exist is how a denominator goes missing silently.
     """
+    if not names:
+        raise ValueError("table_state requires at least one table name")
     placeholders = ", ".join("?" for _ in names)
     found = {r[0] for r in con.execute(
         f"SELECT name FROM sqlite_master WHERE type = 'table' "

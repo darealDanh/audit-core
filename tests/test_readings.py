@@ -8,9 +8,21 @@ def test_absent_never_renders_as_a_number():
     reader cannot tell a non-event from a catastrophe."""
     r = readings.Reading.absent("cba_coverage is not in this database")
     rendered = r.render(unit="%")
-    assert "0" not in rendered
-    assert "absent" in rendered
-    assert "cba_coverage is not in this database" in rendered
+    assert rendered == "absent -- cba_coverage is not in this database"
+    assert not rendered[0].isdigit()
+
+
+def test_table_state_raises_on_no_names():
+    """table_state requires at least one table name to check. An empty IN ()
+    clause is vacuously true and would return PRESENT, masking missing tables."""
+    con = sqlite3.connect(":memory:")
+    try:
+        readings.table_state(con)
+        assert False, "table_state should raise ValueError with no names"
+    except ValueError as e:
+        assert "table name" in str(e).lower()
+    finally:
+        con.close()
 
 
 def test_table_state_is_absent_when_any_named_table_is_missing():
