@@ -194,6 +194,22 @@ def cmd_bench(args: argparse.Namespace) -> int:
               f"[+{p.duplicates} dup, {p.needs_verification} undecided]")
         print("           what this run's own FP-check kept; comparable only "
               "against the same golden and pipeline")
+    if result.severity is not None:
+        s = result.severity
+        print(f"severity   {s.agreed}/{len(result.matched)} agree  "
+              f"[{s.under_rated} under-rated, {s.over_rated} over-rated, "
+              f"{s.unrankable} unrankable]")
+        if s.under_rated:
+            print(f"           worst {s.worst_steps} ladder step(s) low; "
+                  f"recall counts these in full, weighted recall does not")
+        for d in s.deltas:
+            if d.steps > 0:
+                print(f"             {d.reference_id} ~ {d.finding_id}: "
+                      f"{d.reference_severity} filed as {d.finding_severity}")
+    if result.weighted_recall is not None:
+        print(f"weighted recall  {result.weighted_recall:.3f} "
+              f"(severity-credited; the gate floor is written against "
+              f"`recall` above)")
     if result.cost_per_match is not None:
         print(f"cost per matched finding  ${result.cost_per_match:.2f}")
     if result.unmatched_references:
