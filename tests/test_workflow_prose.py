@@ -462,3 +462,16 @@ def test_the_coverage_writer_is_not_presented_instead_of_run():
                 assert not line.lstrip().startswith(">"), (
                     f"{path.relative_to(ROOT)}:{n} presents a write instead of "
                     f"running it: {line.strip()}")
+
+
+def test_batch_identifiers_agree_between_the_workflow_and_its_reference():
+    """Carried forward from Stage 1 and still open on 2026-10-07. An operator
+    reading the workflow letters a batch `A`; the reference's worked example
+    shows `B1`, so the brief they render and the artifact path they write do
+    not match what either document shows."""
+    workflow = (ROOT / "workflows" / "fpcheck.md").read_text()
+    reference = (ROOT / "references" / "phase5-fp-check.md").read_text()
+    assert "--unit B1" not in reference
+    assert "batch_id=B1" not in reference
+    assert "phase5-B1.md" not in reference
+    assert "BATCH=A" in workflow
