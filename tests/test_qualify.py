@@ -227,3 +227,139 @@ def test_an_unknown_model_is_NOGO_with_a_reason_not_a_crash():
     assert reasons["proven-bad"] == "not in the scored target set"
     assert reasons["low-slop"] == "not in the scored target set"
     assert "not in the scored target set" in qualify.render(q)
+
+
+# FINDING 1: Model names can satisfy CHECKABLE
+def test_model_name_in_evidence_does_not_make_it_checkable():
+    """The model itself can match CHECKABLE patterns. Tenda o3_firmware1.0.0.10
+    contains a dotted version. We strip vendor and model before checking, so
+    "tenda o3_firmware1.0.0.10 is supported" must FAIL, not pass on the model."""
+    r = qualify.filter_supported(
+        "tenda", "o3_firmware1.0.0.10", True,
+        "tenda o3_firmware1.0.0.10 is supported")
+    assert r.passed is False
+    assert "checkable" in r.reason
+
+
+# FINDING 2: Irrelevant handles (CVSS, CVE IDs) must be stripped
+def test_cvss_score_in_evidence_does_not_satisfy_checkable():
+    """CVSS scores and CVE IDs are not evidence of support. We strip them
+    before checking CHECKABLE, so 'CVSS 9.8 confirms this' must FAIL."""
+    r = qualify.filter_supported(
+        "example", "model", True,
+        "CVSS 9.8 confirms this is supported")
+    assert r.passed is False
+    assert "checkable" in r.reason
+
+
+def test_cve_id_in_evidence_does_not_satisfy_checkable():
+    """CVE IDs are stripped as non-support patterns."""
+    r = qualify.filter_supported(
+        "example", "model", True,
+        "CVE-2024-12345 shows it is still supported")
+    assert r.passed is False
+    assert "checkable" in r.reason
+
+
+def test_scoring_pattern_is_stripped():
+    """Scoring patterns like 'score 9.8' are stripped as non-support."""
+    r = qualify.filter_supported(
+        "example", "model", True,
+        "score 9.8 indicates this model is supported")
+    assert r.passed is False
+    assert "checkable" in r.reason
+
+
+# FINDING 3: Version patterns with 'v' prefix
+def test_version_with_v_prefix_is_checkable():
+    """Versions like v5.21 should match. The pattern now includes \\bv?."""
+    r = qualify.filter_supported(
+        "zyxel", "nwa50ax", True,
+        "firmware v5.21 released for this model, per the vendor")
+    assert r.passed is True
+
+
+# FINDING 4: Filter 2 boundary cases
+def test_filter_low_slop_boundary_exactly_20_cves_at_high_slop():
+    """Exactly 20 CVEs (not > 20) at 99% slop should PASS."""
+    s = qualify.Score(vendor="x", model="y", rce_cves=20, slop_pct=99.0,
+                      max_cvss=9.8, first_pub="2024-01-01",
+                      last_pub="2025-12-31", top_source="psirt@x.z")
+    r = qualify.filter_low_slop(s)
+    assert r.passed is True
+
+
+def test_filter_low_slop_boundary_many_cves_at_exactly_50_slop():
+    """99 CVEs at exactly 50.0% slop (not > 50) should PASS."""
+    s = qualify.Score(vendor="x", model="y", rce_cves=99, slop_pct=50.0,
+                      max_cvss=9.8, first_pub="2024-01-01",
+                      last_pub="2025-12-31", top_source="psirt@x.z")
+    r = qualify.filter_low_slop(s)
+    assert r.passed is True
+
+
+def test_filter_low_slop_boundary_just_over_threshold():
+    """21 CVEs at 50.1% slop (both > threshold) should FAIL."""
+    s = qualify.Score(vendor="x", model="y", rce_cves=21, slop_pct=50.1,
+                      max_cvss=9.8, first_pub="2024-01-01",
+                      last_pub="2025-12-31", top_source="psirt@x.z")
+    r = qualify.filter_low_slop(s)
+    assert r.passed is False
+    assert "strip-mined" in r.reason
+
+
+# FINDING 5: Bad dates produce NO-GO without crashing
+def test_proven_bad_with_empty_date():
+    """Empty date field causes lexicographic comparison to fail safely."""
+    s = qualify.Score(vendor="x", model="y", rce_cves=5, slop_pct=0.0,
+                      max_cvss=9.8, first_pub="",
+                      last_pub="2025-12-31", top_source="psirt@x.z")
+    r = qualify.filter_proven_bad(s)
+    assert r.passed is False
+    assert "does not reach" in r.reason
+
+
+def test_proven_bad_with_garbage_date_format():
+    """Non-ISO dates still compare but produce NO-GO."""
+    s = qualify.Score(vendor="x", model="y", rce_cves=5, slop_pct=0.0,
+                      max_cvss=9.8, first_pub="garbage",
+                      last_pub="also-garbage", top_source="psirt@x.z")
+    r = qualify.filter_proven_bad(s)
+    assert r.passed is False
+
+
+# FINDING 6: Test to_json
+def test_to_json_emits_primitives_not_objects():
+    """to_json must serialize Score as a dict, not an object."""
+    scores = qualify.load_scores(FIXTURE)
+    q = qualify.qualify(scores, "zyxel", "emg3525-t50b", True, GOOD_EVIDENCE)
+    payload = qualify.to_json(q)
+
+    # Check structure
+    assert isinstance(payload, dict)
+    assert payload["vendor"] == "zyxel"
+    assert payload["model"] == "emg3525-t50b"
+    assert payload["verdict"] == "GO"
+
+    # Score should be a dict with primitives
+    assert isinstance(payload["score"], dict)
+    assert isinstance(payload["score"]["rce_cves"], int)
+    assert isinstance(payload["score"]["slop_pct"], float)
+    assert isinstance(payload["score"]["max_cvss"], float)
+    assert isinstance(payload["score"]["first_pub"], str)
+
+    # Filters should be dicts
+    assert isinstance(payload["filters"], list)
+    assert all(isinstance(f, dict) for f in payload["filters"])
+    assert all("name" in f and "passed" in f and "reason" in f for f in payload["filters"])
+
+
+def test_to_json_with_no_score():
+    """to_json must not crash when score is None."""
+    scores = qualify.load_scores(FIXTURE)
+    q = qualify.qualify(scores, "unknown", "model", True, GOOD_EVIDENCE)
+    payload = qualify.to_json(q)
+
+    assert payload["score"] is None
+    assert payload["vendor"] == "unknown"
+    assert payload["verdict"] == "NO-GO"

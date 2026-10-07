@@ -172,6 +172,12 @@ def filter_proven_bad(score: Score | None) -> FilterResult:
                             "not in the scored target set")
     if score.rce_cves < 1:
         return FilterResult("proven-bad", False, "no RCE CVEs on record")
+    # Fail closed on missing or malformed dates; empty string is not a date.
+    if not score.first_pub or not score.last_pub:
+        return FilterResult(
+            "proven-bad", False,
+            f"CVE span {score.first_pub or '(missing)'}..{score.last_pub or '(missing)'} "
+            f"does not reach {WINDOW_START}..{WINDOW_END}")
     overlaps = score.first_pub <= WINDOW_END and score.last_pub >= WINDOW_START
     if not overlaps:
         return FilterResult(
@@ -200,20 +206,24 @@ def filter_low_slop(score: Score | None) -> FilterResult:
 
 
 CHECKABLE = re.compile(
-    r"\b(?:19|20)\d{2}\b"                      # a four-digit year
-    r"|\b\d+\.\d+(?:\.\d+)*\b"                 # a dotted version
+    r"\b(?:19|20)\d{2}\b"                          # a four-digit year
+    r"|\bv?\d+\.\d+(?:\.\d+)*\b"                   # a dotted version (with optional v prefix)
     r"|\b[a-z0-9-]+\.(?:com|net|org|tw|io|cn)\b",  # a hostname
     re.I)
-"""Evidence must point at something a reader can go and verify.
+"""Evidence must point at something a reader can go and verify—a verifiable
+handle, not proof.
 
 `db.check_identity_evidence` alone is NOT sufficient here, and that was
 measured rather than assumed: on 2026-10-07 it ACCEPTED "Zyxel NWA50AX is
 supported", because `supported` is a token the subject's name does not
 contain. A support claim that restates its own conclusion passes a
-novel-token test and tells a later reader nothing.
+novel-token test and tells a later reader nothing. Further, the model name
+itself (e.g., "tenda o3_firmware1.0.0.10(2478)") can match a dotted version.
 
-A year, a version or a hostname is not proof - it is a handle. It gives the
-reader of a GO decision somewhere to look.
+A year, a version number, or a hostname gives a reader of a GO decision
+somewhere to look. CHECKABLE tests whether the evidence NAMES something
+checkable, not whether that thing actually supports the claim. This is the
+floor: the evidence must be concrete enough to verify or disprove.
 """
 
 
@@ -223,7 +233,8 @@ def filter_supported(vendor: str, model: str, supported: bool,
 
     Two checks, because the first alone lets a circular claim through:
     `db.check_identity_evidence` for the length and novel-token floor already
-    used by `audit.py identify`, then `CHECKABLE` for a verifiable handle.
+    used by `audit.py identify`, then `CHECKABLE` for a verifiable handle
+    after stripping the vendor/model and non-support patterns.
 
     Declining needs no evidence. An operator who says the SKU is NOT supported
     has already reached the safe answer, and demanding justification for it
@@ -239,7 +250,22 @@ def filter_supported(vendor: str, model: str, supported: bool,
     except db.DbError as exc:
         return FilterResult("supported", False, str(exc))
 
-    if not CHECKABLE.search(evidence):
+    # Strip vendor/model and non-support patterns to prevent circular claims
+    # and irrelevant handles from passing.
+    stripped = evidence
+
+    # Remove vendor and model names (case-insensitive), but only as standalone
+    # words. Use negative lookahead/lookbehind to avoid removing them when
+    # preceded/followed by dots or other word chars (e.g., "zyxel" in "zyxel.com").
+    stripped = re.sub(rf"(?<![.\w])\b{re.escape(vendor)}\b(?![.\w])", "", stripped, flags=re.I)
+    stripped = re.sub(rf"(?<![.\w])\b{re.escape(model)}\b(?![.\w])", "", stripped, flags=re.I)
+
+    # Remove non-support patterns: CVSS scores, CVE IDs, scoring patterns
+    stripped = re.sub(r"cvss\s*v?\d+(?:\.\d+)?", "", stripped, flags=re.I)
+    stripped = re.sub(r"CVE-\d{4}-\d+", "", stripped)
+    stripped = re.sub(r"score\s*\d+\.\d+", "", stripped, flags=re.I)
+
+    if not CHECKABLE.search(stripped):
         return FilterResult(
             "supported", False,
             "evidence names nothing checkable - cite a date, a firmware "
