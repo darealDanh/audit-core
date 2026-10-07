@@ -1,7 +1,9 @@
 # tests/test_bench_severity.py
+import sqlite3
+
 import pytest
 
-from audit_core import bench
+from audit_core import bench, readings
 from audit_core.goldens import Reference
 
 
@@ -127,3 +129,37 @@ def test_unrankable_pairs_keep_full_weighted_credit():
         reference_count=1, finding_count=1, cost_per_match=None,
         severity=bench.severity_agreement(refs, findings, matched))
     assert result.weighted_recall == pytest.approx(1.0)
+
+
+def test_coverage_from_a_database_without_the_tables_is_absent(tmp_path):
+    """The only audit.db that exists. `0%` would claim the run analysed
+    nothing; the truth is the feature did not exist when it ran."""
+    db = tmp_path / "old.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cba_findings (id TEXT PRIMARY KEY, title TEXT, "
+                "cwe TEXT, location TEXT, severity TEXT)")
+    con.commit()
+    con.close()
+    r = bench.coverage_from_db(db)
+    assert r.is_absent
+    assert "0" not in r.render("%")
+
+
+def test_coverage_from_a_populated_database(tmp_path):
+    db = tmp_path / "new.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cba_inventory (unit TEXT PRIMARY KEY, "
+                "kind TEXT NOT NULL, group_id TEXT, size INTEGER, "
+                "added_at TEXT)")
+    con.execute("CREATE TABLE cba_coverage (unit TEXT NOT NULL, phase TEXT "
+                "NOT NULL, state TEXT NOT NULL, reason TEXT, "
+                "recorded_at TEXT, PRIMARY KEY (unit, phase))")
+    con.executemany("INSERT INTO cba_inventory (unit, kind) VALUES (?, 'file')",
+                    [("a",), ("b",), ("c",), ("d",)])
+    con.execute("INSERT INTO cba_coverage (unit, phase, state) "
+                "VALUES ('a','audit','analyzed')")
+    con.commit()
+    con.close()
+    r = bench.coverage_from_db(db)
+    assert r.state == readings.PRESENT
+    assert r.value == 25.0

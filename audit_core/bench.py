@@ -10,9 +10,11 @@ import pathlib
 import sqlite3
 from dataclasses import dataclass
 
+from audit_core import indicators as indicators_mod
 from audit_core import text
 from audit_core.db import SEVERITIES
 from audit_core.goldens import Reference
+from audit_core.readings import Reading
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +148,7 @@ class BenchResult:
     """
     precision: Precision | None = None
     severity: SeverityAgreement | None = None
+    coverage: Reading | None = None
 
     @property
     def weighted_recall(self) -> float | None:
@@ -231,6 +234,21 @@ def precision_from_db(db_path: str | pathlib.Path) -> Precision | None:
         needs_verification=counts.get("NEEDS_VERIFICATION", 0))
 
 
+def coverage_from_db(db_path: str | pathlib.Path) -> Reading:
+    """Analyzed over inventoried, or the reason there is no such fraction.
+
+    Opened read-only and ungated, for the same reason `load_findings_from_db`
+    is: bench must keep scoring run directories older than the current
+    schema, and `db.connect()` rejects exactly those.
+    """
+    path = pathlib.Path(db_path)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return indicators_mod.coverage_reading(con)
+    finally:
+        con.close()
+
+
 def load_findings_from_db(db_path: str | pathlib.Path) -> list[RunFinding]:
     con = sqlite3.connect(f"file:{pathlib.Path(db_path)}?mode=ro", uri=True)
     try:
@@ -250,6 +268,7 @@ def score(
     rejected: frozenset[tuple[str, str]] = frozenset(),
     cost_usd: float | None = None,
     precision: Precision | None = None,
+    coverage: Reading | None = None,
 ) -> BenchResult:
     """Score `findings` against `refs`.
 
@@ -315,4 +334,5 @@ def score(
         suppressed_candidates=suppressed,
         precision=precision,
         severity=agreement,
+        coverage=coverage,
     )

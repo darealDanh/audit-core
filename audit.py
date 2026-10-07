@@ -170,9 +170,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
     rejected = goldens_mod.load_rejections(golden / "rejections.json")
     findings = bench_mod.load_findings_from_db(db)
     precision = bench_mod.precision_from_db(db)
+    coverage_reading = bench_mod.coverage_from_db(db)
     result = bench_mod.score(refs, findings, adjudicated,
                              rejected=rejected, cost_usd=args.cost,
-                             precision=precision)
+                             precision=precision, coverage=coverage_reading)
 
     if args.json:
         payload = dataclasses.asdict(result) | {"weighted_recall": result.weighted_recall}
@@ -213,6 +214,8 @@ def cmd_bench(args: argparse.Namespace) -> int:
                 print(f"             {d.reference_id} ~ {d.finding_id}: "
                       f"unrankable ({d.reference_severity!r} vs "
                       f"{d.finding_severity!r})")
+    if result.coverage is not None:
+        print(f"coverage   {result.coverage.render('%')}")
     if result.weighted_recall is not None:
         print(f"weighted recall  {result.weighted_recall:.3f} "
               f"(severity-credited; the gate floor is written against "
