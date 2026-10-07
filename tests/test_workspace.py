@@ -8,9 +8,9 @@ from audit_core import workspace
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 EXPECTED_TABLES = [
-    "cba_attack_surface", "cba_checkpoints", "cba_coverage",
-    "cba_feature_groups", "cba_findings", "cba_fp_verdicts", "cba_inventory",
-    "cba_known_findings", "cba_pattern_hits", "cba_patterns",
+    "cba_attack_surface", "cba_chains", "cba_checkpoints", "cba_components",
+    "cba_coverage", "cba_feature_groups", "cba_findings", "cba_fp_verdicts",
+    "cba_inventory", "cba_known_findings", "cba_pattern_hits", "cba_patterns",
     "cba_security_observations", "cba_sources",
 ]
 
@@ -25,7 +25,7 @@ def test_init_creates_directories_and_db(tmp_path):
 
 def test_schema_creates_every_cba_table(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20260105-120000")
-    tables = workspace.apply_schema(run / "audit.db")
+    tables = workspace.apply_schema(run / "audit.db").tables
     for name in EXPECTED_TABLES:
         assert name in tables
 
@@ -55,7 +55,20 @@ def test_timestamp_defaults_to_utc_now(tmp_path):
     assert len(run.name) == len("audit-20260105-120000")
 
 
+def downgrade_cba_patterns(con):
+    """Rebuild cba_patterns without the Stage 3 columns, which is what a
+    pre-Stage-3 database holds."""
+    con.executescript(
+        "DROP TABLE cba_patterns;"
+        "CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL,"
+        " regex TEXT NOT NULL, origin_finding TEXT, language TEXT,"
+        " notes TEXT, created_at TEXT);")
+    con.commit()
+
+
 def test_cli_init_prints_the_run_directory(tmp_path):
+    """workflows/recon.md reads `AUDIT_DIR=$(audit.py init | tail -1)`. Any
+    line printed after the path silently sets AUDIT_DIR to that line."""
     r = subprocess.run(
         [sys.executable, str(ROOT / "audit.py"), "init",
          "--root", str(tmp_path), "--timestamp", "20260105-120000"],
@@ -64,3 +77,17 @@ def test_cli_init_prints_the_run_directory(tmp_path):
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip().splitlines()[-1] == str(
         tmp_path / "reports" / "audit-20260105-120000")
+
+
+def test_init_against_an_older_database_reports_what_it_migrated(tmp_path):
+    run = workspace.init_run(tmp_path, timestamp="20260105-120000")
+    con = sqlite3.connect(run / "audit.db")
+    downgrade_cba_patterns(con)
+    con.close()
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "audit.py"), "init",
+         "--root", str(tmp_path), "--timestamp", "20260105-120000"],
+        capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "cba_patterns.swept_at" in r.stdout
+    assert pathlib.Path(r.stdout.strip().splitlines()[-1]).name == "audit-20260105-120000"

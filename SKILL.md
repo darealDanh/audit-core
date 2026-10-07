@@ -40,6 +40,19 @@ A battle-tested methodology for auditing applications at scale. The workflow div
 
 10. **Stay at the project root — never `cd` into the audit dir**: Keep the orchestrator's working directory at the **project root** for the entire audit. Reference the audit dir (`reports/audit-<ts>/`) and `audit.db` by their path — never `cd` into them. Two reasons: the resume note's resumption commands are relative to the project root, and — critically — **verify forks/branches inherit the orchestrator's current working directory**. Claude's resume picker groups sessions by that directory, so if the cwd has drifted into `reports/audit-<ts>/`, the forks are filed under a *different* project and disappear from the picker (resumable by id, but hard to find), and their relative artifact writes mis-resolve. **Open every fork from the project root.** (See `references/lessons-learned.md` item 17.)
 
+11. **A FALSE_POSITIVE must say what refuted it and what that mechanism
+   enables.** `audit.py pivot` writes both. Unconditional — a refuting
+   mechanism is code, and code does something.
+12. **A confirmed pattern is swept.** Register it in `cba_patterns`, sweep
+   with `audit.py sweep`, and check with `audit.py patterns --gate`.
+13. **Coverage has a denominator.** One `cba_inventory` row per analysable
+   unit; `audit.py coverage --gate` fails on an empty inventory, a budget
+   skip, or an inventoried unit with no decision recorded.
+14. **An identity needs evidence that is not the filename.**
+   `audit.py identify` refuses evidence that only repeats the path.
+15. **Chains cross groups, so something must look across them.**
+   `audit.py chain` proposes; a human composes.
+
 ## Economics Contract
 
 Measured across nine real audits: 449.9M context tokens re-read for $2,053.64.
@@ -88,10 +101,11 @@ prefix and growth and how many turns they leave.
 
 **The budget governs where tokens are spent, never whether a surface is
 opened.** A group skipped for budget is a `not_audited(reason='budget')` row.
-In Stage 2 that row is recorded and reported, not enforced: it is excluded
-from the analyzed total and `audit.py coverage` prints a WARNING naming it.
-Gating on coverage is a Stage 3 change, benchmarked on its own so that if
-recall moves we know which change moved it.
+That row is excluded from the analyzed total, raises a WARNING from
+`audit.py coverage`, and **fails** `audit.py coverage --gate`: the audit
+phase runs that gate at its exit (`workflows/audit.md` Step 8) and a
+budget skip is one of the three things that fails it. The answer is
+`audit.py checkpoint` and a restart, never a surface left unopened.
 
 ### Model and effort tiering
 
@@ -253,6 +267,8 @@ The automated **`source`** run uses the same diagram **minus deploy and the veri
 | `cba_patterns` | Confirmed bug patterns, with the finding they came from | audit |
 | `cba_pattern_hits` | Sweep candidates awaiting triage | audit |
 | `cba_checkpoints` | Phase exits and ceiling trips | every phase |
+| `cba_components` | What each artifact is, with the evidence that says so | recon |
+| `cba_chains` | Composed exploit chains, ordered finding ids | audit |
 
 ### Artifact Layout
 
@@ -319,9 +335,14 @@ Plus `poc/` at the **project root** (outside `reports/`): runnable PoC scripts r
 | "I'll paste the task into the dispatch, it's quicker" | Dispatch prompts are the largest single category of tool-call input (1,684 tokens average). Render the brief with `audit.py brief` and send the path. |
 | "I'll just write the SQL inline, it's only a few tables" | `audit.py init` applies the whole schema. Inline DDL is retyped after every compaction. |
 | "The MCP servers are already connected, leave them" | Unused schemas are resident on every turn. Run `audit.py preflight` and relaunch strict. |
-| "Near the ceiling — skip this group" | Checkpoint and restart. A group skipped for budget is a `not_audited(reason='budget')` row: in Stage 2 it is counted out of the analyzed total and raises a WARNING from `audit.py coverage`; gating on it is a Stage 3 change. The budget governs where tokens are spent, never whether a surface is opened. |
+| "Near the ceiling — skip this group" | Checkpoint and restart. A group skipped for budget is a `not_audited(reason='budget')` row: it is counted out of the analyzed total, raises a WARNING from `audit.py coverage`, and fails `audit.py coverage --gate --phase audit`, which the audit phase runs at its exit. The budget governs where tokens are spent, never whether a surface is opened. |
 | "I'll just read the file into my own context to check one thing" | R1. Snapshot it with `audit.py extract` and send a subagent the path, or read the rows with `audit.py rows`. A token admitted at turn N is paid for on every remaining turn. |
 | "We confirmed the pattern here; the other call sites are probably fine" | A confirmed finding is a hypothesis about every other call site. Register it with `audit.py put --table cba_patterns` and sweep. |
+| "It's a false positive — verdict recorded, move on" | A FALSE_POSITIVE is invalid without `refuting_mechanism` and the observation of what that mechanism enables. A finding was once correctly refuted by a 300-byte sliding-window flush that is itself the attack surface for a CRITICAL. Use `audit.py pivot`. |
+| "No attacker-controlled path, so there's nothing to record" | That IS the observation. Write it. A blank is what the rule forbids, not a negative result. |
+| "The pattern only shows up in this one file" | You have not swept. `audit.py sweep --record`, then `audit.py patterns --gate`. `strncpy(dst, src, strlen(src))` was found twice, named, and never grepped for; two CRITICALs are that pattern elsewhere. |
+| "It's called `km0_boot`, so it's the bootloader" | A filename is an assertion by whoever named it. `audit.py identify` with evidence you read out of the artifact. That exact file holds a Wi-Fi driver and several CRITICALs. |
+| "Each group's findings are independent" | Chains cross groups, and per-group subagents cannot see across them. Run `audit.py chain` before the audit phase exits. |
 
 ## Lessons Learned (FROM REAL AUDITS — READ BEFORE STARTING)
 

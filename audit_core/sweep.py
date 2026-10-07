@@ -21,15 +21,42 @@ from dataclasses import dataclass
 from typing import Iterator, Sequence
 
 from audit_core import db
+from audit_core import patterns
 
 MAX_HITS = 500
 MAX_FILE_BYTES = 2_000_000
 EXCERPT_CHARS = 160
 BINARY_SNIFF_BYTES = 8192
+# Skipped wherever they appear: a directory called `node_modules` or `.git` is
+# that thing at any depth.
 SKIP_DIRS = frozenset({
     ".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv",
     "dist", "build", ".mypy_cache", ".pytest_cache", ".tox",
 })
+
+# Skipped ONLY as a direct child of the scanned root, because that is the one
+# place the name means what we want it to mean.
+#
+# `audit.py extract` writes verbatim source snapshots under
+# `<root>/reports/audit-<ts>/extract/`, and both `workflows/audit.md` and
+# `references/phase4-deep-audit.md` tell the orchestrator to sweep with
+# `--root .` from the project root. Scanning them inflates `hit_count` - a
+# gate-document leading indicator - puts non-source paths in the triage list,
+# and on a real corpus pushes toward MAX_HITS, which trips `record`'s
+# truncation refusal, which makes `patterns --gate` unclearable. Reproduced on
+# one real call site: two recorded hits, one of them the audit's own copy of
+# the other.
+#
+# It is NOT in SKIP_DIRS, and that distinction is the whole point. `_scan`
+# filters `dirnames` at every os.walk level, so putting it there excluded any
+# directory named `reports` at any depth - and `render` reports skipped files,
+# never skipped directories. On a project with an `app/reports/` or
+# `src/reports/` source tree that is a silent false negative in a
+# vulnerability scanner, with `patterns --gate` then reporting PASS over it:
+# the "gate that stops working without saying so" failure patterns.py warns
+# about, caused by the fix for a different one. Reproduced: `src/reports/
+# export.c` holding a real call site, never scanned, nothing said.
+ROOT_ONLY_SKIP_DIRS = frozenset({"reports"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +80,10 @@ def _scan(root: pathlib.Path, rx: re.Pattern[str],
           suffixes: Sequence[str] | None,
           counters: dict[str, int]) -> Iterator[Hit]:
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        skip = SKIP_DIRS
+        if pathlib.Path(dirpath) == root:
+            skip = SKIP_DIRS | ROOT_ONLY_SKIP_DIRS
+        dirnames[:] = sorted(d for d in dirnames if d not in skip)
         for name in sorted(filenames):
             path = pathlib.Path(dirpath) / name
             if path.is_symlink():
@@ -85,8 +115,18 @@ def run(root: str | pathlib.Path, regex: str, *, pattern_id: str = "",
     The counters reflect files visited before the cap was reached, so a
     truncated sweep under-reports how much of the tree it saw. That is the
     honest reading: the sweep stopped, so it does not know.
+
+    `max_hits` is clamped to MAX_HITS: a caller that raised it past the cap
+    would get `truncated=False` on a sweep that stopped anyway, and
+    `record`'s truncation refusal is the only thing standing between a
+    partial hit list and a permanently-`swept_at` pattern.
     """
     rx = re.compile(regex)
+    # Clamped, not trusted. `--max-hits 100000` left `truncated` False on a
+    # sweep that stopped well short of the tree and defeated `record`'s
+    # truncation refusal; `--max-hits -1` reached `itertools.islice` as a raw
+    # ValueError traceback. The cap is the module's, not the caller's.
+    max_hits = max(1, min(int(max_hits), MAX_HITS))
     root = pathlib.Path(root)
     counters = {"scanned": 0, "binary": 0, "large": 0}
     stream = _scan(root, rx, suffixes, counters)
@@ -100,14 +140,28 @@ def run(root: str | pathlib.Path, regex: str, *, pattern_id: str = "",
 
 
 def record(con: sqlite3.Connection, result: SweepResult) -> int:
-    """Write one `cba_pattern_hits` row per hit. Returns how many."""
+    """Write one `cba_pattern_hits` row per hit, and mark the pattern swept.
+
+    A truncated sweep is refused outright, before any hit is written. The
+    sweep stopped at its cap, so it does not know what it did not see;
+    recording it would both store a partial hit list and set `swept_at`,
+    after which the pattern never appears in `patterns.unswept` again. The
+    bad outcome is silent and permanent, so the check is a refusal.
+    """
     if not result.pattern_id:
         raise db.DbError("a sweep result with no pattern_id cannot be "
                          "recorded; pass pattern_id= to sweep.run()")
+    if result.truncated:
+        raise db.DbError(
+            f"refusing to record a truncated sweep of {result.pattern_id}: it "
+            f"stopped at {len(result.hits)} hits and does not know what it "
+            f"did not see. Narrow the pattern, or sweep a subtree, and run "
+            f"it again.")
     for hit in result.hits:
         db.put(con, "cba_pattern_hits", {
             "pattern_id": result.pattern_id, "path": hit.path,
             "line": str(hit.line), "excerpt": hit.excerpt})
+    patterns.mark_swept(con, result.pattern_id, hit_count=len(result.hits))
     return len(result.hits)
 
 

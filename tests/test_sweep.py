@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from audit_core import db, sweep, workspace
+from audit_core import db, patterns, sweep, workspace
 
 
 def tree(root, **files):
@@ -147,3 +147,105 @@ def test_render_never_prints_the_hits_themselves(tmp_path):
     assert "needle" not in out
     assert "audit.py rows" in out
     assert "cba_pattern_hits" in out
+
+
+REGEX = r"strncpy\([^,]+,[^,]+,\s*strlen\("
+
+
+def test_record_marks_the_pattern_swept(con, tmp_path):
+    root = tree(tmp_path / "src", **{
+        "a.c": "strncpy(dst, src, strlen(src));\n",
+        "b.c": "strncpy(d2, s2, strlen(s2));\n",
+    })
+    result = sweep.run(root, REGEX, pattern_id="P1")
+    assert sweep.record(con, result) == 2
+    state = patterns.states(con)[0]
+    assert state.swept is True
+    assert state.hit_count == 2
+
+
+def test_record_refuses_a_truncated_sweep(con, tmp_path):
+    """Review Focus 3. A sweep that stopped at its cap does not know what it
+    did not see. Marking that pattern swept is a false coverage claim about
+    the one mechanism whose whole value is breadth -- and the pattern would
+    then never appear in `patterns.unswept` again."""
+    root = tree(tmp_path / "src", **{
+        "a.c": "strncpy(dst, src, strlen(src));\n",
+        "b.c": "strncpy(d2, s2, strlen(s2));\n",
+    })
+    result = sweep.run(root, REGEX, pattern_id="P1", max_hits=1)
+    assert result.truncated is True
+    with pytest.raises(db.DbError) as exc:
+        sweep.record(con, result)
+    assert "truncated" in str(exc.value).lower()
+    assert patterns.states(con)[0].swept is False
+    assert db.rows(con, "cba_pattern_hits") == []
+
+
+def test_the_sweep_skips_the_audits_own_run_directory(tmp_path):
+    """IMPORTANT. `workflows/audit.md` and `references/phase4-deep-audit.md`
+    both say to sweep with `--root .` from the project root, and
+    `audit.py extract` writes verbatim source copies under
+    `reports/audit-<ts>/extract/`. Reproduced: one real call site in the tree,
+    two recorded hits -- one of them the audit's own copy of the other.
+
+    Counting them inflates `hit_count` (a gate-document leading indicator),
+    puts non-source paths in the triage list, and on a real corpus pushes
+    toward MAX_HITS, which trips `record`'s truncation refusal, which makes
+    `patterns --gate` unclearable.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.c").write_text("strcpy(dst, src);\n")
+    extract = tmp_path / "reports" / "audit-20260105-120000" / "extract"
+    extract.mkdir(parents=True)
+    (extract / "a.c").write_text("strcpy(dst, src);\n")
+
+    result = sweep.run(tmp_path, r"strcpy\(")
+    assert [h.path for h in result.hits] == ["src/a.c"]
+    assert "reports" in sweep.ROOT_ONLY_SKIP_DIRS
+
+
+def test_a_nested_source_directory_called_reports_is_still_scanned(tmp_path):
+    """The other direction, and the breakage the first version of this fix
+    caused. `_scan` filters `dirnames` at every os.walk level, so putting
+    `reports` in SKIP_DIRS excluded any directory of that name at any depth --
+    and `render` reports skipped files, never skipped directories.
+
+    On a project with an `app/reports/` or `src/reports/` source tree that is
+    a silent false negative in a vulnerability scanner, and `patterns --gate`
+    then reports PASS over it. The target was the audit's own run directory,
+    which is a direct child of the scanned root; a source directory that
+    happens to share the name is not.
+    """
+    (tmp_path / "src" / "reports").mkdir(parents=True)
+    (tmp_path / "src" / "reports" / "export.c").write_text("strcpy(a, b);\n")
+    (tmp_path / "src" / "core").mkdir()
+    (tmp_path / "src" / "core" / "ok.c").write_text("strcpy(c, d);\n")
+    # And the run directory at the root is still excluded, in the same tree.
+    run_dir = tmp_path / "reports" / "audit-20260105-120000" / "extract"
+    run_dir.mkdir(parents=True)
+    (run_dir / "export.c").write_text("strcpy(a, b);\n")
+
+    result = sweep.run(tmp_path, r"strcpy\(")
+    assert sorted(h.path for h in result.hits) == [
+        "src/core/ok.c", "src/reports/export.c"]
+    assert "reports" not in sweep.SKIP_DIRS
+
+
+def test_max_hits_is_clamped_to_the_modules_own_cap(tmp_path):
+    """`--max-hits 100000` left `truncated` False on a sweep that stopped
+    anyway, and that flag is the only thing standing between a partial hit
+    list and a pattern permanently marked swept."""
+    (tmp_path / "a.c").write_text("".join(
+        "strcpy(a, b);\n" for _ in range(sweep.MAX_HITS + 50)))
+    result = sweep.run(tmp_path, r"strcpy\(", max_hits=100_000)
+    assert len(result.hits) == sweep.MAX_HITS
+    assert result.truncated is True
+
+
+def test_a_nonsense_max_hits_does_not_reach_islice(tmp_path):
+    """`--max-hits -1` raised a bare ValueError out of itertools.islice."""
+    (tmp_path / "a.c").write_text("strcpy(a, b);\nstrcpy(c, d);\n")
+    result = sweep.run(tmp_path, r"strcpy\(", max_hits=-1)
+    assert len(result.hits) == 1
+    assert result.truncated is True

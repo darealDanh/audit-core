@@ -26,6 +26,25 @@ NOT_AUDITED_REASONS = ("budget", "out-of-scope", "generated", "vendored",
                        "third-party", "unreachable", "binary-only")
 INVENTORY_KINDS = ("file", "function", "endpoint", "binary")
 CHECKPOINT_REASONS = ("phase-exit", "ceiling", "manual")
+COMPONENT_KINDS = ("source-tree", "binary", "library", "firmware-image",
+                   "service", "config")
+CHAIN_COMPLETENESS = ("complete", "partial", "blocked")
+
+# Columns added to tables that already existed when an earlier stage shipped.
+# `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
+# is already there, and SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT
+# EXISTS`. So the list is explicit and ordered, and a reviewer can read
+# exactly what will be run against a user's database.
+#
+# Append to this tuple; never reorder it and never remove an entry. A removed
+# entry is a column that stops being added to the databases that still lack
+# it, and nothing reports that - the column simply is not there.
+MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
+    ("cba_fp_verdicts", "enabled_observation", "TEXT"),
+    ("cba_patterns", "swept_at", "TEXT"),
+    ("cba_patterns", "hit_count", "INTEGER"),
+)
 
 
 class DbError(Exception):
@@ -84,6 +103,111 @@ def _validate_pattern(row: dict[str, str]) -> None:
         raise DbError(f"regex {row['regex']!r} does not compile: {exc}") from exc
 
 
+def _validate_verdict(row: dict[str, str]) -> None:
+    """Spec section 3.5: a FALSE_POSITIVE must say what refuted it, and what
+    that mechanism enables.
+
+    From the tplink post-mortem: a finding was correctly refuted by a
+    300-byte sliding-window flush, and that flush is the attack surface for a
+    reference-set CRITICAL. The verdict schema recorded the refutation and
+    nothing else, so the pivot was never taken.
+
+    The requirement is unconditional. A refuting mechanism is code, and code
+    does something; "no attacker-controlled path identified in this review"
+    is a legitimate answer and a useful rung-1 observation. A blank is not.
+    """
+    verdict = row.get("verdict")
+    if verdict not in VERDICTS:
+        raise DbError(f"verdict={verdict!r} is not one of {', '.join(VERDICTS)}")
+    if verdict != "FALSE_POSITIVE":
+        return
+    missing = [c for c in ("refuting_mechanism", "enabled_observation")
+               if not str(row.get(c, "") or "").strip()]
+    if missing:
+        raise DbError(
+            f"a FALSE_POSITIVE verdict requires {', '.join(missing)}: what "
+            f"refuted the finding, and the id of the observation recording "
+            f"what that mechanism enables. Write both with "
+            f"`audit.py pivot --db <db> --finding {row.get('finding_id', '<id>')} "
+            f"--group <group> --mechanism '<what refuted it>' "
+            f"--enables '<what it enables, or what was ruled out>'`, which "
+            f"records the observation and the verdict together.")
+
+
+MIN_EVIDENCE_CHARS = 20
+
+
+def check_identity_evidence(path: str, evidence: str) -> None:
+    """Raise unless `evidence` says something the path does not already say.
+
+    `text.location_tokens` lowercases, splits on non-identifier characters
+    and drops anything under four characters, so `src/osal/Tss.c` and
+    "found under SRC/OSAL as TSS dot C file" reduce to the same token set -
+    which is the point. What survives the subtraction, after also dropping
+    `text.NOISE_WORDS` (English filler that would otherwise let a circular
+    claim slip through dressed as a sentence), is the part of the claim that
+    came from looking at the thing.
+
+    Public, unlike the `_validate_*` functions beside it, because
+    audit_core.identity re-exports it: identity.py imports db, so the rule
+    cannot live there without a cycle, and a leading underscore on a name
+    another module is meant to call is a lie about its scope.
+    """
+    evidence = (evidence or "").strip()
+    if len(evidence) < MIN_EVIDENCE_CHARS:
+        raise DbError(
+            f"identity_evidence is {len(evidence)} characters; at least "
+            f"{MIN_EVIDENCE_CHARS} are needed. Name what you looked at: a "
+            f"string and its offset, an import, a header field, a build "
+            f"artifact.")
+    novel = (text.location_tokens(evidence) - text.location_tokens(path)
+             - text.NOISE_WORDS)
+    if not novel:
+        raise DbError(
+            f"identity_evidence for {path!r} only repeats its own path. A "
+            f"filename is an assertion by whoever named it, not evidence: "
+            f"km0_boot_0C000020.elf was treated as a bootloader for a whole "
+            f"run on exactly this reasoning and holds a Wi-Fi driver. Cite "
+            f"something you read out of the component itself.")
+
+
+def _validate_component(row: dict[str, str]) -> None:
+    kind = row.get("kind")
+    if kind not in COMPONENT_KINDS:
+        raise DbError(f"kind={kind!r} is not one of {', '.join(COMPONENT_KINDS)}")
+    check_identity_evidence(str(row.get("path", "")),
+                            str(row.get("identity_evidence", "") or ""))
+    raw = str(row.get("confidence", "") or "").strip()
+    if not raw:
+        return
+    try:
+        value = int(raw)
+    except ValueError:
+        raise DbError(f"confidence={raw!r} is not an integer 1-10") from None
+    if not 1 <= value <= 10:
+        raise DbError(f"confidence={value} is outside 1-10")
+
+
+def _validate_chain(row: dict[str, str]) -> None:
+    """A chain is an ordered list of findings, and two is the minimum.
+
+    A one-finding chain is a finding. Recording it as a chain hides it from
+    the finding tally and inflates the chain tally, which is the one thing
+    this table exists to count honestly.
+    """
+    completeness = row.get("completeness")
+    if completeness not in CHAIN_COMPLETENESS:
+        raise DbError(f"completeness={completeness!r} is not one of "
+                      + ", ".join(CHAIN_COMPLETENESS))
+    ids = [part.strip() for part in str(row.get("finding_ids", "")).split(",")]
+    ids = [i for i in ids if i]
+    if len(ids) < 2:
+        raise DbError("finding_ids needs at least two comma-separated finding "
+                      "ids, in attack order; a one-finding chain is a finding")
+    if len(set(ids)) != len(ids):
+        raise DbError(f"finding_ids repeats an id: {', '.join(ids)}")
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -113,9 +237,10 @@ TABLE_SPECS: dict[str, TableSpec] = {
         validate=one_of("severity", SEVERITIES)),
     "cba_fp_verdicts": TableSpec(
         columns=("finding_id", "verdict", "reason", "final_severity", "final_id",
-                 "merged_into", "rule_applied", "reviewed_at"),
+                 "merged_into", "rule_applied", "refuting_mechanism",
+                 "enabled_observation", "reviewed_at"),
         required=("finding_id", "verdict"),
-        validate=one_of("verdict", VERDICTS)),
+        validate=_validate_verdict),
     "cba_inventory": TableSpec(
         columns=("unit", "kind", "group_id", "size", "added_at"),
         required=("unit", "kind"),
@@ -126,7 +251,7 @@ TABLE_SPECS: dict[str, TableSpec] = {
         validate=_validate_coverage),
     "cba_patterns": TableSpec(
         columns=("id", "name", "regex", "origin_finding", "language", "notes",
-                 "created_at"),
+                 "swept_at", "hit_count", "created_at"),
         required=("id", "name", "regex"),
         validate=_validate_pattern),
     "cba_pattern_hits": TableSpec(
@@ -138,7 +263,50 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "resume_note", "recorded_at"),
         required=("phase", "reason"),
         validate=one_of("reason", CHECKPOINT_REASONS)),
+    "cba_components": TableSpec(
+        columns=("path", "kind", "asserted_identity", "identity_evidence",
+                 "confidence", "version", "recorded_at"),
+        required=("path", "kind", "asserted_identity", "identity_evidence"),
+        validate=_validate_component),
+    "cba_chains": TableSpec(
+        columns=("id", "finding_ids", "attacker_position", "pre_auth",
+                 "completeness", "blocking_unknowns", "created_at"),
+        required=("id", "finding_ids", "attacker_position", "completeness"),
+        validate=_validate_chain),
 }
+
+
+def table_columns(con: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    """The columns a database actually has for `table`, in declared order.
+
+    `table` is interpolated into the PRAGMA, which takes no bound parameters.
+    It is checked against TABLE_SPECS first, so the only strings that reach
+    the statement are the fourteen literals this module declares.
+    """
+    _spec(table)
+    return tuple(r[1] for r in con.execute(f"PRAGMA table_info({table})"))
+
+
+def migrate(con: sqlite3.Connection) -> list[str]:
+    """Add every MIGRATIONS column the database lacks. Returns what it added.
+
+    Idempotent, and safe against a database that has none of the tables yet:
+    a table that is not there is skipped rather than reported, because that
+    is what `init` sees on a fresh run before schema.sql has been applied.
+    """
+    present = {r[0] for r in con.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    applied: list[str] = []
+    for table, column, decl in MIGRATIONS:
+        if table not in present:
+            continue
+        if column in table_columns(con, table):
+            continue
+        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        applied.append(f"{table}.{column}")
+    if applied:
+        con.commit()
+    return applied
 
 
 def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.Connection:
@@ -169,17 +337,29 @@ def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.
     except sqlite3.DatabaseError as exc:
         con.close()
         raise DbError(f"{path} is not a readable SQLite database: {exc}") from exc
-    missing = sorted(set(TABLE_SPECS) - present)
-    if missing:
+    missing_tables = sorted(set(TABLE_SPECS) - present)
+    missing_columns: list[str] = []
+    if not missing_tables:
+        # Only when every table is there: naming a column of a table that
+        # does not exist is noise on top of the real problem.
+        for table, spec in sorted(TABLE_SPECS.items()):
+            have = set(table_columns(con, table))
+            missing_columns.extend(
+                f"{table}.{c}" for c in spec.columns if c not in have)
+    if missing_tables or missing_columns:
         con.close()
+        noun = "table(s)" if missing_tables else "column(s)"
+        names = ", ".join(missing_tables or missing_columns)
         raise DbError(
-            f"{path} is missing table(s): {', '.join(missing)}. This run "
+            f"{path} is missing {noun}: {names}. This run "
             f"directory predates the current schema. Re-apply it in place "
             f"with `audit.py init --root <project> --timestamp <ts>`, where "
             f"<ts> is the timestamp already in the run directory name - "
-            f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS, so "
-            f"this adds the missing tables and destroys no rows. Without "
-            f"--timestamp, `init` creates a new run directory instead.")
+            f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS "
+            f"and every column added since is applied by an idempotent "
+            f"ALTER TABLE, so this adds what is missing and destroys no "
+            f"rows. Without --timestamp, `init` creates a new run directory "
+            f"instead.")
     return con
 
 
@@ -191,13 +371,66 @@ def _spec(table: str) -> TableSpec:
     return spec
 
 
+def primary_key(con: sqlite3.Connection, table: str) -> tuple[str, ...]:
+    """The declared primary-key columns of `table`, in key order.
+
+    `table` is checked against TABLE_SPECS by `table_columns`, so the only
+    strings that reach the PRAGMA are this module's own literals.
+    """
+    _spec(table)
+    keyed = [(r[5], r[1]) for r in con.execute(f"PRAGMA table_info({table})")
+             if r[5]]
+    return tuple(name for _, name in sorted(keyed))
+
+
+def _merge_with_stored(con: sqlite3.Connection, table: str, spec: TableSpec,
+                       row: dict[str, str]) -> dict[str, str]:
+    """`row`, filled out from the row it is about to replace.
+
+    `INSERT OR REPLACE` deletes the conflicting row and inserts a new one, so
+    every column the caller omits is silently reset - to its DEFAULT if it has
+    one, to NULL if it does not. That is not what any caller means by
+    "replace this row", and the columns at risk are owned by a *different*
+    workflow step than the one doing the replacing.
+
+    Reproduced before this merge existed: fpcheck assigns `cba_fp_verdicts`
+    .final_id by a raw UPDATE after the verdicts exist, `pivot.record` writes
+    6 of that table's 10 columns, and `pivot --replace` therefore destroyed
+    final_id, merged_into, final_severity and reason - the report's finding
+    numbering, which exists nowhere else - with exit 0 and no warning, and
+    neither `status` nor `pivot --check` noticed.
+
+    So a replace is a merge: the caller's columns win, and the ones it does
+    not name keep what is stored. A stored NULL is left out rather than
+    bound, so a column's DEFAULT still applies on the re-insert.
+    """
+    key = primary_key(con, table)
+    if not key or any(c not in row for c in key):
+        # No declared key, or the caller did not name all of it: there is no
+        # row this one provably replaces, so there is nothing to merge.
+        return row
+    clause = " AND ".join(f"{c} = ?" for c in key)
+    stored = con.execute(
+        f"SELECT {', '.join(spec.columns)} FROM {table} WHERE {clause}",
+        [row[c] for c in key]).fetchone()
+    if stored is None:
+        return row
+    kept = {c: stored[c] for c in spec.columns
+            if c not in row and stored[c] is not None}
+    return {**kept, **row}
+
+
 def put(con: sqlite3.Connection, table: str, row: dict[str, str],
         *, replace: bool = False) -> None:
-    """Insert one validated row.
+    """Insert one validated row. With `replace`, merge it over the stored one.
 
     Column names are interpolated into the statement, which is safe only
     because every one of them has just been checked against the spec's own
     tuple of names. Values are always bound parameters.
+
+    Validation runs on what the caller wrote, not on the merged result: the
+    stored half was validated when it was written, and a rule that reported
+    a failure in a column the caller never named would be unreadable.
     """
     spec = _spec(table)
     unknown = sorted(set(row) - set(spec.columns))
@@ -209,12 +442,13 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
         raise DbError(f"{table} requires a non-empty value for: {', '.join(missing)}")
     if spec.validate is not None:
         spec.validate(row)
-    cols = sorted(row)
+    values = _merge_with_stored(con, table, spec, row) if replace else row
+    cols = sorted(values)
     verb = "INSERT OR REPLACE" if replace else "INSERT"
     sql = (f"{verb} INTO {table} ({', '.join(cols)}) "
            f"VALUES ({', '.join('?' for _ in cols)})")
     try:
-        con.execute(sql, [row[c] for c in cols])
+        con.execute(sql, [values[c] for c in cols])
     except sqlite3.IntegrityError as exc:
         raise DbError(f"{table}: {exc}; pass --replace to overwrite") from exc
     con.commit()

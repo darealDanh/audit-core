@@ -230,3 +230,36 @@ def test_mentioning_a_table_name_in_prose_is_not_a_finding(tmp_path):
     (root / "workflows" / "x.md").write_text(
         "Rows land in `cba_findings`; counts come from `cba_fp_verdicts`.\n")
     assert skill_lint.lint(root, KNOWN) == []
+
+
+def test_an_fp_verdict_insert_without_pivot_is_flagged(tmp_path):
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "python3 audit.py put --table cba_fp_verdicts "
+        "--set verdict=FALSE_POSITIVE\n")
+    findings = skill_lint.lint(root, KNOWN)
+    assert [f.rule for f in findings] == ["fp-verdict-without-pivot"]
+    assert "audit.py pivot" in findings[0].detail
+
+
+def test_the_same_file_naming_pivot_is_not_flagged(tmp_path):
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "python3 audit.py put --table cba_fp_verdicts "
+        "--set verdict=FALSE_POSITIVE\n"
+        "Use `audit.py pivot` instead -- it writes both fields.\n")
+    assert skill_lint.lint(root, KNOWN) == []
+
+
+def test_a_pattern_insert_without_a_sweep_is_flagged(tmp_path):
+    root = tmp_path / "skill"
+    (root / "workflows").mkdir(parents=True)
+    (root / "SKILL.md").write_text("# skill\n")
+    (root / "workflows" / "x.md").write_text(
+        "python3 audit.py put --table cba_patterns --set id=P1\n")
+    findings = skill_lint.lint(root, KNOWN)
+    assert [f.rule for f in findings] == ["pattern-registered-without-sweep"]

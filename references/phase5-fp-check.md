@@ -90,6 +90,21 @@ python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db --table cba_fp_ver
   --set rule_applied='<HE-n / PR-n / CV-n, or none>'
 ```
 
+A `FALSE_POSITIVE` takes a different verb, because it must also record what
+refuted the finding and what that mechanism enables:
+
+```bash
+python3 __SKILL_DIR__/audit.py pivot --db ${AUDIT_DIR}/audit.db \
+  --finding G1-F3 --group G1 \
+  --mechanism '300-byte sliding-window flush in recv_loop' \
+  --enables 'the flush takes an attacker-sized length at recv.c:214' \
+  --reason '<why the original claim fails>' --rule HE-1
+```
+
+The observation is written as a rung-1 lead, not a finding. It is the step
+that was missing when a correctly-refuted finding's refuting mechanism turned
+out to be a CRITICAL in its own right.
+
 ### 3. Assign Final IDs
 For TRUE_POSITIVE findings, assign sequential `F-N` identifiers ordered by severity:
 ```
@@ -117,6 +132,7 @@ Before proceeding to Phase 6:
 - [ ] All TRUE_POSITIVE findings have `final_id` assigned
 - [ ] All DUPLICATE findings have `merged_into` pointing to a valid `final_id`
 - [ ] No two TRUE_POSITIVE findings have the same `final_id`
+- [ ] Every FALSE_POSITIVE has a `refuting_mechanism` and an `enabled_observation` that resolves
 
 ## Statistics to Report
 

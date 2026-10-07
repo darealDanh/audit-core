@@ -27,12 +27,16 @@ from audit_core import extract as extract_mod  # noqa: E402
 from audit_core import annotations as annotations_mod  # noqa: E402
 from audit_core import ceiling as ceiling_mod  # noqa: E402
 from audit_core import sweep as sweep_mod  # noqa: E402
+from audit_core import pivot as pivot_mod  # noqa: E402
+from audit_core import patterns as patterns_mod  # noqa: E402
+from audit_core import identity as identity_mod  # noqa: E402
+from audit_core import chains as chains_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
     """Verify the vendored core is importable AND internally consistent.
 
-    Printing a version number proves an import. These two checks prove the
+    Printing a version number proves an import. These three checks prove the
     things that actually break a run six phases in, and each compares two
     structures that were built independently - per Stage 0's finding that a
     tool's output is only trustworthy when validated against something it did
@@ -55,7 +59,7 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = pathlib.Path(tmp) / "selftest.db"
         try:
-            tables = list(workspace_mod.apply_schema(db_path))
+            tables = workspace_mod.apply_schema(db_path).tables
         except Exception as exc:                       # noqa: BLE001
             print(f"selftest: schema.sql does not apply: {exc}", file=sys.stderr)
             return 1
@@ -76,6 +80,35 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
         finally:
             con.close()
 
+    # 3. Migrations: the frozen pre-Stage-3 baseline against what connect()
+    #    now demands. `schema.sql` and TABLE_SPECS are checked against each
+    #    other above; nothing checked either against MIGRATIONS, and a column
+    #    added inline to an already-shipped table with no MIGRATIONS entry
+    #    passes that check, passes every test, and permanently bricks every
+    #    existing run directory: connect() rejects it, `init` cannot repair
+    #    it, and the remedy connect() prints is the thing that cannot help.
+    #    Rows holding real, unbacked-up findings become unreachable through
+    #    every verb but `bench`.
+    with tempfile.TemporaryDirectory() as tmp:
+        old_db = pathlib.Path(tmp) / "pre-stage3.db"
+        con = sqlite3.connect(old_db)
+        try:
+            con.executescript(workspace_mod.BASELINE_PATH.read_text())
+            con.commit()
+            db_mod.migrate(con)
+        except Exception as exc:                       # noqa: BLE001
+            problems.append(f"the pre-Stage-3 baseline does not migrate: {exc}")
+        finally:
+            con.close()
+        try:
+            db_mod.connect(old_db).close()
+        except db_mod.DbError as exc:
+            problems.append(
+                f"a migrated pre-Stage-3 database is still rejected by "
+                f"connect(): {exc} -- add the missing column(s) to "
+                f"db.MIGRATIONS; adding them to schema.sql alone repairs "
+                f"nothing on a database that already exists")
+
     if problems:
         print(f"selftest: {len(problems)} inconsistenc(ies)", file=sys.stderr)
         for p in problems:
@@ -85,6 +118,8 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     print(f"  verbs  {len(HANDLERS)} declared, all dispatchable")
     print(f"  tables {len(tables)} in schema.sql, "
           f"{len(db_mod.TABLE_SPECS)} under contract, columns agree")
+    print(f"  migrations {len(db_mod.MIGRATIONS)} applied to the pre-Stage-3 "
+          f"baseline, result accepted by connect()")
     return 0
 
 
@@ -132,8 +167,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
     adjudicated = goldens_mod.load_matches(golden / "matches.json")
     rejected = goldens_mod.load_rejections(golden / "rejections.json")
     findings = bench_mod.load_findings_from_db(db)
+    precision = bench_mod.precision_from_db(db)
     result = bench_mod.score(refs, findings, adjudicated,
-                             rejected=rejected, cost_usd=args.cost)
+                             rejected=rejected, cost_usd=args.cost,
+                             precision=precision)
 
     if args.json:
         print(json.dumps(dataclasses.asdict(result), indent=2))
@@ -143,6 +180,18 @@ def cmd_bench(args: argparse.Namespace) -> int:
     print(f"recall   {len(result.matched)}/{result.reference_count} "
           f"({100 * result.recall:.1f}%)")
     print(f"findings {result.finding_count}")
+    if result.precision is None:
+        print("precision  not scored (this run has no cba_fp_verdicts table)")
+    elif result.precision.fraction is None:
+        print(f"precision  not scored ({result.precision.duplicates} duplicate(s), "
+              f"{result.precision.needs_verification} undecided, 0 decided)")
+    else:
+        p = result.precision
+        print(f"precision  {p.true_positives}/{p.decided} "
+              f"({100 * p.fraction:.1f}%)  "
+              f"[+{p.duplicates} dup, {p.needs_verification} undecided]")
+        print("           what this run's own FP-check kept; comparable only "
+              "against the same golden and pipeline")
     if result.cost_per_match is not None:
         print(f"cost per matched finding  ${result.cost_per_match:.2f}")
     if result.unmatched_references:
@@ -158,8 +207,17 @@ def cmd_bench(args: argparse.Namespace) -> int:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    run = workspace_mod.init_run(args.root, timestamp=args.timestamp)
-    print(f"tables: {', '.join(workspace_mod.apply_schema(run / 'audit.db'))}")
+    # Not workspace_mod.init_run() + a second apply_schema(): migrate() is
+    # idempotent, so a second call would always report an empty `migrated`,
+    # even on a real upgrade, because the one real application already ran
+    # inside init_run and this would just be re-checking a caught-up db.
+    run, result = workspace_mod.init_run_with_schema(
+        args.root, timestamp=args.timestamp)
+    print(f"tables: {', '.join(result.tables)}")
+    if result.migrated:
+        print(f"migrated: {', '.join(result.migrated)}")
+    # The run directory is printed LAST and nothing may follow it:
+    # workflows/recon.md does `AUDIT_DIR=$(audit.py init | tail -1)`.
     print(run)
     return 0
 
@@ -283,9 +341,13 @@ def cmd_rows(args: argparse.Namespace) -> int:
     if con is None:
         return 1
     try:
+        # Stripped: `--columns "id, title"` is the natural way to type a
+        # list and produced `has no column(s):  title`, naming a column that
+        # differs from a real one only by a space nobody can see.
+        columns = tuple(c.strip() for c in args.columns.split(",")
+                        if c.strip()) if args.columns else None
         got = db_mod.rows(con, args.table, where=where or None,
-                          columns=tuple(args.columns.split(",")) if args.columns else None,
-                          limit=args.limit)
+                          columns=columns, limit=args.limit)
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -346,21 +408,91 @@ def cmd_dedup(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_coverage(args: argparse.Namespace) -> int:
-    con = _open_db(args.db, read_only=True)
+def cmd_chain(args: argparse.Namespace) -> int:
+    composing = bool(args.compose)
+    con = _open_db(args.db, read_only=not composing)
     if con is None:
         return 1
     try:
+        if not composing:
+            proposal = chains_mod.propose(con)
+            if args.json:
+                print(json.dumps(dataclasses.asdict(proposal), indent=2))
+            else:
+                print(chains_mod.render(proposal))
+            return 0
+        if args.json:
+            # Accepted and silently ignored before this. A flag that changes
+            # nothing is a flag whose absence from the output reads as a
+            # failed write.
+            print("--json has no meaning with --compose, which records a row "
+                  "rather than reporting one; read it back with `audit.py "
+                  "rows --table cba_chains --json`", file=sys.stderr)
+            return 1
+        for name in ("findings", "attacker_position", "completeness"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name.replace('_', '-')} is required with --compose",
+                      file=sys.stderr)
+                return 1
+        chains_mod.compose(
+            con, chain_id=args.compose, finding_ids=args.findings,
+            attacker_position=args.attacker_position,
+            completeness=args.completeness, pre_auth=args.pre_auth or "",
+            blocking_unknowns=args.blocking_unknowns or "",
+            replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"cba_chains: {args.compose} recorded ({args.findings})")
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    units = list(args.unit)
+    if args.from_file:
+        src = pathlib.Path(args.from_file).expanduser()
+        if not src.is_file():
+            print(f"not found: {src}", file=sys.stderr)
+            return 1
+        units += [ln.strip() for ln in src.read_text().splitlines()
+                  if ln.strip() and not ln.lstrip().startswith("#")]
+    if (units or args.state or args.reason) and not args.record:
+        print("--unit, --from-file, --state and --reason are only meaningful "
+              "with --record", file=sys.stderr)
+        return 1
+    con = _open_db(args.db, read_only=not args.record)
+    if con is None:
+        return 1
+    try:
+        if args.record:
+            written = coverage_mod.record(
+                con, units=units, phase=args.phase or "",
+                state=args.state or "", reason=args.reason or "",
+                replace=args.replace)
+            # On stderr, like cmd_rows' row-count notice and for the same
+            # reason: `--json` is read by a parser, and a human-readable line
+            # ahead of the payload makes the whole output invalid JSON.
+            print(coverage_mod.render_record(written), file=sys.stderr)
         r = coverage_mod.report(con, phase=args.phase)
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     finally:
         con.close()
+    g = coverage_mod.gate(r) if args.gate else None
     if args.json:
-        print(json.dumps(dataclasses.asdict(r) | {"fraction": r.fraction}, indent=2))
+        payload = dataclasses.asdict(r) | {"fraction": r.fraction}
+        if g is not None:
+            payload["gate"] = dataclasses.asdict(g)
+        print(json.dumps(payload, indent=2))
     else:
         print(coverage_mod.render(r))
+    if g is not None:
+        if not args.json:
+            print(coverage_mod.render_gate(g))
+        return 0 if g.ok else 1
     return 0
 
 
@@ -443,7 +575,22 @@ def cmd_checkpoint(args: argparse.Namespace) -> int:
 
 
 def cmd_sweep(args: argparse.Namespace) -> int:
-    con = _open_db(args.db)
+    if args.max_hits < 1:
+        # `itertools.islice` raises a bare ValueError on a negative count,
+        # and a traceback is not the clean stderr/exit-1 path every other bad
+        # input on this suite gets (see cmd_extract's --batch-size).
+        print(f"--max-hits must be at least 1, not {args.max_hits}",
+              file=sys.stderr)
+        return 1
+    if args.max_hits > sweep_mod.MAX_HITS:
+        print(f"--max-hits {args.max_hits} is above the {sweep_mod.MAX_HITS} "
+              f"cap and is being clamped to it: a higher cap would report an "
+              f"untruncated sweep that stopped anyway, and the truncation "
+              f"refusal is what keeps a partial hit list from being recorded "
+              f"as a completed sweep.", file=sys.stderr)
+    # Read-only unless something is going to be written. A sweep that only
+    # reports has no business holding the run's database open for writing.
+    con = _open_db(args.db, read_only=not args.record)
     if con is None:
         return 1
     try:
@@ -460,10 +607,6 @@ def cmd_sweep(args: argparse.Namespace) -> int:
             suffixes=tuple(args.suffix) or None, max_hits=args.max_hits)
         print(sweep_mod.render(result))
         if args.record:
-            if result.truncated:
-                print("refusing to record a truncated sweep; narrow the "
-                      "pattern first", file=sys.stderr)
-                return 1
             print(f"recorded {sweep_mod.record(con, result)} hit(s)")
     except db_mod.DbError as exc:
         print(str(exc), file=sys.stderr)
@@ -509,6 +652,88 @@ def cmd_note(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pivot(args: argparse.Namespace) -> int:
+    con = _open_db(args.db)
+    if con is None:
+        return 1
+    try:
+        if args.check:
+            bad = pivot_mod.dangling(con)
+            for finding_id, obs in bad:
+                print(f"  {finding_id}: enabled_observation={obs} resolves to "
+                      f"no row in cba_security_observations")
+            capped = (" (capped at the read bound; there may be more)"
+                      if len(bad) >= db_mod.MAX_ROWS else "")
+            print(f"pivot: {len(bad)} dangling observation reference(s)"
+                  f"{capped}")
+            return 1 if bad else 0
+        for name in ("finding", "group", "mechanism", "enables"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name} is required unless --check is given",
+                      file=sys.stderr)
+                return 1
+        p = pivot_mod.record(
+            con, finding_id=args.finding, group_id=args.group,
+            mechanism=args.mechanism, enables=args.enables,
+            reason=args.reason or "", rule_applied=args.rule or "",
+            severity_hint=args.severity_hint or "",
+            location=args.location or "", replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(pivot_mod.render(p))
+    return 0
+
+
+def cmd_patterns(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=True)
+    if con is None:
+        return 1
+    try:
+        items = patterns_mod.states(con)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dataclasses.asdict(s) | {"swept": s.swept}
+                          for s in items], indent=2))
+    else:
+        print(patterns_mod.render(items))
+    if args.gate:
+        gaps = [s for s in items if not s.swept]
+        return 1 if gaps else 0
+    return 0
+
+
+def cmd_identify(args: argparse.Namespace) -> int:
+    con = _open_db(args.db, read_only=not args.path)
+    if con is None:
+        return 1
+    try:
+        if not args.path:
+            print(identity_mod.render(db_mod.rows(con, "cba_components")))
+            return 0
+        for name in ("kind", "identity", "evidence"):
+            if not (getattr(args, name) or "").strip():
+                print(f"--{name} is required with --path", file=sys.stderr)
+                return 1
+        identity_mod.record(
+            con, path=args.path, kind=args.kind, identity=args.identity,
+            evidence=args.evidence, confidence=args.confidence or "",
+            version=args.version or "", replace=args.replace)
+    except db_mod.DbError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    print(f"cba_components: {args.path} recorded as {args.identity!r}")
+    return 0
+
+
 # The single source of truth for which verbs exist. `main` dispatches through
 # it and `lint-skill` reads its keys, so a verb cannot exist in one and not
 # the other.
@@ -524,11 +749,15 @@ HANDLERS = {
     "rows": cmd_rows,
     "status": cmd_status,
     "dedup": cmd_dedup,
+    "chain": cmd_chain,
     "coverage": cmd_coverage,
     "extract": cmd_extract,
     "note": cmd_note,
     "checkpoint": cmd_checkpoint,
     "sweep": cmd_sweep,
+    "pivot": cmd_pivot,
+    "patterns": cmd_patterns,
+    "identify": cmd_identify,
 }
 
 
@@ -590,10 +819,42 @@ def build_parser() -> argparse.ArgumentParser:
     dd = sub.add_parser("dedup", help="propose cross-group duplicate findings")
     dd.add_argument("--db", required=True, metavar="AUDIT_DB")
     dd.add_argument("--json", action="store_true")
+    ch = sub.add_parser("chain", help="propose cross-group finding pairs, or record a composed chain")
+    ch.add_argument("--db", required=True, metavar="AUDIT_DB")
+    ch.add_argument("--compose", default=None, metavar="CHAIN_ID",
+                    help="record a chain instead of proposing")
+    ch.add_argument("--findings", default=None, metavar="ID,ID,...",
+                    help="two or more finding ids, in attack order")
+    ch.add_argument("--attacker-position", dest="attacker_position",
+                    default=None)
+    ch.add_argument("--completeness", default=None,
+                    choices=list(db_mod.CHAIN_COMPLETENESS))
+    ch.add_argument("--pre-auth", dest="pre_auth", default=None)
+    ch.add_argument("--blocking-unknowns", dest="blocking_unknowns",
+                    default=None)
+    ch.add_argument("--replace", action="store_true")
+    ch.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)
     cv.add_argument("--json", action="store_true")
+    cv.add_argument("--record", action="store_true",
+                    help="write one cba_coverage row per --unit/--from-file "
+                         "entry, in one call; needs --phase and --state")
+    cv.add_argument("--unit", action="append", default=[], metavar="UNIT",
+                    help="repeatable; the inventory unit this phase ruled on")
+    cv.add_argument("--from-file", dest="from_file", default=None,
+                    metavar="LIST", help="one unit per line; # comments and "
+                                         "blank lines are skipped")
+    cv.add_argument("--state", default=None,
+                    choices=list(db_mod.COVERAGE_STATES))
+    cv.add_argument("--reason", default=None,
+                    choices=list(db_mod.NOT_AUDITED_REASONS),
+                    help="required with --state not_audited")
+    cv.add_argument("--replace", action="store_true",
+                    help="overwrite an existing row for the same unit+phase")
+    cv.add_argument("--gate", action="store_true",
+                    help="exit 1 if coverage cannot support a phase exit")
     ex = sub.add_parser("extract", help="snapshot source into <run>/extract/ once, for unbounded fan-out")
     ex.add_argument("--run", required=True, metavar="RUN_DIR")
     ex.add_argument("--root", required=True, metavar="SRC_DIR")
@@ -632,6 +893,41 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--max-hits", type=int, default=sweep_mod.MAX_HITS)
     sw.add_argument("--record", action="store_true",
                     help="write the hits to cba_pattern_hits")
+
+    pv = sub.add_parser("pivot", help="record a FALSE_POSITIVE and the observation it pivots to")
+    pv.add_argument("--db", required=True, metavar="AUDIT_DB")
+    pv.add_argument("--finding", default=None, metavar="FINDING_ID")
+    pv.add_argument("--group", default=None, metavar="GROUP_ID")
+    pv.add_argument("--mechanism", default=None,
+                    help="what refuted the finding")
+    pv.add_argument("--enables", default=None,
+                    help="what that mechanism makes possible, or what this "
+                         "review ruled out about it")
+    pv.add_argument("--reason", default=None)
+    pv.add_argument("--rule", default=None, metavar="HE-n/PR-n/CV-n")
+    pv.add_argument("--severity-hint", default=None)
+    pv.add_argument("--location", default=None)
+    pv.add_argument("--replace", action="store_true")
+    pv.add_argument("--check", action="store_true",
+                    help="list verdicts whose enabled_observation does not resolve")
+
+    pt = sub.add_parser("patterns", help="sweep state for every registered bug pattern")
+    pt.add_argument("--db", required=True, metavar="AUDIT_DB")
+    pt.add_argument("--gate", action="store_true",
+                    help="exit 1 if any registered pattern has never been swept")
+    pt.add_argument("--json", action="store_true")
+
+    idf = sub.add_parser("identify", help="assert what a component is, with evidence that is not its filename")
+    idf.add_argument("--db", required=True, metavar="AUDIT_DB")
+    idf.add_argument("--path", default=None,
+                     help="the component; omit to list what is recorded")
+    idf.add_argument("--kind", default=None, choices=list(db_mod.COMPONENT_KINDS))
+    idf.add_argument("--identity", default=None, help="what you say it is")
+    idf.add_argument("--evidence", default=None,
+                     help="what you read out of it that says so")
+    idf.add_argument("--confidence", default=None, metavar="1-10")
+    idf.add_argument("--version", default=None)
+    idf.add_argument("--replace", action="store_true")
     return p
 
 

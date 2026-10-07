@@ -38,3 +38,12 @@ def test_location_tokens_splits_on_path_and_address_punctuation():
 
 def test_location_tokens_is_case_insensitive():
     assert text.location_tokens("KlapHandshake") == text.location_tokens("klaphandshake")
+
+
+def test_noise_words_are_all_above_the_token_floor():
+    """A noise word shorter than MIN_LOCATION_TOKEN can never be subtracted,
+    because location_tokens never emits it - it would be dead weight that
+    reads as coverage."""
+    for word in text.NOISE_WORDS:
+        assert len(word) >= text.MIN_LOCATION_TOKEN, word
+        assert word == word.lower(), word

@@ -90,16 +90,29 @@ def test_dispatching_workflow_never_asks_to_paste_brief_content(name):
 
 @pytest.mark.parametrize("name", ["recon.md", "fpcheck.md"])
 def test_mapping_and_fpcheck_keep_the_strongest_model(name):
-    """Spec section 7 quarantines Sonnet tiering for mapping and fpcheck to
-    Stage 3, "the one tiering change that can cost quality, with precision
-    measured before and after". Stage 1 tiers effort only."""
+    """Spec section 7 ships Sonnet tiering for mapping and fpcheck "last and
+    alone ... with precision measured before and after".
+
+    Stage 3 built the measurement (`bench` now scores precision) and did not
+    take the measurement: that needs two full tplink runs, which this
+    repository cannot do. No precision figure exists for any run, so the
+    before-number the spec conditions the change on does not exist.
+
+    The procedure and the exact diff this test guards are in
+    docs/baselines/2026-10-05-stage3-tiering-gate.md. Change this test when
+    that gate has been run, and put the date in the docstring.
+    """
     text = (ROOT / "workflows" / name).read_text()
     assert "mid tier" not in text, (
-        f"{name} downgrades the model; Stage 1 tiers effort, not the model")
+        f"{name} downgrades the model with no precision baseline to compare "
+        f"against; see docs/baselines/2026-10-05-stage3-tiering-gate.md")
     assert "strongest tier" in text
 
 
 def test_skill_md_subagent_table_keeps_the_strongest_model_for_both():
+    """Same gate as test_mapping_and_fpcheck_keep_the_strongest_model: no
+    precision baseline exists. docs/baselines/2026-10-05-stage3-tiering-gate.md
+    holds the procedure and the exact diff."""
     text = (ROOT / "SKILL.md").read_text()
     for row in ("| recon (mapping) |", "| fpcheck |"):
         line = next(l for l in text.splitlines() if l.startswith(row))
@@ -260,6 +273,7 @@ def test_every_instruction_the_replaced_blocks_sat_inside_survives():
         "workflows/fpcheck.md": [
             "identify the missing batch and re-spawn just that one",
             "Order TPs by severity",
+            "cites a specific HE/PR/CV rule",      # survived the pivot edit
         ],
         "workflows/report.md": [
             "Steps to reproduce is a reproduction GUIDE only",
@@ -322,3 +336,129 @@ def test_every_documented_audit_py_invocation_parses():
     for path in live_markdown():
         for verb in pattern.findall(path.read_text(encoding="utf-8")):
             assert verb in audit.HANDLERS, f"{path.name}: unknown verb {verb}"
+
+
+# --- Stage 3: the shipped prose invokes the five mechanisms --------------------
+
+
+def test_every_stage3_verb_appears_in_shipped_prose():
+    """A mechanism nothing invokes is a mechanism that does not run. Each
+    verb must be named somewhere a phase actually reads."""
+    text = "\n".join(p.read_text(encoding="utf-8") for p in live_markdown())
+    for verb in ("audit.py pivot", "audit.py patterns", "audit.py identify",
+                 "audit.py chain", "audit.py coverage"):
+        assert verb in text, f"no shipped workflow or reference invokes {verb}"
+
+
+def test_the_coverage_gate_is_invoked_at_a_phase_exit():
+    """Phase-scoped on purpose. Unscoped, `coverage` counts a unit analyzed if
+    ANY phase recorded it, so a surface recon ruled on and audit never opened
+    reports 100% and the gate passes on exactly the failure it exists to
+    catch (reproduced: 1/1 PASS unscoped, 0/1 FAIL with --phase audit)."""
+    assert "coverage --db ${AUDIT_DIR}/audit.db --gate --phase audit" in \
+        (ROOT / "workflows" / "audit.md").read_text(encoding="utf-8")
+
+
+def test_no_phase_gate_sits_inside_a_presented_blockquote():
+    """A gate the orchestrator PRESENTS is a gate that never runs. Shipped
+    once inside the USER GATE's `>` block, the coverage gate ran in neither
+    mode: interactively the orchestrator showed the user the command instead
+    of executing it, and unattended `source` mode skips the USER GATE step
+    outright (source.md Step 2 overrides), so it never appeared at all.
+
+    `>` is the marker for text addressed to the user. Every `--gate`
+    invocation must sit in executable prose, as Step 6's patterns gate does.
+
+    Scoped to `live_markdown()` - every file an install ships - not to the
+    three workflows this stage happened to edit. The defect is one file over
+    from wherever the guard stops looking, and `workflows/report.md`,
+    `source.md`, `deploy.md`, `verify.md` and the references can all grow a
+    gate later."""
+    for path in live_markdown():
+        for n, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "audit.py" in line and "--gate" in line:
+                assert not line.lstrip().startswith(">"), (
+                    f"{path.relative_to(ROOT)}:{n} presents a gate instead of "
+                    f"running it: {line.strip()}")
+
+
+def test_the_pivot_rule_is_stated_as_unconditional():
+    """It must not soften into "where applicable". The whole value is that it
+    forces the question on every false positive."""
+    for rel in ("workflows/fpcheck.md", "references/briefs/fpcheck-brief.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8").lower()
+        assert "unconditional" in text, rel
+    skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    assert "refuting_mechanism" in skill
+
+
+def test_the_five_stage3_rationalizations_are_in_the_rejection_table():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for needle in ("audit.py pivot", "That IS the observation",
+                   "audit.py patterns --gate", "km0_boot",
+                   "audit.py chain"):
+        assert needle in text, needle
+
+
+def test_skill_md_lists_the_two_new_tables():
+    text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    for table in ("cba_components", "cba_chains"):
+        assert table in text
+
+
+def test_the_fpcheck_brief_kept_its_placeholders_and_return_contract():
+    """The brief rewrite is the exact shape Stage 1 lost instructions in."""
+    text = (ROOT / "references" / "briefs" / "fpcheck-brief.md").read_text()
+    for var in ("{batch_id}", "{finding_ids}", "{run_dir}",
+                "{source_access}", "{artifact_path}"):
+        assert var in text, var
+    assert "rows=<n> artifact=" in text
+    assert "18 Hard Exclusions and 10 Precedent rules" in text
+    assert "Capability Validity checks CV-1 to CV-3" in text
+
+
+def test_the_tiering_gate_document_exists_and_says_it_has_not_run():
+    """A spec-mandated change that was not made needs a record, or the next
+    reader finds a quarantine test with no explanation and deletes it."""
+    path = ROOT / "docs" / "baselines" / "2026-10-05-stage3-tiering-gate.md"
+    text = path.read_text(encoding="utf-8")
+    assert "NOT RUN" in text
+    assert "precision" in text.lower()
+    assert "mid tier" in text, "the document must carry the exact diff to apply"
+
+
+def test_the_stage3_gate_document_says_it_has_not_run():
+    path = ROOT / "docs" / "baselines" / "2026-10-05-stage3-gate.md"
+    assert "**Status: NOT RUN.**" in path.read_text(encoding="utf-8")
+
+
+def test_the_coverage_gate_has_a_writer_in_the_shipped_prose():
+    """The gate shipped with no writer side. `workflows/recon.md` populates
+    `cba_inventory`, `workflows/audit.md` runs `coverage --gate --phase audit`,
+    and nothing in SKILL.md, workflows/, references/ or references/briefs/
+    ever said to write a `cba_coverage` row -- so following the shipped
+    workflow exactly produced `FAIL ... 2 inventoried unit(s) are unrecorded`
+    on every real target. An unclearable gate gets turned off.
+
+    Both halves are named: the orchestrator's own call, and the per-group
+    brief, because the subagents are the only ones who know which files they
+    opened.
+    """
+    for rel in ("workflows/audit.md", "references/briefs/audit-brief.md"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "coverage" in text and "--record" in text, rel
+        assert "--state analyzed" in text, f"{rel} never records an analysed unit"
+        assert "--state not_audited" in text, f"{rel} never records a gap"
+
+
+def test_the_coverage_writer_is_not_presented_instead_of_run():
+    """Same rule as the gate itself: a `>` block is what the orchestrator
+    shows the user, so a write placed there ships inert."""
+    for path in live_markdown():
+        for n, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "audit.py" in line and "coverage" in line and "--record" in line:
+                assert not line.lstrip().startswith(">"), (
+                    f"{path.relative_to(ROOT)}:{n} presents a write instead of "
+                    f"running it: {line.strip()}")

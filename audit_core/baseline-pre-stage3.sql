@@ -1,7 +1,42 @@
--- audit_core/schema.sql
--- Schema for a codebase-audit run. Applied by audit_core.workspace.apply_schema.
--- Every statement is IF NOT EXISTS: init is idempotent, and re-running a phase
--- must never destroy rows an earlier phase recorded.
+-- The oldest database shape this code must still be able to repair.
+--
+-- Every table TABLE_SPECS declares, each in the form it had before Stage 3:
+-- cba_fp_verdicts and cba_patterns without the four columns Stage 3 adds, and
+-- cba_components/cba_chains in their current (and only ever) form, since they
+-- ship complete and were never migrated.
+--
+-- THIS FILE IS FROZEN. It is not a second copy of schema.sql and it must never
+-- be edited to match it. It is the definition of "the database an upgrading
+-- user actually has", and `audit.py selftest` asserts that applying MIGRATIONS
+-- to it produces a database `db.connect()` accepts. Editing it to follow a new
+-- schema.sql column would silence exactly the failure it exists to catch: a
+-- column added inline to an already-shipped table with no MIGRATIONS entry
+-- passes selftest and every test, and permanently bricks every existing run
+-- directory - connect() rejects it, init cannot repair it, and the printed
+-- remedy is the thing that cannot help.
+--
+-- It ships in audit_core/ rather than tests/ because install.sh copies
+-- audit_core/ wholesale and does not copy tests/, and selftest runs from the
+-- installed skill.
+
+CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
+    finding_id TEXT PRIMARY KEY,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    final_severity TEXT,
+    final_id TEXT,
+    merged_into TEXT,
+    rule_applied TEXT,
+    reviewed_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_patterns (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    regex TEXT NOT NULL,
+    origin_finding TEXT,
+    language TEXT,
+    notes TEXT,
+    created_at TEXT DEFAULT (datetime('now')));
 
 CREATE TABLE IF NOT EXISTS cba_sources (
     id TEXT PRIMARY KEY, type TEXT NOT NULL, source_path TEXT, source_language TEXT,
@@ -43,23 +78,6 @@ CREATE TABLE IF NOT EXISTS cba_findings (
     artifact_path TEXT,
     created_at TEXT DEFAULT (datetime('now')));
 
-CREATE TABLE IF NOT EXISTS cba_fp_verdicts (
-    finding_id TEXT PRIMARY KEY,
-    verdict TEXT NOT NULL,
-    reason TEXT,
-    final_severity TEXT,
-    final_id TEXT,
-    merged_into TEXT,
-    rule_applied TEXT,
-    refuting_mechanism TEXT,
-    enabled_observation TEXT,
-    reviewed_at TEXT DEFAULT (datetime('now')));
-
--- Stage 2 additions. Every statement below is IF NOT EXISTS for the same
--- reason the block above is: `audit.py init` runs again at the start of each
--- phase, and re-running a phase must never destroy a row an earlier phase
--- recorded.
-
 CREATE TABLE IF NOT EXISTS cba_inventory (
     unit TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -74,17 +92,6 @@ CREATE TABLE IF NOT EXISTS cba_coverage (
     reason TEXT,
     recorded_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (unit, phase));
-
-CREATE TABLE IF NOT EXISTS cba_patterns (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    regex TEXT NOT NULL,
-    origin_finding TEXT,
-    language TEXT,
-    notes TEXT,
-    swept_at TEXT,
-    hit_count INTEGER,
-    created_at TEXT DEFAULT (datetime('now')));
 
 CREATE TABLE IF NOT EXISTS cba_pattern_hits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,13 +110,6 @@ CREATE TABLE IF NOT EXISTS cba_checkpoints (
     projected_context INTEGER,
     resume_note TEXT,
     recorded_at TEXT DEFAULT (datetime('now')));
-
--- Stage 3 additions. IF NOT EXISTS for the same reason as every statement
--- above. New COLUMNS on the tables above cannot be declared this way --
--- SQLite has no ADD COLUMN IF NOT EXISTS, and CREATE TABLE IF NOT EXISTS is
--- a no-op against a table that already exists -- so those columns are
--- declared inline above for fresh databases and added to existing ones by
--- audit_core.db.migrate, which workspace.apply_schema runs after this file.
 
 CREATE TABLE IF NOT EXISTS cba_components (
     path TEXT PRIMARY KEY,

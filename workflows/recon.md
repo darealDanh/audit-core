@@ -44,6 +44,18 @@ Follow [../references/phase0-source-detection.md](../references/phase0-source-de
 2. Scan workspace for source-code indicators (build files, common dirs).
 3. Ask the user to choose the appropriate prompt variant (see SKILL.md → *Cross-client tool mapping*). *(Automated `source` mode: auto-select the **source** target without asking; abort if the target is binary/IDA-only — see [source.md](source.md).)*
 4. Insert into `cba_sources`.
+5. Record what each confirmed artifact **is**, with evidence that is not its
+   own filename:
+
+       python3 __SKILL_DIR__/audit.py identify --db ${AUDIT_DIR}/audit.db \
+         --path <path> --kind binary \
+         --identity '<what it is>' --evidence '<what you read out of it>' \
+         --confidence 8
+
+   A filename is an assertion by whoever named it, not evidence. In a real
+   run `km0_boot_0C000020.elf` was treated as a bootloader throughout; it
+   holds the Wi-Fi driver and several CRITICALs. The verb rejects evidence
+   that only repeats the path.
 
 ## Step 3 — Reconnaissance
 
@@ -72,6 +84,18 @@ Use the naming convention `G1…Gn` with stable IDs (so subagent outputs and SQL
 Present the groups and ask the user to confirm (see SKILL.md → *Cross-client tool mapping*): "I've identified N feature groups. [list]. Should I proceed?" with options `["Looks good — proceed", "Let me adjust the groups"]`. *(Automated `source` mode: auto-accept the proposed groups without asking — see [source.md](source.md).)*
 
 Insert approved groups into `cba_feature_groups` (status='pending').
+
+Then populate the coverage denominator. One `cba_inventory` row per
+analysable unit — every file or function the audit could open, not only the
+ones you intend to:
+
+    python3 __SKILL_DIR__/audit.py put --db ${AUDIT_DIR}/audit.db \
+      --table cba_inventory --set unit=<path> --set kind=file --set group_id=$G
+
+The inventory is what "have we audited everything" is measured against. A
+unit nobody inventoried cannot be reported as a gap, which is how six of ten
+missed CRITICALs sat on surfaces that were never opened and never written
+down.
 
 ## Step 5 — Parallel feature mapping subagents
 
@@ -154,3 +178,5 @@ Do NOT auto-advance. *(Exception: automated `source` mode auto-advances through 
 - [ ] Every group has a `files/G<n>-mapping.md` ≥ 50 lines
 - [ ] Every group has ≥ 1 row in `cba_security_observations` (zero means mapping was too shallow → re-run that group's subagent)
 - [ ] Resume note exists and includes the must-investigate leads list
+- [ ] `cba_inventory` has a row per analysable unit, and `audit.py coverage --db ${AUDIT_DIR}/audit.db` names a denominator
+- [ ] Every confirmed source or binary has a `cba_components` row with evidence that is not its filename

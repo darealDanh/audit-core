@@ -162,6 +162,61 @@ def test_an_inventory_row_needs_a_known_kind(con):
     assert "thingy" in str(exc.value)
 
 
+def test_a_fully_analyzed_run_passes(con):
+    inventory(con, "src/a.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "analyzed"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is True
+    assert g.failures == ()
+
+
+def test_an_empty_inventory_fails_the_gate(con):
+    """Review Focus 4. fraction is 0.0 with nothing inventoried, and the
+    Stage 2 render says there is no denominator. A gate reading `0 budget
+    skips, 0 unrecorded` and passing would pass hardest on the run that did
+    the least."""
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("inventory" in f for f in g.failures)
+
+
+def test_a_budget_skip_fails_the_gate(con):
+    inventory(con, "src/a.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "not_audited", "reason": "budget"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("budget" in f for f in g.failures)
+    assert any("checkpoint" in f.lower() for f in g.failures), (
+        "the failure must name the remedy; R3 answers a budget skip with "
+        "checkpoint-and-restart, never with skipping")
+
+
+def test_an_inventoried_unit_with_no_coverage_row_fails_the_gate(con):
+    """The silent case the whole mechanism exists for: a unit nobody ever
+    recorded a decision about. Six of ten missed tplink CRITICALs are on
+    surfaces that were never opened and never written down."""
+    inventory(con, "src/a.c", "src/wifi.c")
+    db.put(con, "cba_coverage", {"unit": "src/a.c", "phase": "audit",
+                                 "state": "analyzed"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is False
+    assert any("unrecorded" in f for f in g.failures)
+
+
+def test_a_recorded_non_budget_skip_warns_but_passes(con):
+    """out-of-scope, vendored and the rest are decisions, recorded with
+    reasons -- which is what the mechanism asks for. Failing on them would
+    make the gate unclearable on any real target."""
+    inventory(con, "vendor/lib.c")
+    db.put(con, "cba_coverage", {"unit": "vendor/lib.c", "phase": "audit",
+                                 "state": "not_audited", "reason": "vendored"})
+    g = coverage.gate(coverage.report(con))
+    assert g.ok is True
+    assert any("vendored" in w for w in g.warnings)
+
+
 def test_a_state_outside_the_contract_is_absorbed_into_neither_count(con):
     """`db.put` cannot write this; a hand-edited table can. Overstating
     coverage is the failure this module exists to prevent, so an
@@ -173,3 +228,83 @@ def test_a_state_outside_the_contract_is_absorbed_into_neither_count(con):
     r = coverage.report(con)
     assert (r.analyzed, r.not_audited, r.unrecorded) == (0, 0, 0)
     assert r.fraction == 0.0
+
+
+# --- the writer side of the gate ---------------------------------------------
+
+
+def test_record_writes_one_row_per_unit_in_one_call(con):
+    """The gate shipped with no writer side. One `put --table cba_coverage`
+    per unit is thousands of round-trips on a real corpus - itself the
+    economics violation this suite exists to remove - so a gate clearable
+    only that way is a gate that gets turned off."""
+    inventory(con, "src/a.c", "src/b.c", "src/c.c")
+    got = coverage.record(con, units=["src/a.c", "src/b.c", "src/c.c"],
+                          phase="audit", state="analyzed")
+    assert got.units == 3
+    r = coverage.report(con, phase="audit")
+    assert (r.analyzed, r.unrecorded) == (3, 0)
+    assert coverage.gate(r).ok is True
+
+
+def test_record_still_enforces_the_not_audited_reason_rule(con):
+    """Validated through db.put, so `_validate_coverage` applies to a bulk
+    write exactly as it does to a single one - and the refusal happens before
+    the first row lands, because a half-cleared gate looks like progress."""
+    inventory(con, "src/a.c", "src/b.c")
+    with pytest.raises(db.DbError) as exc:
+        coverage.record(con, units=["src/a.c", "src/b.c"], phase="audit",
+                        state="not_audited")
+    assert "reason" in str(exc.value)
+    assert coverage.report(con, phase="audit").unrecorded == 2
+
+
+def test_record_rejects_an_invented_reason_before_writing_anything(con):
+    inventory(con, "src/a.c")
+    with pytest.raises(db.DbError):
+        coverage.record(con, units=["src/a.c"], phase="audit",
+                        state="not_audited", reason="felt like it")
+    assert coverage.report(con).unrecorded == 1
+
+
+def test_record_takes_a_legal_gap_reason(con):
+    inventory(con, "vendor/lib.c")
+    coverage.record(con, units=["vendor/lib.c"], phase="audit",
+                    state="not_audited", reason="vendored")
+    r = coverage.report(con, phase="audit")
+    assert r.unrecorded == 0
+    assert r.by_reason == (("vendored", 1),)
+    assert coverage.gate(r).ok is True       # a decision, written down
+
+
+def test_record_deduplicates_and_ignores_blank_lines(con):
+    inventory(con, "src/a.c")
+    got = coverage.record(con, units=["src/a.c", " src/a.c ", "", "  "],
+                          phase="audit", state="analyzed")
+    assert got.units == 1
+
+
+def test_record_with_no_units_says_how_to_supply_them(con):
+    with pytest.raises(db.DbError) as exc:
+        coverage.record(con, units=[], phase="audit", state="analyzed")
+    assert "--from-file" in str(exc.value)
+
+
+def test_recording_the_same_unit_twice_needs_replace(con):
+    inventory(con, "src/a.c")
+    coverage.record(con, units=["src/a.c"], phase="audit", state="analyzed")
+    with pytest.raises(db.DbError):
+        coverage.record(con, units=["src/a.c"], phase="audit",
+                        state="not_audited", reason="vendored")
+    coverage.record(con, units=["src/a.c"], phase="audit",
+                    state="not_audited", reason="vendored", replace=True)
+    assert coverage.report(con, phase="audit").not_audited == 1
+
+
+def test_the_gate_failure_names_the_command_that_clears_it(con):
+    """An unclearable gate gets turned off. The failure text is where an
+    operator looks for the way out, so it must name the writer verb."""
+    inventory(con, "src/a.c")
+    g = coverage.gate(coverage.report(con, phase="audit"))
+    assert g.ok is False
+    assert "coverage --db <db> --record" in " ".join(g.failures)
