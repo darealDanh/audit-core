@@ -248,7 +248,12 @@ def filter_supported(vendor: str, model: str, supported: bool,
     try:
         db.check_identity_evidence(subject, evidence or "")
     except db.DbError as exc:
-        return FilterResult("supported", False, str(exc))
+        n = len((evidence or "").strip())
+        return FilterResult(
+            "supported", False,
+            "support evidence is missing or too thin - cite what makes the "
+            "claim checkable: a vendor advisory and its date, a firmware "
+            f"release and its version, or a vendor page ({n} characters given)")
 
     # Strip vendor/model and non-support patterns to prevent circular claims
     # and irrelevant handles from passing.
@@ -310,10 +315,34 @@ def render(q: Qualification) -> str:
         out.append(f"  {mark}  {f.name:<12} {f.reason}")
     if not q.go:
         out.append("")
-        out.append("  NO-GO. An EOL or strip-mined SKU pays zero and costs "
-                   "thousands of tokens; this gate exists to say so before "
-                   "the pipeline starts.")
+        out.append("  NO-GO. " + _why(q))
     return "\n".join(out)
+
+
+def _why(q: Qualification) -> str:
+    """Footer naming the filter(s) that actually failed, with the cost
+    argument attached only to the case it describes."""
+    cost = ("It pays zero and costs thousands of tokens; this gate exists "
+            "to say so before the pipeline starts.")
+    failed = {f.name for f in q.filters if not f.passed}
+    parts = []
+    if q.score is None:
+        parts.append("This SKU is not in the scored set, so nothing is "
+                     "known about it; the gate refuses what it cannot measure.")
+    else:
+        if "low-slop" in failed:
+            parts.append("The SKU is strip-mined: its CVEs are already "
+                         "harvested by others. " + cost)
+        if "proven-bad" in failed:
+            parts.append("The SKU has no proven RCE history inside the "
+                         "window, so there is little evidence it is worth "
+                         "auditing.")
+    if "supported" in failed:
+        parts.append("The SKU is not shown to be supported: either the "
+                     "operator declared it unsupported or the support claim "
+                     "is not checkable. An EOL SKU gets no patches, so "
+                     "findings pay zero. " + cost)
+    return " ".join(parts)
 
 
 def to_json(q: Qualification) -> dict:

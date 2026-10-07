@@ -261,6 +261,11 @@ def test_qualify_nogo_exits_one():
     assert p.returncode == 1
     assert "NO-GO" in p.stdout
     assert "strip-mined" in p.stdout
+    # The AND, not just an overall refusal: only low-slop fails.
+    lines = {ln.split()[1]: ln.split()[0] for ln in p.stdout.splitlines()
+             if ln.strip().startswith(("pass", "FAIL"))}
+    assert lines == {"proven-bad": "pass", "low-slop": "FAIL",
+                     "supported": "pass"}
 
 
 def test_qualify_rejects_circular_support_evidence():
@@ -294,3 +299,39 @@ def test_qualify_with_a_bad_scores_path_errors_cleanly(tmp_path):
     assert p.returncode == 1
     assert "cannot read" in p.stderr
     assert p.stdout.strip() == ""
+
+
+def test_qualify_missing_evidence_names_what_would_satisfy_it():
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "zyxel", "--model", "emg3525-t50b",
+            "--supported", "yes")
+    assert p.returncode == 1
+    assert "NO-GO" in p.stdout
+    assert "support evidence is missing or too thin" in p.stdout
+    assert "vendor advisory" in p.stdout
+    assert "firmware" in p.stdout
+    assert "header field" not in p.stdout
+
+
+def test_qualify_nogo_under_json_is_parseable_and_exits_one():
+    """Verdict lives in JSON because the exit code cannot tell NO-GO from
+    an error."""
+    p = run("qualify", "--scores", str(FIXTURE_SCORES),
+            "--vendor", "tenda", "--model", "ac18",
+            "--supported", "yes", "--support-evidence", EVIDENCE, "--json")
+    assert p.returncode == 1
+    payload = json.loads(p.stdout)
+    assert payload["verdict"] == "NO-GO"
+    assert {f["name"]: f["passed"] for f in payload["filters"]} == {
+        "proven-bad": True, "low-slop": False, "supported": True}
+
+
+def test_qualify_footer_matches_the_failing_filter():
+    unsupported = run("qualify", "--scores", str(FIXTURE_SCORES),
+                      "--vendor", "zyxel", "--model", "emg3525-t50b",
+                      "--supported", "no")
+    assert "strip-mined" not in unsupported.stdout.split("NO-GO.")[-1]
+    unknown = run("qualify", "--scores", str(FIXTURE_SCORES),
+                  "--vendor", "nosuch", "--model", "nothing",
+                  "--supported", "no")
+    assert "nothing is known about it" in unknown.stdout
