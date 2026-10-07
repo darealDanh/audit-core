@@ -162,9 +162,9 @@ def snapshot_path(root: str | pathlib.Path, target: str,
     target named from a directory can carry a slash, and a path separator in
     a filename component silently writes somewhere nobody looked.
     """
-    stem = _SAFE.sub("-", target).strip("-") or "unnamed"
+    stem = _SAFE.sub("-", target).strip("-.") or "unnamed"
     if label:
-        stem += "-" + (_SAFE.sub("-", label).strip("-") or "labelled")
+        stem += "-" + (_SAFE.sub("-", label).strip("-.") or "labelled")
     return pathlib.Path(root).joinpath(*SNAPSHOT_DIR) / f"{when:%Y-%m-%d}-{stem}.json"
 
 
@@ -177,11 +177,15 @@ def write_snapshot(path: str | pathlib.Path, ind: Indicators) -> pathlib.Path:
     the morning's measurement and leave no trace that it existed.
     """
     path = pathlib.Path(path)
-    if path.exists():
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # "x" is exclusive creation: the existence check and the create are one
+        # atomic step, so two writers cannot both pass a check and truncate.
+        with open(path, "x") as fh:
+            fh.write(json.dumps(to_json(ind), indent=2) + "\n")
+    except FileExistsError:
         raise IndicatorError(
             f"{path} already exists. Measurements are never edited in place -- "
             f"pass --label <word> to write a second snapshot of the same "
-            f"target on the same day.")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(to_json(ind), indent=2) + "\n")
+            f"target on the same day.") from None
     return path

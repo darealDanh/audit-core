@@ -219,7 +219,7 @@ def cmd_indicators(args: argparse.Namespace) -> int:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
         ind = indicators_mod.collect(
-            con, target=args.target or db.parent.name, phase=args.phase)
+            con, target=args.target or db.resolve().parent.name, phase=args.phase)
     finally:
         con.close()
 

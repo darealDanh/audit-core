@@ -70,14 +70,29 @@ def test_a_second_snapshot_the_same_day_refuses_rather_than_overwrites(tmp_path)
     first = run("indicators", "--db", str(db), "--target", "demo",
                 "--snapshot", "--root", str(root))
     assert first.returncode == 0, first.stderr
+    (original,) = (root / "docs" / "indicators").glob("*.json")
+    before = original.read_text()
 
     second = run("indicators", "--db", str(db), "--target", "demo",
                  "--snapshot", "--root", str(root))
     assert second.returncode == 1
     assert "already exists" in second.stderr
     assert "--label" in second.stderr
+    assert original.read_text() == before
 
     labelled = run("indicators", "--db", str(db), "--target", "demo",
                    "--snapshot", "--label", "afternoon", "--root", str(root))
     assert labelled.returncode == 0, labelled.stderr
     assert len(list((root / "docs" / "indicators").glob("*.json"))) == 2
+
+
+def test_a_relative_db_path_still_names_the_target_from_its_directory(tmp_path):
+    run_dir = tmp_path / "myrun"
+    run_dir.mkdir()
+    _old_db(run_dir / "audit.db")
+    root = tmp_path / "repo"
+    p = run("indicators", "--db", "audit.db", "--snapshot", "--root", str(root),
+            cwd=str(run_dir))
+    assert p.returncode == 0, p.stderr
+    names = [f.name for f in (root / "docs" / "indicators").glob("*.json")]
+    assert len(names) == 1 and names[0].endswith("-myrun.json"), names

@@ -1,5 +1,4 @@
 import datetime
-import pathlib
 import sqlite3
 
 import pytest
@@ -204,3 +203,28 @@ def test_a_label_distinguishes_two_snapshots_on_one_day(tmp_path):
     p = indicators.snapshot_path(
         tmp_path, "tplink", datetime.date(2026, 10, 7), label="after-r3")
     assert p.name == "2026-10-07-tplink-after-r3.json"
+
+
+def test_a_slash_in_the_target_cannot_leave_the_snapshot_directory(tmp_path):
+    p = indicators.snapshot_path(tmp_path, "a/b\\c", datetime.date(2026, 10, 7))
+    assert p.parent == tmp_path / "docs" / "indicators"
+    assert p.name == "2026-10-07-a-b-c.json"
+
+
+def test_an_empty_or_punctuation_target_is_unnamed(tmp_path):
+    for t in ("", "///", "---"):
+        p = indicators.snapshot_path(tmp_path, t, datetime.date(2026, 10, 7))
+        assert p.name == "2026-10-07-unnamed.json"
+
+
+def test_dots_cannot_lead_or_trail_a_slug(tmp_path):
+    d = datetime.date(2026, 10, 7)
+    assert indicators.snapshot_path(tmp_path, "..", d).name == "2026-10-07-unnamed.json"
+    assert indicators.snapshot_path(tmp_path, "../x/..", d).name == "2026-10-07-x.json"
+    assert indicators.snapshot_path(tmp_path, "t", d, label="..").name == "2026-10-07-t-labelled.json"
+
+
+def test_a_label_that_slugs_to_nothing_is_labelled(tmp_path):
+    p = indicators.snapshot_path(tmp_path, "t", datetime.date(2026, 10, 7), label="//")
+    assert p.name == "2026-10-07-t-labelled.json"
+    assert p.parent == tmp_path / "docs" / "indicators"
