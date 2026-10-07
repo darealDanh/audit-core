@@ -33,6 +33,8 @@ from audit_core import patterns as patterns_mod  # noqa: E402
 from audit_core import identity as identity_mod  # noqa: E402
 from audit_core import chains as chains_mod  # noqa: E402
 from audit_core import indicators as indicators_mod  # noqa: E402
+from audit_core import rerate as rerate_mod  # noqa: E402
+from audit_core import readings as readings_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -234,6 +236,26 @@ def cmd_bench(args: argparse.Namespace) -> int:
     if result.suppressed_candidates:
         print(f"({result.suppressed_candidates} candidate(s) suppressed by "
               f"rejections.json)")
+    return 0
+
+
+def cmd_rerate(args: argparse.Namespace) -> int:
+    db = pathlib.Path(args.db).expanduser()
+    if not db.is_file():
+        print(f"not found: {db}", file=sys.stderr)
+        return 1
+    # Read-only, and ungated for the same reason `indicators` is.
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        chains_absent = readings_mod.table_state(
+            con, "cba_chains") == readings_mod.ABSENT
+        flags = rerate_mod.examine(con)
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps([dataclasses.asdict(f) for f in flags], indent=2))
+    else:
+        print(rerate_mod.render(flags, chains_absent=chains_absent))
     return 0
 
 
@@ -839,6 +861,7 @@ HANDLERS = {
     "budget": cmd_budget,
     "bench": cmd_bench,
     "indicators": cmd_indicators,
+    "rerate": cmd_rerate,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -874,6 +897,11 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--db", required=True, metavar="AUDIT_DB")
     n.add_argument("--cost", type=float, default=None)
     n.add_argument("--json", action="store_true")
+    rr = sub.add_parser("rerate",
+                        help="report findings rated below the floor their own "
+                             "evidence implies (advisory; stores nothing)")
+    rr.add_argument("--db", required=True, metavar="AUDIT_DB")
+    rr.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")

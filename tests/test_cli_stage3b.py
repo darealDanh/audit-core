@@ -152,3 +152,32 @@ def test_compare_rejects_missing_indicators_key(tmp_path):
     p = run("indicators", "--compare", str(valid), str(missing))
     assert p.returncode == 1
     assert "missing 'indicators' key" in p.stderr
+
+
+def test_rerate_does_not_modify_the_database(tmp_path):
+    """The safety property, asserted rather than assumed. If a future change
+    makes this verb write, the mtime and the row contents catch it."""
+    import os
+    db = tmp_path / "audit.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cba_findings (id TEXT PRIMARY KEY, "
+                "group_id TEXT NOT NULL, title TEXT NOT NULL, "
+                "severity TEXT NOT NULL, confidence INTEGER NOT NULL, "
+                "cwe TEXT, location TEXT NOT NULL, root_cause TEXT NOT NULL, "
+                "impact TEXT NOT NULL, attacker_position TEXT, "
+                "boundary_crossed TEXT, data_flow TEXT, verified TEXT, "
+                "poc TEXT, remediation TEXT, artifact_path TEXT, "
+                "created_at TEXT)")
+    con.execute("INSERT INTO cba_findings (id, group_id, title, severity, "
+                "confidence, location, root_cause, impact) VALUES "
+                "('F1','G1','t','LOW',80,'f.c:1',"
+                "'reached without authentication','i')")
+    con.commit()
+    con.close()
+
+    before = (db.stat().st_mtime_ns, db.read_bytes())
+    p = run("rerate", "--db", str(db))
+    assert p.returncode == 0, p.stderr
+    assert "F1" in p.stdout
+    assert "No severity has been changed" in p.stdout
+    assert (db.stat().st_mtime_ns, db.read_bytes()) == before
