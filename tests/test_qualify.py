@@ -63,3 +63,64 @@ def test_one_malformed_row_does_not_deny_a_verdict_on_the_others():
     assert ("broken", "row") not in scores
     assert len(scores) == 3
     assert ("draytek", "vigor3910") in scores
+
+
+def test_truncated_row_is_skipped_not_fatal(tmp_path):
+    """A truncated CSV row (missing trailing cells) fills missing cells with
+    None. DictReader returns None for missing fields, which raises TypeError
+    when passed to int() or float(). This must be skipped, not fatal."""
+    truncated = tmp_path / "truncated.csv"
+    truncated.write_text(
+        "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "acme,truncated,5\n"
+        "vendor2,model2,10,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
+    scores = qualify.load_scores(truncated)
+    assert ("acme", "truncated") not in scores
+    assert ("vendor2", "model2") in scores
+    assert len(scores) == 1
+
+
+def test_nan_and_inf_are_rejected(tmp_path):
+    """NaN and Inf pass float() but are invalid for scoring. A nan would
+    make the next filter's check fail-open. Reject non-finite numbers."""
+    nan_file = tmp_path / "nan.csv"
+    nan_file.write_text(
+        "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "bad,nan,10,nan,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "bad,inf,10,0.5,inf,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "good,model,10,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
+    scores = qualify.load_scores(nan_file)
+    assert ("bad", "nan") not in scores
+    assert ("bad", "inf") not in scores
+    assert ("good", "model") in scores
+    assert len(scores) == 1
+
+
+def test_invalid_numeric_ranges_are_rejected(tmp_path):
+    """Negative rce_cves and max_cvss outside 0-10 are impossible. Reject them."""
+    invalid = tmp_path / "invalid.csv"
+    invalid.write_text(
+        "vendor,model,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "bad,negative_rce,−1,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "bad,high_cvss,10,0.5,11.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "bad,low_cvss,10,0.5,-0.5,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n"
+        "good,model,10,0.5,8.0,2024-01-01,2025-01-01,x@y.z,y.z,CVE-2024-0001\n")
+    scores = qualify.load_scores(invalid)
+    assert ("bad", "negative_rce") not in scores
+    assert ("bad", "high_cvss") not in scores
+    assert ("bad", "low_cvss") not in scores
+    assert ("good", "model") in scores
+    assert len(scores) == 1
+
+
+def test_columns_in_different_order_are_refused(tmp_path):
+    """A positional reader paired with a lenient header check would pass
+    today's tests but silently score the wrong field. Ensure that columns
+    in a different order (but with the same set of names) are refused."""
+    reordered = tmp_path / "reordered.csv"
+    reordered.write_text(
+        "model,vendor,rce_cves,slop_pct,max_cvss,first_pub,last_pub,top_source,top_ref_hosts,sample_cves\n"
+        "emg3525-t50b,zyxel,13,0,9.8,2024-05-21,2026-02-24,security@zyxel.com.tw,zyxel.com,CVE-2024-0001\n")
+    with pytest.raises(qualify.QualifyError) as exc:
+        qualify.load_scores(reordered)
+    assert "wrong order" in str(exc.value)

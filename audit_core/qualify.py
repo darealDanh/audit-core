@@ -15,6 +15,7 @@ Nothing here writes anything. It reads one CSV and returns a verdict.
 from __future__ import annotations
 
 import csv
+import math
 import pathlib
 from dataclasses import dataclass
 
@@ -57,34 +58,71 @@ def load_scores(path: str | pathlib.Path) -> dict[tuple[str, str], Score]:
     """
     path = pathlib.Path(path)
     try:
-        handle = path.open(newline="", encoding="utf-8")
+        handle = path.open(newline="", encoding="utf-8-sig")
     except OSError as exc:
         raise QualifyError(f"cannot read {path}: {exc}") from exc
 
     with handle:
-        reader = csv.DictReader(handle)
-        actual = tuple(reader.fieldnames or ())
+        try:
+            reader = csv.DictReader(handle)
+            actual = tuple(reader.fieldnames or ())
+        except (UnicodeDecodeError, csv.Error) as exc:
+            raise QualifyError(f"cannot read {path}: {exc}") from exc
+
         if actual != EXPECTED_HEADER:
-            raise QualifyError(
-                f"{path} does not have the expected columns.\n"
-                f"  expected: {', '.join(EXPECTED_HEADER)}\n"
-                f"  found:    {', '.join(actual) or '(no header)'}")
+            # Check if sets match but order differs
+            if set(actual) == set(EXPECTED_HEADER):
+                raise QualifyError(
+                    f"{path} has the right columns in the wrong order.\n"
+                    f"  expected order: {', '.join(EXPECTED_HEADER)}\n"
+                    f"  found order:    {', '.join(actual)}")
+            else:
+                # Sets don't match - show expected, found, and what's missing/unexpected
+                expected_set = set(EXPECTED_HEADER)
+                actual_set = set(actual)
+                missing = expected_set - actual_set
+                unexpected = actual_set - expected_set
+                msg = f"{path} does not have the expected columns.\n"
+                msg += f"  expected: {', '.join(EXPECTED_HEADER)}\n"
+                msg += f"  found:    {', '.join(actual) or '(no header)'}"
+                if missing:
+                    msg += f"\n  missing: {', '.join(sorted(missing))}"
+                if unexpected:
+                    msg += f"\n  unexpected: {', '.join(sorted(unexpected))}"
+                raise QualifyError(msg)
 
         out: dict[tuple[str, str], Score] = {}
-        for row in reader:
-            try:
-                score = Score(
-                    vendor=row["vendor"].strip().lower(),
-                    model=row["model"].strip().lower(),
-                    rce_cves=int(row["rce_cves"]),
-                    slop_pct=float(row["slop_pct"]),
-                    max_cvss=float(row["max_cvss"]),
-                    first_pub=row["first_pub"].strip(),
-                    last_pub=row["last_pub"].strip(),
-                    top_source=row["top_source"].strip())
-            except (ValueError, AttributeError, KeyError):
-                continue
-            out[(score.vendor, score.model)] = score
+        try:
+            for row in reader:
+                try:
+                    rce_cves = int(row["rce_cves"])
+                    slop_pct = float(row["slop_pct"])
+                    max_cvss = float(row["max_cvss"])
+
+                    # Reject impossible values; fail closed on every check
+                    if rce_cves < 0:
+                        continue
+                    if not (0 <= max_cvss <= 10):
+                        continue
+                    if not math.isfinite(slop_pct):
+                        continue
+                    if not math.isfinite(max_cvss):
+                        continue
+
+                    score = Score(
+                        vendor=row["vendor"].strip().lower(),
+                        model=row["model"].strip().lower(),
+                        rce_cves=rce_cves,
+                        slop_pct=slop_pct,
+                        max_cvss=max_cvss,
+                        first_pub=row["first_pub"].strip(),
+                        last_pub=row["last_pub"].strip(),
+                        top_source=row["top_source"].strip())
+                except (ValueError, TypeError, AttributeError, KeyError):
+                    continue
+                out[(score.vendor, score.model)] = score
+        except (UnicodeDecodeError, csv.Error) as exc:
+            raise QualifyError(f"cannot read {path}: {exc}") from exc
     return out
 
 
