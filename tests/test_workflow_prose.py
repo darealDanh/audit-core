@@ -469,9 +469,18 @@ def test_batch_identifiers_agree_between_the_workflow_and_its_reference():
     reading the workflow letters a batch `A`; the reference's worked example
     shows `B1`, so the brief they render and the artifact path they write do
     not match what either document shows."""
-    workflow = (ROOT / "workflows" / "fpcheck.md").read_text()
-    reference = (ROOT / "references" / "phase5-fp-check.md").read_text()
+    workflow = (ROOT / "workflows" / "fpcheck.md").read_text(encoding="utf-8")
+    reference = (ROOT / "references" / "phase5-fp-check.md").read_text(
+        encoding="utf-8")
     assert "--unit B1" not in reference
     assert "batch_id=B1" not in reference
     assert "phase5-B1.md" not in reference
+    # Pin the agreed value too, so a drift to B2/B3/phase5-B1x.md also fails.
+    assert "--unit A" in reference
+    assert "--var batch_id=A" in reference
+    assert "artifacts/phase5-A.md" in reference
+    # The reference's literal A corresponds to the workflow's $BATCH.
     assert "BATCH=A" in workflow
+    assert '--unit "$BATCH"' in workflow
+    assert 'batch_id="$BATCH"' in workflow
+    assert "phase5-$BATCH.md" in workflow
