@@ -914,7 +914,7 @@ Expected: PASS. Every path must exist, `qualify` must be dispatchable, and a `sh
 
 - [ ] **Step 5: Update the three documents**
 
-- `progress.md`: add Stage 4a to the stage table (status **merged**, gate *none — no audit run*); note that Stage 4 is being built as vertical slices because eleven phases is not one plan; record that `qualify` is the first and what it refuses.
+- `progress.md`: add Stage 4a to the stage table (status **on branch `stage4a/qualify`, awaiting merge** - this task runs BEFORE the merge, so never write "merged" here; gate *none — no audit run*); note that Stage 4 is being built as vertical slices because eleven phases is not one plan; record that `qualify` is the first and what it refuses.
 - `SESSION_HANDOFF.md`: add `qualify` to what exists; **keep §3's standing instruction verbatim** — the benchmark gates stay deferred on cost and this stage did not run one.
 - `ARCHITECTURE.md`: add `audit_core/qualify.py` to the module map and move the verb count 22 → 23.
 

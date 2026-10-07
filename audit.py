@@ -34,6 +34,7 @@ from audit_core import identity as identity_mod  # noqa: E402
 from audit_core import chains as chains_mod  # noqa: E402
 from audit_core import indicators as indicators_mod  # noqa: E402
 from audit_core import rerate as rerate_mod  # noqa: E402
+from audit_core import qualify as qualify_mod  # noqa: E402
 from audit_core import readings as readings_mod  # noqa: E402
 
 
@@ -264,6 +265,24 @@ def cmd_rerate(args: argparse.Namespace) -> int:
     else:
         print(rerate_mod.render(flags, chains_absent=chains_absent))
     return 0
+
+
+def cmd_qualify(args: argparse.Namespace) -> int:
+    """The hard gate. GO exits 0; NO-GO exits 1, like the other two gates."""
+    try:
+        scores = qualify_mod.load_scores(pathlib.Path(args.scores).expanduser())
+    except qualify_mod.QualifyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    q = qualify_mod.qualify(scores, args.vendor, args.model,
+                            args.supported == "yes",
+                            args.support_evidence or "")
+    if args.json:
+        print(json.dumps(qualify_mod.to_json(q), indent=2))
+    else:
+        print(qualify_mod.render(q))
+    return 0 if q.go else 1
 
 
 def cmd_indicators(args: argparse.Namespace) -> int:
@@ -875,6 +894,7 @@ HANDLERS = {
     "bench": cmd_bench,
     "indicators": cmd_indicators,
     "rerate": cmd_rerate,
+    "qualify": cmd_qualify,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -915,6 +935,23 @@ def build_parser() -> argparse.ArgumentParser:
                              "evidence implies (advisory; stores nothing)")
     rr.add_argument("--db", required=True, metavar="AUDIT_DB")
     rr.add_argument("--json", action="store_true")
+    ql = sub.add_parser(
+        "qualify",
+        help="GO/NO-GO gate for a firmware target, before the audit starts")
+    ql.add_argument("--scores", required=True, metavar="TARGET_SCORES_CSV",
+                    help="path to target-scores.csv; no default, because the "
+                         "intel tree is read-only and outside this repository")
+    ql.add_argument("--vendor", required=True)
+    ql.add_argument("--model", required=True)
+    ql.add_argument("--supported", required=True, choices=("yes", "no"),
+                    help="does the vendor still support this SKU? unknown is "
+                         "not an option: answer no")
+    ql.add_argument("--support-evidence", default="",
+                    help="what makes the support claim checkable - a date, a "
+                         "firmware version, or a vendor host. With "
+                         "--supported yes the gate demands it and answers "
+                         "NO-GO without it")
+    ql.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
