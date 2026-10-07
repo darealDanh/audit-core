@@ -176,7 +176,10 @@ def cmd_bench(args: argparse.Namespace) -> int:
                              precision=precision, coverage=coverage_reading)
 
     if args.json:
-        payload = dataclasses.asdict(result) | {"weighted_recall": result.weighted_recall}
+        payload = dataclasses.asdict(result) | {
+            "weighted_recall": result.weighted_recall,
+            "coverage": result.coverage.as_json() if result.coverage is not None else None,
+        }
         print(json.dumps(payload, indent=2))
         return 0
 

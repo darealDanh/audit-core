@@ -237,6 +237,9 @@ def precision_from_db(db_path: str | pathlib.Path) -> Precision | None:
 def coverage_from_db(db_path: str | pathlib.Path) -> Reading:
     """Analyzed over inventoried, or the reason there is no such fraction.
 
+    Reports the whole-run figure (phase=None), not the phase-scoped figure
+    that the coverage exit gate answers.
+
     Opened read-only and ungated, for the same reason `load_findings_from_db`
     is: bench must keep scoring run directories older than the current
     schema, and `db.connect()` rejects exactly those.

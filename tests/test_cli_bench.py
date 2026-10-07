@@ -95,3 +95,13 @@ def test_bench_severity_line_denominator_and_unrankable_pairs_named(tmp_path):
     out = run("bench", "--golden", str(g), "--db", str(db)).stdout
     assert "severity   0/1 agree" in out      # 1 scored, not len(matched)
     assert "REF-1 ~ F-1: unrankable ('CRITICAL' vs 'weird')" in out
+
+
+def test_bench_json_coverage_omits_value_when_absent(tmp_path):
+    """coverage.as_json() omits value for absent readings; asdict must not
+    leak it. A consumer checking `if payload["coverage"]["value"]` would get
+    null and silently misread it as 0% coverage."""
+    payload = json.loads(run("bench", "--golden", str(make_golden(tmp_path)),
+                             "--db", str(make_db(tmp_path)), "--json").stdout)
+    assert payload["coverage"]["state"] == "absent"
+    assert "value" not in payload["coverage"]
