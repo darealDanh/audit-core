@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from audit_core import coverage as coverage_mod
-from audit_core.readings import ABSENT, PRESENT, Reading, table_state
+from audit_core.readings import ABSENT, Reading, table_state
 
 SCHEMA_VERSION = 1
 
@@ -33,6 +33,13 @@ class Indicators:
 
 
 def coverage_reading(con: sqlite3.Connection, phase: str | None = None) -> Reading:
+    """Coverage percentage as a Reading.
+
+    Returns `absent` for two distinct causes: either the coverage or inventory
+    table is missing (the database predates Stage 2), or the inventory is empty
+    and there is therefore no denominator for a percentage. Either way, a
+    fabricated `0%` claim would be wrong.
+    """
     if table_state(con, "cba_coverage", "cba_inventory") == ABSENT:
         return Reading.absent(
             "cba_coverage / cba_inventory are not in this database "
@@ -71,6 +78,12 @@ def _sweep_hits(con: sqlite3.Connection) -> Reading:
 def _not_audited(con: sqlite3.Connection, phase: str | None) -> Reading:
     if table_state(con, "cba_coverage") == ABSENT:
         return Reading.absent("cba_coverage is not in this database")
+    # The detail rows enumerate reasons for not_audited, but exclude NULL
+    # reasons (units recorded as not_audited without a recorded reason), so
+    # detail can sum lower than the headline. Also, in an unscoped read, a unit
+    # skipped for multiple reasons appears under each reason, so detail can sum
+    # higher than the headline. This breakdown tells you something the top line
+    # cannot.
     sql = ("SELECT COUNT(DISTINCT unit) FROM cba_coverage "
            "WHERE state = 'not_audited'")
     rsql = ("SELECT reason, COUNT(DISTINCT unit) FROM cba_coverage "
@@ -112,8 +125,10 @@ def render(ind: Indicators) -> str:
     if any(getattr(ind, k).is_absent
            for k in ("coverage", "surfaces", "sweep_hits", "not_audited")):
         out.append("")
-        out.append("  `absent` means the table is not in this database, not "
-                   "that the value is zero.")
+        out.append("  `absent` means a measurement cannot be made: either the "
+                   "table is not in this database, or (for coverage) the "
+                   "inventory is empty so there is no denominator. Each entry "
+                   "says why.")
     return "\n".join(out)
 
 

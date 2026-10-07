@@ -5,11 +5,16 @@ import pytest
 from audit_core import indicators, readings
 
 
-def _db(tmp_path, *, coverage=True, surfaces=True, patterns=True):
+def _db(tmp_path, *, coverage=True, surfaces=True, patterns=True,
+        inventory=None, cba_coverage=None, pattern_hits=None):
     """A run database with whichever table families the test needs.
 
     Built table by table rather than from schema.sql, because the point of
     most of these tests is a database that is MISSING a family.
+
+    For fine-grained control, inventory, cba_coverage, and pattern_hits can
+    override the coverage and patterns flags: if set to True or False, they
+    control that specific table independently.
     """
     con = sqlite3.connect(tmp_path / "audit.db")
     con.execute("CREATE TABLE cba_findings (id TEXT PRIMARY KEY, "
@@ -19,18 +24,25 @@ def _db(tmp_path, *, coverage=True, surfaces=True, patterns=True):
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT, "
                     "endpoint TEXT, method TEXT, auth_required TEXT, "
                     "description TEXT)")
-    if coverage:
+    # Handle fine-grained control for coverage tables
+    _inventory = inventory if inventory is not None else coverage
+    _cba_coverage = cba_coverage if cba_coverage is not None else coverage
+    if _inventory:
         con.execute("CREATE TABLE cba_inventory (unit TEXT PRIMARY KEY, "
                     "kind TEXT NOT NULL, group_id TEXT, size INTEGER, "
                     "added_at TEXT)")
+    if _cba_coverage:
         con.execute("CREATE TABLE cba_coverage (unit TEXT NOT NULL, "
                     "phase TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, "
                     "recorded_at TEXT, PRIMARY KEY (unit, phase))")
+    # Handle fine-grained control for pattern tables
+    _pattern_hits = pattern_hits if pattern_hits is not None else patterns
     if patterns:
         con.execute("CREATE TABLE cba_patterns (id TEXT PRIMARY KEY, "
                     "name TEXT NOT NULL, regex TEXT NOT NULL, "
                     "origin_finding TEXT, language TEXT, notes TEXT, "
                     "swept_at TEXT, hit_count INTEGER, created_at TEXT)")
+    if _pattern_hits:
         con.execute("CREATE TABLE cba_pattern_hits ("
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     "pattern_id TEXT NOT NULL, path TEXT NOT NULL, "
@@ -120,7 +132,7 @@ def test_a_pre_stage2_database_reports_absent_not_zero(tmp_path):
     out = indicators.render(ind)
     assert "0.0%" not in out
     assert "absent" in out
-    assert "not that the value is zero" in out
+    assert "Each entry says why" in out
 
     j = indicators.to_json(ind)
     assert j["indicators"]["coverage"] == {
@@ -144,4 +156,37 @@ def test_tables_that_exist_but_are_empty_report_zero_not_absent(tmp_path):
     # which is absent rather than 0%.
     assert ind.coverage.is_absent
     assert "no denominator" in ind.coverage.note
+    con.close()
+
+
+def test_coverage_absent_when_inventory_missing(tmp_path):
+    """coverage_reading guards on BOTH tables, so it returns absent if
+    cba_inventory is missing even when cba_coverage exists."""
+    con = _db(tmp_path, inventory=False, cba_coverage=True)
+    con.commit()
+    ind = indicators.collect(con, target="partial")
+    assert ind.coverage.is_absent
+    assert "cba_coverage / cba_inventory" in ind.coverage.note
+    con.close()
+
+
+def test_coverage_absent_when_coverage_table_missing(tmp_path):
+    """coverage_reading guards on BOTH tables, so it returns absent if
+    cba_coverage is missing even when cba_inventory exists."""
+    con = _db(tmp_path, inventory=True, cba_coverage=False)
+    con.commit()
+    ind = indicators.collect(con, target="partial")
+    assert ind.coverage.is_absent
+    assert "cba_coverage / cba_inventory" in ind.coverage.note
+    con.close()
+
+
+def test_sweep_hits_absent_when_pattern_hits_missing(tmp_path):
+    """_sweep_hits guards on cba_pattern_hits, so it returns absent if
+    that table is missing even when cba_patterns exists."""
+    con = _db(tmp_path, patterns=True, pattern_hits=False)
+    con.commit()
+    ind = indicators.collect(con, target="partial")
+    assert ind.sweep_hits.is_absent
+    assert "cba_pattern_hits" in ind.sweep_hits.note
     con.close()
