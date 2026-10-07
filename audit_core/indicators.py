@@ -141,8 +141,9 @@ def to_json(ind: Indicators) -> dict:
         "schema_version": SCHEMA_VERSION,
         "target": ind.target,
         "phase": ind.phase,
-        "indicators": {k: getattr(ind, k).as_json() for k in
-                       ("coverage", "surfaces", "sweep_hits", "not_audited")},
+        "indicators": {k: {**getattr(ind, k).as_json(), "unit": _UNITS[k]}
+                       for k in ("coverage", "surfaces", "sweep_hits",
+                                 "not_audited")},
     }
 
 
@@ -227,6 +228,7 @@ def compare(a: dict, b: dict) -> tuple[Delta, ...]:
                              "not comparable"))
             continue
         before, after = _fmt(ea), _fmt(eb)
+        unit = ea.get("unit") or eb.get("unit") or ""
         if ea.get("state") == ABSENT or eb.get("state") == ABSENT:
             moved = "unchanged" if before == after else "not comparable"
         elif ea.get("value") == eb.get("value"):
@@ -238,9 +240,13 @@ def compare(a: dict, b: dict) -> tuple[Delta, ...]:
             if (isinstance(ea_val, (int, float)) and not isinstance(ea_val, bool) and
                 isinstance(eb_val, (int, float)) and not isinstance(eb_val, bool)):
                 diff = eb_val - ea_val
-                moved = f"{round(diff, 6):+}"
+                moved = f"{round(diff, 6):+}{unit}"
             else:
                 moved = "not comparable"
+        if unit and ea.get("state") != ABSENT:
+            before += unit
+        if unit and eb.get("state") != ABSENT:
+            after += unit
         out.append(Delta(name, before, after, moved))
     return tuple(out)
 

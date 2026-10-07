@@ -247,6 +247,10 @@ def cmd_rerate(args: argparse.Namespace) -> int:
     # Read-only, and ungated for the same reason `indicators` is.
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
+        if readings_mod.table_state(con, "cba_findings") == readings_mod.ABSENT:
+            print("rerate: cba_findings is not in this database; nothing to "
+                  "examine.")
+            return 0
         chains_absent = readings_mod.table_state(
             con, "cba_chains") == readings_mod.ABSENT
         flags = rerate_mod.examine(con)
@@ -280,6 +284,12 @@ def cmd_indicators(args: argparse.Namespace) -> int:
                     return 1
                 if "indicators" not in data:
                     print(f"invalid snapshot {p}: missing 'indicators' key",
+                          file=sys.stderr)
+                    return 1
+                if data.get("schema_version") != indicators_mod.SCHEMA_VERSION:
+                    print(f"snapshot {p}: schema_version "
+                          f"{data.get('schema_version')!r} is not "
+                          f"{indicators_mod.SCHEMA_VERSION}; refusing to compare",
                           file=sys.stderr)
                     return 1
             except json.JSONDecodeError as exc:
@@ -321,7 +331,7 @@ def cmd_indicators(args: argparse.Namespace) -> int:
         except indicators_mod.IndicatorError as exc:
             print(str(exc), file=sys.stderr)
             return 1
-        print(f"snapshot: {written}")
+        print(f"snapshot: {written}", file=sys.stderr)
     return 0
 
 
@@ -917,8 +927,9 @@ def build_parser() -> argparse.ArgumentParser:
     ind.add_argument("--label", default=None,
                      help="distinguish a second snapshot of the same target "
                           "on the same day")
-    ind.add_argument("--root", default=str(pathlib.Path(__file__).resolve().parent),
-                     metavar="DIR")
+    ind.add_argument("--root", default=".", metavar="DIR",
+                     help="snapshots land under <root>/docs/indicators/; "
+                          "defaults to the current directory")
     i = sub.add_parser("init", help="create an audit run directory and its schema")
     i.add_argument("--root", default=".", metavar="DIR")
     i.add_argument("--timestamp", default=None, metavar="TS")

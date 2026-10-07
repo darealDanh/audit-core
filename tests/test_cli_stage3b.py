@@ -180,3 +180,51 @@ def test_rerate_does_not_modify_the_database(tmp_path):
     assert "F1" in p.stdout
     assert "No severity has been changed" in p.stdout
     assert (db.stat().st_mtime_ns, db.read_bytes()) == before
+
+
+def test_json_with_snapshot_keeps_stdout_parseable(tmp_path):
+    db = tmp_path / "run" / "audit.db"
+    db.parent.mkdir()
+    _old_db(db)
+    p = run("indicators", "--db", str(db), "--target", "demo", "--json",
+            "--snapshot", "--root", str(tmp_path / "repo"))
+    assert p.returncode == 0, p.stderr
+    assert json.loads(p.stdout)["target"] == "demo"
+    assert "snapshot:" in p.stderr
+
+
+def test_rerate_on_a_database_without_findings_exits_cleanly(tmp_path):
+    db = tmp_path / "audit.db"
+    sqlite3.connect(db).close()
+    p = run("rerate", "--db", str(db))
+    assert p.returncode == 0, p.stderr
+    assert "cba_findings" in p.stdout
+    assert "Traceback" not in p.stderr
+
+
+def test_compare_refuses_an_unknown_schema_version(tmp_path):
+    body = {"target": "t", "phase": None, "indicators": {}}
+    good, bad, none = (tmp_path / n for n in ("g.json", "b.json", "n.json"))
+    good.write_text(json.dumps({"schema_version": 1, **body}))
+    bad.write_text(json.dumps({"schema_version": 2, **body}))
+    none.write_text(json.dumps(body))
+    for other in (bad, none):
+        p = run("indicators", "--compare", str(good), str(other))
+        assert p.returncode == 1
+        assert "schema_version" in p.stderr
+
+
+def test_snapshot_and_compare_carry_units(tmp_path):
+    db = tmp_path / "audit.db"
+    sqlite3.connect(db).close()
+    p = run("indicators", "--db", str(db), "--json")
+    assert json.loads(p.stdout)["indicators"]["coverage"]["unit"] == "%"
+    snap = {"schema_version": 1, "target": "t", "phase": None, "indicators": {
+        "coverage": {"state": "present", "value": 45.2, "unit": "%"}}}
+    snap2 = {**snap, "indicators": {
+        "coverage": {"state": "present", "value": 38.1, "unit": "%"}}}
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text(json.dumps(snap))
+    b.write_text(json.dumps(snap2))
+    r = run("indicators", "--compare", str(a), str(b))
+    assert "45.2%" in r.stdout and "38.1%" in r.stdout and "-7.1%" in r.stdout

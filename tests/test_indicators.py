@@ -139,7 +139,8 @@ def test_a_pre_stage2_database_reports_absent_not_zero(tmp_path):
     assert j["indicators"]["coverage"] == {
         "state": "absent",
         "note": "cba_coverage / cba_inventory are not in this database "
-                "(it predates Stage 2)"}
+                "(it predates Stage 2)",
+        "unit": "%"}
     con.close()
 
 
