@@ -119,7 +119,11 @@ def test_linearity_judges_an_epoch_of_exactly_min_turns(tmp_path):
 def test_linearity_skips_an_epoch_whose_mean_is_zero_not_divides_by_it():
     """ceiling.py:92. The deviation divides by the measured mean, so a mean of
     exactly 0 must be skipped. `<= 0` becoming `< 0` lets it through to a
-    ZeroDivisionError. linearity() reads only `.epochs`."""
+    ZeroDivisionError. linearity() reads only `.epochs`.
+
+    Reachability: a defensive guard, not an observed case. Epoch(mean=0) is
+    hand-built here; budget.analyze is not known to produce one for a 30-turn
+    epoch. It guards a real ZeroDivisionError should one ever appear."""
     import types
     zero = budget.Epoch(index=0, turns=30, floor=0, peak=0, mean=0, total=0,
                         growth_per_turn=0.0)

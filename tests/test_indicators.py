@@ -422,10 +422,12 @@ def test_render_compare_omits_footer_when_everything_is_comparable():
 # --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
 
 def test_one_absent_side_is_enough_to_make_a_pair_not_comparable():
-    """indicators.py:232. `a absent OR b absent`: either side alone makes the
-    pair uncomparable, even when the absent entry carries a stray value that
-    happens to equal (or differ from) the other side's. Under `and`, such a
-    snapshot would be diffed as if the reading existed."""
+    """indicators.py:232. Guards FOREIGN or HAND-EDITED snapshots, not output
+    this module produces: indicators.py never writes a `value` on an absent
+    entry, so for its own snapshots `or` and `and` behave identically. An
+    absent entry that does carry a stray value (a hand-edited file, another
+    tool's format) must still be uncomparable against a present one, never
+    diffed as if the reading existed."""
     absent_with_value = {"state": "absent", "value": 7, "note": "no table"}
     present = {"state": "present", "value": 7}
     forward = indicators.compare({"indicators": {"coverage": absent_with_value}},
@@ -434,7 +436,3 @@ def test_one_absent_side_is_enough_to_make_a_pair_not_comparable():
     backward = indicators.compare({"indicators": {"coverage": present}},
                                   {"indicators": {"coverage": absent_with_value}})
     assert backward[0].moved == "not comparable"
-    shifted = indicators.compare(
-        {"indicators": {"coverage": {"state": "absent", "value": 5}}},
-        {"indicators": {"coverage": {"state": "present", "value": 7}}})
-    assert shifted[0].moved == "not comparable"

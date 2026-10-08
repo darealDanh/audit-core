@@ -58,3 +58,31 @@ rerate.py:107:17 (tests/test_rerate.py): no ellipsis when the window ends exactl
 
 ## Commit
 See return message (SHA captured with `git rev-parse --short HEAD`).
+
+## Fix round 1 (coordinator review)
+
+1. patterns.py:52:42 - NOT allowlisted, and the proof offered does not hold.
+   The dead part is the `""` FALLBACK (name is NOT NULL, schema.sql:80). The
+   mutant `x and ""` changes the LIVE path: for every truthy name it returns
+   "". So the mutant is observable and killable (it was killed). Allowlisting
+   it with "dead code" as the proof would be a false proof. Kept the
+   name assertion (a behaviour: the state reports the registered name);
+   dropped only the unreachable NULL-name half. The origin_finding half is
+   kept as asked. Open item for a later stage: `r["name"] or ""` could be
+   `r["name"]` (fallback unreachable). NOT changed here.
+2. indicators.py:232 - chose to KEEP the test, docstring now says it guards
+   foreign / hand-edited snapshots, not this module's own output. Dropped the
+   third assertion (absent 5 vs present 7), which passed under mutant too.
+3. ceiling.py:92:34 - docstring now states the Epoch(mean=0) case is a
+   defensive guard, hand-built, not an observed case.
+4. Evidence. Committed: task-15-verify.py (harness), task-15-verify-run1.log
+   (full output of the original 32 re-runs), task-15-verify-round1.log
+   (re-runs after this round: patterns 52, patterns 53, indicators 232,
+   ceiling 92:34, qualify 179 - all killed).
+   What was actually observed: AFTER-fix "killed" for all 32. BEFORE-fix, I
+   observed `survived` myself for qualify:179 only (same harness). For the
+   other 31 the before-state is the first sweep's recorded `survived`
+   (docs/baselines/2026-10-08-mutation-sweep.md; .mutate-state.json), not a
+   before-run I took.
+   The harness runs from the repo root: `python3 task-15-verify.py "<label>"...`
+   or `@file` of labels; it needs scripts/mutate.py.

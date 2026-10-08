@@ -1,0 +1,6 @@
+baseline failures: ('tests/test_harness.py::test_the_eol_manifest_matches_the_tree',)
+patterns.py:52:42 boolop[0] Or->And: killed
+patterns.py:53:40 boolop[0] Or->And: killed
+indicators.py:232:11 boolop[0] Or->And: killed
+ceiling.py:92:34 compare[0] LtE->Lt: killed
+qualify.py:179:7 compare[0] Lt->LtE: killed
