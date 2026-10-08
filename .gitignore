@@ -18,3 +18,11 @@ chat.json
 
 # Harness reports
 harness-*.json
+
+# Subagent-driven-development scratch (ledgers, briefs, review packages).
+# Per-plan workspaces under .superpowers/sdd/<plan>/; git history is the
+# durable record, these are working notes.
+.superpowers/
+
+# Mutation sweep resume state (scripts/mutate.py checkpoints here)
+.mutate-state.json
