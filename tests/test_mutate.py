@@ -160,3 +160,173 @@ def test_only_prose_like_strings_are_mutated():
     prose = mutate.enumerate_mutations('M = "not a valid state"\n', "m.py")
     assert any(m.operator == "constant" and m.after == "''" for m in prose)
     assert mutate.enumerate_mutations('K = "struct"\n', "m.py") == ()
+
+
+# ---- Task 12: the runner ---------------------------------------------------
+
+def test_select_tests_prefers_the_matching_file(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_qualify.py").write_text("")
+    (tests / "test_db.py").write_text("")
+    paths, fallback = mutate.select_tests("qualify.py", tests)
+    assert fallback is False
+    assert [pathlib.Path(p).name for p in paths] == ["test_qualify.py"]
+
+
+def test_select_tests_includes_prefixed_siblings(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    for name in ("test_budget_epochs.py", "test_budget_attribution.py",
+                 "test_db.py"):
+        (tests / name).write_text("")
+    paths, fallback = mutate.select_tests("budget.py", tests)
+    assert fallback is False
+    assert sorted(pathlib.Path(p).name for p in paths) == [
+        "test_budget_attribution.py", "test_budget_epochs.py"]
+
+
+def test_select_tests_falls_back_to_the_whole_suite(tmp_path):
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_other.py").write_text("")
+    paths, fallback = mutate.select_tests("nothing.py", tests)
+    assert fallback is True
+    assert paths == [str(tests)]
+
+
+def test_a_hanging_mutant_is_a_timeout_not_a_survivor():
+    assert mutate._classify(rc=None, timed_out=True, import_error=False) == "timeout"
+
+
+def test_a_mutant_that_breaks_import_is_an_error_not_a_kill():
+    assert mutate._classify(rc=2, timed_out=False, import_error=True) == "error"
+
+
+def test_a_clean_pass_is_a_survivor():
+    assert mutate._classify(rc=0, timed_out=False, import_error=False) == "survived"
+
+
+def test_a_test_failure_is_a_kill():
+    assert mutate._classify(rc=1, timed_out=False, import_error=False) == "killed"
+
+
+def test_state_round_trips(tmp_path):
+    state = tmp_path / "sub" / "state.json"
+    done = mutate.Mutation("m.py", 2, 11, "compare", "Lt", "LtE")
+    mutate.save_state(state, {done.label: "killed"})
+    assert mutate.load_state(state) == {done.label: "killed"}
+    assert mutate.load_state(tmp_path / "absent.json") == {}
+
+
+def _fixture_repo(tmp_path, m_source, test_source):
+    repo = tmp_path / "repo"
+    pkg = repo / "pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "m.py").write_text(m_source)
+    tests = repo / "tests"
+    tests.mkdir()
+    # Path is derived from __file__ so the test imports the tree it lives in
+    # (the mutated copy), never the original.
+    (tests / "test_m.py").write_text(
+        "import sys, pathlib\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+        + test_source)
+    return repo, pkg, tests
+
+
+TWO_FUNCS = ("def over(n):\n    return n > 10\n\n"
+             "def under(n):\n    return n < 10\n")
+WEAK_AND_STRONG = (
+    "from pkg.m import over, under\n"
+    "def test_over_at_the_boundary():\n"
+    "    assert over(10) is False\n"
+    "    assert over(11) is True\n"
+    "def test_under_far_from_it():\n"
+    "    assert under(0) is True\n")
+
+
+def test_sweep_finds_a_known_surviving_mutant_end_to_end(tmp_path):
+    """Real pytest subprocesses over a real mutated copy: the weak test's
+    mutant must survive and the strong test's mutant must be killed."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    results = mutate.run_sweep(pkg, tests, tmp_path / "state.json", timeout=60)
+    by_label = {r.mutation.label: r.outcome for r in results}
+    survived = {k for k, v in by_label.items() if v == "survived"}
+    killed = {k for k, v in by_label.items() if v == "killed"}
+    # Every mutant of the weak test's function (line 5) survives; every mutant
+    # of the strongly tested function (line 2) is killed. Nothing else.
+    assert survived == {k for k in by_label if k.startswith("m.py:5:")}, by_label
+    assert any("Lt->LtE" in k for k in survived), by_label
+    assert killed == {k for k in by_label if k.startswith("m.py:2:")}, by_label
+    assert any("Gt->GtE" in k for k in killed), by_label
+
+
+def test_sweep_never_writes_into_the_real_tree(tmp_path):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    before = {p: p.read_text() for p in repo.rglob("*.py")}
+    mutate.run_sweep(pkg, tests, tmp_path / "state.json", timeout=60)
+    assert {p: p.read_text() for p in repo.rglob("*.py")} == before
+
+
+def test_a_mutant_that_breaks_import_is_reported_as_error_end_to_end(tmp_path):
+    # `a in b` -> `a not in b` is fine; make a mutant that raises at import:
+    # a module-level comparison evaluated on import, mutated to raise.
+    repo, pkg, tests = _fixture_repo(
+        tmp_path,
+        "ITEMS = [1, 2]\nassert 1 in ITEMS\n\ndef f():\n    return 1\n",
+        "from pkg.m import f\ndef test_f():\n    assert f() == 1\n")
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
+    by_op = {r.mutation.before + "->" + r.mutation.after: r.outcome
+             for r in results}
+    assert by_op["In->NotIn"] == "error", by_op
+
+
+def test_sweep_resumes_and_does_not_rerun_checkpointed_mutants(tmp_path, monkeypatch):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    state = tmp_path / "state.json"
+    calls = {"n": 0}
+    real_run = mutate._run
+
+    class Boom(Exception):
+        pass
+
+    def dying_run(*a, **k):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise Boom
+        return real_run(*a, **k)
+
+    monkeypatch.setattr(mutate, "_run", dying_run)
+    with pytest.raises(Boom):
+        mutate.run_sweep(pkg, tests, state, timeout=60)
+    partial = mutate.load_state(state)
+    assert len(partial) == 1, "exactly the first mutant should be checkpointed"
+
+    ran = []
+
+    def counting_run(tree, paths, timeout):
+        ran.append(paths)
+        return real_run(tree, paths, timeout)
+
+    monkeypatch.setattr(mutate, "_run", counting_run)
+    results = mutate.run_sweep(pkg, tests, state, timeout=60)
+    total = len(mutate.enumerate_mutations(TWO_FUNCS, "m.py"))
+    assert len(results) == total
+    resumed_label = next(iter(partial))
+    assert next(r for r in results
+                if r.mutation.label == resumed_label).outcome == partial[resumed_label]
+    survivors = sum(1 for r in results if r.outcome == "survived")
+    # one run per non-checkpointed mutant, plus one full-suite recheck per survivor
+    assert len(ran) >= total - 1
+    assert len(ran) <= (total - 1) + survivors
+
+
+def test_whole_suite_fallback_is_announced(tmp_path, capsys):
+    repo, pkg, tests = _fixture_repo(tmp_path, "def f(n):\n    return n > 1\n",
+                                     "from pkg.m import f\n"
+                                     "def test_f():\n    assert f(5)\n")
+    (tests / "test_m.py").rename(tests / "test_zzz.py")
+    mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
+    assert "falling back to the whole suite" in capsys.readouterr().err

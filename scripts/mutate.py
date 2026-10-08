@@ -14,6 +14,13 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
 
 COMPARE_FLIPS = {
     "Lt": "LtE", "LtE": "Lt",
@@ -152,3 +159,120 @@ def apply_mutation(source: str, mutation: Mutation) -> str:
     tree = _Transformer(mutation).visit(ast.parse(source))
     ast.fix_missing_locations(tree)
     return ast.unparse(tree)
+
+
+OUTCOMES = ("killed", "survived", "timeout", "error")
+# pytest exit codes: 2 = interrupted (a collection/import error under -x),
+# 4 = usage error, 5 = nothing collected. None of them show a test asserting.
+_NOT_A_VERDICT = (2, 4, 5)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class MutantResult:
+    mutation: Mutation
+    outcome: str
+
+
+def select_tests(module: str, tests_dir: pathlib.Path) -> tuple[list[str], bool]:
+    """`tests/test_<module>.py` plus any `test_<module>*` sibling.
+
+    Returns (paths, is_whole_suite_fallback). `budget` has no exact file and
+    is covered by its prefixed siblings.
+    """
+    stem = pathlib.Path(module).stem
+    matches = sorted(pathlib.Path(tests_dir).glob(f"test_{stem}*.py"))
+    if matches:
+        return [str(p) for p in matches], False
+    return [str(tests_dir)], True
+
+
+def _classify(rc: int | None, timed_out: bool, import_error: bool) -> str:
+    if timed_out:
+        return "timeout"
+    if import_error:
+        return "error"
+    return "survived" if rc == 0 else "killed"
+
+
+def load_state(path: pathlib.Path) -> dict[str, str]:
+    path = pathlib.Path(path)
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text())
+
+
+def save_state(path: pathlib.Path, state: dict[str, str]) -> None:
+    """Atomic write: an interrupt mid-save must not corrupt the checkpoint."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    os.replace(tmp, path)
+
+
+def _run(tree: pathlib.Path, test_paths: list[str], timeout: int):
+    """Run pytest in `tree`; return (rc, timed_out, import_error)."""
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", *test_paths, "-q", "--no-header",
+             "-p", "no:cacheprovider", "-x"],
+            cwd=tree, env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, True, False
+    return proc.returncode, False, proc.returncode in _NOT_A_VERDICT
+
+
+def run_sweep(package: pathlib.Path, tests_dir: pathlib.Path,
+              state_path: pathlib.Path, timeout: int = 60
+              ) -> tuple[MutantResult, ...]:
+    """Mutate a COPY of the tree; the real tree is never written to.
+
+    Resumable: every verdict is checkpointed to `state_path` as it lands, and
+    labels already present there are not re-run.
+    """
+    package = pathlib.Path(package).resolve()
+    tests_dir = pathlib.Path(tests_dir).resolve()
+    repo = package.parent
+    state = load_state(state_path)
+    results: list[MutantResult] = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = pathlib.Path(tmp) / repo.name
+        shutil.copytree(repo, tree, symlinks=True, ignore=shutil.ignore_patterns(
+            ".git", ".superpowers", "__pycache__", ".pytest_cache"))
+        tree_tests = tree / tests_dir.relative_to(repo)
+
+        for source_path in sorted(package.glob("*.py")):
+            original = source_path.read_text()
+            mutations = enumerate_mutations(original, source_path.name)
+            if not mutations:
+                continue
+            test_paths, fallback = select_tests(source_path.name, tests_dir)
+            if fallback and any(m.label not in state for m in mutations):
+                print(f"  NOTE {source_path.name}: no matching test file; "
+                      f"falling back to the whole suite for every mutant "
+                      f"(slow)", file=sys.stderr, flush=True)
+            rel = [str(tree / pathlib.Path(q).relative_to(repo))
+                   for q in test_paths]
+            target = tree / package.name / source_path.name
+            try:
+                for mutation in mutations:
+                    if mutation.label in state:
+                        results.append(
+                            MutantResult(mutation, state[mutation.label]))
+                        continue
+                    target.write_text(apply_mutation(original, mutation))
+                    outcome = _classify(*_run(tree, rel, timeout))
+                    # A narrowed selection can manufacture a survivor whose
+                    # killing test lives in a skipped file: confirm on the
+                    # whole suite before reporting.
+                    if outcome == "survived" and not fallback:
+                        outcome = _classify(*_run(
+                            tree, [str(tree_tests)], timeout * 4))
+                    state[mutation.label] = outcome
+                    save_state(state_path, state)
+                    results.append(MutantResult(mutation, outcome))
+            finally:
+                target.write_text(original)
+    return tuple(results)
