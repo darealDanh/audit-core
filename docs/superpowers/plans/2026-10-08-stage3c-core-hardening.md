@@ -167,7 +167,10 @@ Two counting rules earn their keep:
     `def` line executes; `      b):` does not. Counting them inflated this
     project's first measurement from 115 to 171, and the flattering version
     of that error - filtering the numerator only - would have reported
-    95.4% against a true 94.9%.
+    95.4%; filtering out the `def` line along with its continuations gave
+    a second wrong answer of 94.9%. Both are wrong. A `def` IS executable:
+    it runs at import. Only the CONTINUATION lines of a multi-line signature
+    are excluded, and the true figure is 115 unexecuted of 2,392.
 """
 from __future__ import annotations
 
@@ -282,7 +285,7 @@ r = p.measure(pathlib.Path('audit_core'), ['tests'])
 print(r.total_unexecuted, '/', r.total_executable)
 "
 ```
-Expected: `115 / 2249`. A different number is not automatically wrong — the suite may have grown — but it must be explained before continuing, because every later task's scope is derived from this one.
+Expected: `115 / 2392`. A different number is not automatically wrong — the suite may have grown — but it must be explained before continuing, because every later task's scope is derived from this one.
 
 - [ ] **Step 6: Commit**
 
@@ -727,7 +730,7 @@ DEFAULT = ["tests", "selftest", "lint", "eol", "manifest", "install", "coverage"
 - [ ] **Step 5: Run the gate**
 
 Run: `python3 scripts/harness.py --only coverage`
-Expected: `PASS  coverage   115 unexecuted / 2249 statements, 115 allowed`
+Expected: `PASS  coverage   115 unexecuted / 2392 statements, 115 allowed`
 
 - [ ] **Step 6: Prove the gate fails on a regression**
 
@@ -930,7 +933,7 @@ PY
 - [ ] **Step 4: Run the gate**
 
 Run: `python3 scripts/harness.py --only coverage`
-Expected: PASS, `99 unexecuted / 2249 statements, 99 allowed`. If it reports `stale` or `now executed, remove from the list`, reconcile before committing.
+Expected: PASS, `99 unexecuted / 2392 statements, 99 allowed`. If it reports `stale` or `now executed, remove from the list`, reconcile before committing.
 
 - [ ] **Step 5: Commit**
 
@@ -1512,7 +1515,7 @@ Expected: PASS, suite total now well above 621.
 - [ ] **Step 4: Run the gate and the whole harness**
 
 Run: `python3 scripts/harness.py --only coverage && make all`
-Expected: coverage PASS with `0 unexecuted / 2249 statements, 0 allowed`, or a small number of entries each carrying a **real** reason — never `Stage 3c: not yet closed`.
+Expected: coverage PASS with `0 unexecuted / 2392 statements, 0 allowed`, or a small number of entries each carrying a **real** reason — never `Stage 3c: not yet closed`.
 
 - [ ] **Step 5: Verify no seeded reason survived**
 
@@ -2346,7 +2349,7 @@ Expected: empty output. If not, stop — that is out of scope for this stage.
 
 - [ ] **Step 2: Update `progress.md`**
 
-Add Stage 3c to the stage table with status **shipped** and gate *none — no audit run*. Record: the measured starting point (115 unexecuted of 2,249, 94.9%), the finishing point, the mutation score, and the two new gates. State plainly that this stage **cannot** have moved recall or precision and claims neither.
+Add Stage 3c to the stage table with status **shipped** and gate *none — no audit run*. Record: the measured starting point (115 unexecuted of 2,392, 95.2%), the finishing point, the mutation score, and the two new gates. State plainly that this stage **cannot** have moved recall or precision and claims neither.
 
 - [ ] **Step 3: Update `ARCHITECTURE.md`**
 
@@ -2373,7 +2376,7 @@ Expected: 8 PASS.
 git add progress.md ARCHITECTURE.md feature_lists.json SESSION_HANDOFF.md
 git commit -m "docs: Stage 3c in the record
 
-115 unexecuted statements of 2,249 at the start, measured not assumed.
+115 unexecuted statements of 2,392 at the start, measured not assumed.
 Two instruments shipped: a coverage gate in DEFAULT and a mutation gate
 deliberately out of --all. This stage changed no audit behaviour and
 claims no movement in recall or precision."

@@ -24,13 +24,26 @@ the thing every deferred measurement will eventually rest on.
 The case is not a hunch. Measured on 2026-10-08 against `main` at `10ec9bd`,
 with a throwaway `sys.monitoring` probe over the 621-test suite:
 
-**`audit_core` has 115 statements that no test executes** — **94.9% statement
-coverage of 2,249 executable statements**, counting both sides the same way.
-The raw probe reported 171 missed of 2,474; discarding multi-line
-function-signature continuation lines with `ast` brings that to 115 of 2,249.
-Filtering only the numerator would have given a flattering 95.4%, which is the
-kind of number this stage exists to stop the project telling itself — the gate
-it ships applies the filter to both sides.
+**`audit_core` has 115 statements that no test executes** — **95.2% statement
+coverage of 2,392 executable statements**, counting both sides the same way.
+
+Getting to that pair of numbers took three corrections, and the sequence is
+worth keeping, because this stage is about a project not flattering itself.
+The raw probe reported 171 missed of 2,474. Discarding the `co_lines()` line-0
+artifact leaves 147 of 2,450. Discarding multi-line function-signature
+*continuation* lines — the `      b):` of a `def` spread over two lines, which
+appears in `co_lines()` and never executes unless it carries a default-argument
+expression — leaves **115 of 2,392**.
+
+Two wrong numbers were published along the way and are recorded rather than
+quietly replaced. **95.4%** came from filtering the numerator and not the
+denominator. **94.9% of 2,249** came from a filter that excluded the `def`
+line itself along with its continuations; a `def` is an executable statement
+that runs at import, and dropping 143 of them shrank the denominator and
+flattered the result a second time. The error was caught by Task 1's
+implementer refusing to tune its code to reproduce the figure this document
+originally asserted — which is the behaviour the acceptance check was written
+to provoke.
 
 They are not evenly spread. Five categories, in descending order of how much
 they should worry a reader:
