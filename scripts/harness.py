@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The project's verification harness: every gate that must pass before a merge.
 
-Seven gates, each independently runnable and each reporting pass / fail / skip:
+Nine gates, each independently runnable and each reporting pass / fail / skip.
+Eight run in `make all`; `mutate` (about an hour) is opt-in and outside it:
 
     tests     the pytest suite
     selftest  audit.py's internal consistency checks (verbs, tables, migrations)
@@ -9,9 +10,11 @@ Seven gates, each independently runnable and each reporting pass / fail / skip:
     eol       the mixed line-ending contract (scripts/eol-manifest.txt)
     manifest  feature_lists.json against the tree it claims to describe
     install   a sandboxed install.sh run that cannot touch the real install
-    bench     the golden-set benchmark (opt-in; skips when its corpus is absent)
+    coverage  every unexecuted audit_core statement is in coverage-allowlist.txt
+    bench     the golden-set benchmark (opt-in via --all; skips when its corpus is absent)
+    mutate    mutation score gate (opt-in, ~1h, NOT in --all; run `make mutate`)
 
-Why a harness at all. Five of these seven were run by hand at the end of every
+Why a harness at all. Five of the original seven were run by hand at the end of every
 stage, from memory, in an order nobody wrote down. The other two - `eol` and
 `manifest` - plus the real-install safety assertion inside `install` were not
 checked by anything at all, and depended on whoever was driving remembering
@@ -497,6 +500,14 @@ def gate_coverage() -> Result:
                           result.executed_but_listed)):
         for item in items:
             detail.append(f"  {label}: {item}")
+            if label == "unlisted":
+                loc, _, src = item.partition("  ")
+                module, _, num = loc.partition(":")
+                detail.append(
+                    "    paste: " + allowlist.format_entry(
+                        module, int(num), src, "<reason>")
+                    + "   (or: python3 scripts/coverage_allowlist.py --add "
+                    + f"{loc} \"<reason>\")")
     return Result("coverage", FAIL, summary, detail="\n".join(detail))
 
 
@@ -608,7 +619,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list:
         for name, fn in GATES.items():
-            default = "default" if name in DEFAULT else "opt-in "
+            default = ("default" if name in DEFAULT else
+                       "--all  " if name in ALL_EXTRA else "explicit")
             head = (fn.__doc__ or "").strip().splitlines()[0]
             print(f"  {name:<9} {default}  {head}")
         return 0

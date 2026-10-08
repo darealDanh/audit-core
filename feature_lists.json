@@ -730,7 +730,7 @@
       "name": "Mutation harness and gate",
       "area": "harness",
       "status": "shipped",
-      "stage": "post-stage3",
+      "stage": "stage3c",
       "modules": [
         "scripts/mutate.py",
         "scripts/mutation-verify.py",
@@ -946,6 +946,18 @@
       "destination": "a later firmware-audit slice",
       "status": "closed",
       "closed_in": "stage3c"
+    },
+    {
+      "id": "instruments-not-self-measured",
+      "severity": "medium",
+      "summary": "The coverage and mutate gates measure audit_core only (harness.py passes --package audit_core), so coverage_probe.py, coverage_allowlist.py, mutate.py, mutation-verify.py and gate_coverage's own failure branches are unmeasured by the tools they implement.",
+      "docs": [
+        "scripts/harness.py",
+        "scripts/coverage_probe.py",
+        "scripts/mutate.py"
+      ],
+      "note": "Seven hollow tests were caught during Stage 3c and several were in the instruments themselves. Found by the Stage 3c whole-branch review; widening the gates was judged a stage of work, so it is recorded rather than done.",
+      "destination": "a later hardening stage"
     }
   ]
 }

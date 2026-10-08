@@ -17,12 +17,14 @@ docs/baselines/2026-10-08-mutation-verify-task15-*.log.
 import sys, pathlib, shutil, tempfile, re
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import mutate
+if len(sys.argv) < 2:
+    sys.exit(__doc__)
 repo = pathlib.Path(__file__).resolve().parent.parent
 pkg = repo / "audit_core"
 labels = [l for l in open(sys.argv[1][1:]).read().splitlines() if l] if sys.argv[1].startswith("@") else sys.argv[1:]
 with tempfile.TemporaryDirectory() as t:
     tree = pathlib.Path(t).resolve() / repo.name
-    shutil.copytree(repo, tree, symlinks=True, ignore=shutil.ignore_patterns(".git",".superpowers","__pycache__",".pytest_cache"))
+    shutil.copytree(repo, tree, symlinks=True, ignore=shutil.ignore_patterns(".git",".superpowers","__pycache__",".pytest_cache","reports","*.db"))
     base = tuple(mutate._baseline_failures(tree, tree / "tests"))
     print("baseline failures:", base)
     for label in labels:

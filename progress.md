@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** `main` at `3eb2a93` (Stage 4a merged), working tree clean · **Tests:** 807 ·
+**Last updated:** 2026-10-08 · **HEAD:** branch `stage3c/core-hardening` (41 commits ahead of `main`, which is at `3eb2a93`, Stage 4a merged), working tree clean · **Tests:** 813 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -32,7 +32,7 @@ benchmark-gated before it ships.
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
-| 3c | Core hardening: coverage gate and mutation harness | 37 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
+| 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -208,7 +208,7 @@ and `rule_applied` were written by tests and never read back; `patterns.py`'s
 NULL-name branch is unreachable under a `NOT NULL` column. Line coverage cannot
 see this defect class.
 
-Tests: 621 at stage start, 807 at end. `make all` runs 8 gates.
+Tests: 621 at stage start, 813 at end. `make all` runs 8 gates.
 
 ### Stage 4a - `qualify`, the first slice of `firmware-audit`
 
@@ -260,7 +260,7 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 37) and has never been pushed.**
+7. **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 41) and has never been pushed.**
    `git pull` fails with an access-rights error; origin is unreachable from
    this machine. All completed stages exist only in this working copy.
 
@@ -307,23 +307,26 @@ in a `.sh`-installed tree.
 Everything that must pass before a merge now runs from one entry point.
 
 ```bash
-make check     # tests, selftest, lint, eol, manifest, install
+make check     # tests, selftest, lint, eol, manifest, install, coverage
 make all       # the above plus bench
+make mutate    # opt-in, ~1h, outside `make all`
 make list      # what each gate checks
 make json      # one JSON object, for CI and for agents
 ```
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 807 tests |
+| `tests` | The pytest suite — 813 tests |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
 | `manifest` | `feature_lists.json` against the tree it describes |
 | `install` | A sandboxed `install.sh`, no surviving `__SKILL_DIR__`, real install untouched |
+| `coverage` | Every unexecuted `audit_core` statement is in `scripts/coverage-allowlist.txt` with a reason (SKIPs below Python 3.12) |
 | `bench` | Recall, precision, cost per match (opt-in; SKIPs without the corpus) |
+| `mutate` | Every surviving mutant of `audit_core` is allowlisted (opt-in, ~1h, NOT in `make all`) |
 
-Why it exists: five of these seven were run by hand at the end of every stage,
+Why it exists: five of the original seven (tests, selftest, lint, install, bench) were run by hand at the end of every stage,
 from memory, in an order nobody had written down. Two of them — the
 line-ending contract and the real-install safety assertion — were not checked
 by anything at all and depended on whoever was driving remembering they

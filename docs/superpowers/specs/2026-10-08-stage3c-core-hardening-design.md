@@ -313,3 +313,23 @@ None blocking.
 - Whether the mutation baseline is re-measured every stage or only when
   `audit_core` changes shape. Deferred until there is a second measurement to
   compare against.
+
+## Corrected in flight (2026-10-08)
+
+Four decisions were taken during implementation and recorded only in the
+ledger and the baseline documents. The original text above is unchanged; where
+it disagrees, this section governs.
+
+1. **String constants are mutated only when they contain a space.** Strings
+   without one are identifiers, dict keys, format codes and paths; mutating
+   them mostly produces equivalent or trivially-killed mutants and inflated the
+   sweep without measuring logic.
+2. **Boolean constants inside decorators are excluded (84 of 129).** A flipped
+   decorator argument (for example a `frozen=`/`slots=` flag) changes class
+   construction, not behavior any test can reasonably observe, so those
+   mutants survive by nature and swamped the score.
+3. **The sweep runs 8-way parallel.** Serial execution was not viable at the
+   observed mutant count; each worker gets its own copy of the tree.
+4. **The sweep takes about 54 minutes, not the 11-20 the spec budgeted.** The
+   original estimate assumed a smaller mutant population and a faster suite.
+   This is why `mutate` is opt-in and outside `make all`.

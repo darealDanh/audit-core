@@ -223,3 +223,56 @@ def test_coverage_gate_fails_naming_an_unlisted_gap(monkeypatch):
     result = harness.gate_coverage()
     assert result.status == harness.FAIL
     assert "unlisted: qualify.py:1" in result.detail
+    # The detail carries a ready-to-paste entry, digest included.
+    first = (pathlib.Path(__file__).resolve().parent.parent
+             / "audit_core" / "qualify.py").read_text().split("\n")[0]
+    assert al.format_entry("qualify.py", 1, first, "<reason>") in result.detail
+    assert "coverage_allowlist.py --add qualify.py:1" in result.detail
+
+
+def test_add_entry_appends_in_the_modules_section():
+    text = "# head\n\n# --- a.py ---\na.py:1:aaaaaaaa  r\n\n# --- b.py ---\n"
+    out = al.add_entry(text, "a.py", 5, "    x = 1", "why", {("a.py", 5)})
+    lines = out.split("\n")
+    assert lines.index(al.format_entry("a.py", 5, "x = 1", "why")) == 4
+    assert al.parse(out)[-1].line == 5 or len(al.parse(out)) == 2
+
+
+def test_add_entry_creates_a_missing_section():
+    out = al.add_entry("# head\n", "c.py", 2, "y", "why", {("c.py", 2)})
+    assert "# --- c.py ---\nc.py:2:" in out
+    assert al.parse(out)[0].digest == al.line_digest("y")
+
+
+def test_add_entry_refuses_an_empty_reason():
+    with pytest.raises(al.AllowlistError, match="reason"):
+        al.add_entry("", "a.py", 1, "x", "   ", {("a.py", 1)})
+
+
+def test_add_entry_refuses_an_executed_line():
+    with pytest.raises(al.AllowlistError, match="executed"):
+        al.add_entry("", "a.py", 1, "x", "why", set())
+
+
+def test_add_entry_refuses_a_duplicate():
+    text = al.format_entry("a.py", 1, "x", "r") + "\n"
+    with pytest.raises(al.AllowlistError, match="already listed"):
+        al.add_entry(text, "a.py", 1, "x", "why", {("a.py", 1)})
+
+
+def test_cli_add_writes_the_file(tmp_path, monkeypatch):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "m.py").write_text("a = 1\nb = 2\n")
+    f = tmp_path / "allow.txt"
+    f.write_text("# head\n")
+    monkeypatch.setattr(al, "PACKAGE_PATH", pkg)
+    monkeypatch.setattr(al, "ALLOWLIST_PATH", f)
+    monkeypatch.setattr(al, "_measure_unexecuted", lambda: {("m.py", 2)})
+    assert al.main(["--add", "m.py:2", "cannot run"]) == 0
+    assert al.parse(f.read_text())[0].digest == al.line_digest("b = 2")
+    assert al.main(["--add", "m.py:2", "again"]) == 1      # duplicate
+    assert al.main(["--add", "m.py:1", "x"]) == 1          # executed
+    assert al.main(["--add", "m.py:2", " "]) == 1          # empty reason
+    assert al.main(["--add", "m.py:99", "x"]) == 1         # no such line
+    assert al.main(["--add", "bad", "x"]) == 2

@@ -591,7 +591,8 @@ def _sweep_pending(package, tests_dir, repo, state_path, state, jobs_list,
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp).resolve()
         ignore = shutil.ignore_patterns(
-            ".git", ".superpowers", "__pycache__", ".pytest_cache")
+            ".git", ".superpowers", "__pycache__", ".pytest_cache",
+            "reports", "*.db")
 
         def make_tree(name: str) -> pathlib.Path:
             tree = root / name / repo.name

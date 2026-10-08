@@ -251,6 +251,7 @@ def test_a_nonsense_max_hits_does_not_reach_islice(tmp_path):
     assert result.truncated is True
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="chmod(0o000) is a no-op as root")
 def test_an_unreadable_file_is_skipped_not_fatal(tmp_path):
     """sweep.py:98-99. A tree with one unreadable file is still swept, and
     the unreadable file is neither a hit nor counted as scanned."""

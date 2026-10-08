@@ -87,6 +87,12 @@ def test_measure_nests_while_the_outer_session_holds_its_id(tmp_path):
     call frees its ID before the second asks for one. Here the inner call
     must find a second ID while the outer still holds the first - which is
     exactly what gate_coverage does on every run.
+
+    TOOL-ID BUDGET: sys.monitoring offers only IDs 2/3/4 to us. Under
+    gate_coverage the gate's probe holds one, this test's outer measure()
+    holds a second and the inner one a third: the budget is FULLY consumed.
+    Do not add a nesting level here; the failure would appear only in
+    `make check` (not `make test`) and would name the probe, not the gate.
     """
     inner_pkg = tmp_path / "inner_pkg"
     inner_pkg.mkdir()
@@ -122,6 +128,12 @@ def test_measure_nests_while_the_outer_session_holds_its_id(tmp_path):
         "from outer_pkg.m import marker\n"
         "def test_inner_measure_runs_nested():\n"
         "    assert marker() == 7\n"
+        "    held = [i for i in (2, 3, 4) if sys.monitoring.get_tool(i)]\n"
+        "    assert len(held) <= 2, (\n"
+        "        f'tool-ID budget exceeded: {len(held)} of 3 IDs held before the inner '\n"
+        "        'measure(). gate_coverage holds one and the outer measure() another, '\n"
+        "        'so a third nesting level or a second monitoring user leaves no ID '\n"
+        "        'for the inner probe. Remove a level; do not add one.')\n"
         f"    r = coverage_probe.measure(pathlib.Path({str(inner_pkg)!r}), [{str(inner_tests)!r}])\n"
         "    assert r.pytest_rc == 0\n"
         "    m = next(x for x in r.modules if x.name == 'm.py')\n"

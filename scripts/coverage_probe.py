@@ -96,6 +96,10 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
 
     # sys.monitoring defines tool IDs 0-5. Reserved: 0 (debugger), 1 (coverage),
     # 5 (optimizer). Available: 2, 3, 4 (hard ceiling of 3 concurrent nesting levels).
+    # BUDGET: fully consumed under gate_coverage. The gate's probe holds one ID
+    # and tests/test_coverage_probe.py nests two more inside it - exactly 3.
+    # A further nesting level, or any other sys.monitoring user, makes
+    # `make check` fail while `make test` passes.
     tool = None
     for tool_id in (2, 3, 4):
         try:
@@ -105,7 +109,11 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
         except ValueError:
             continue
     if tool is None:
-        raise RuntimeError("No available sys.monitoring tool IDs (max 3 nesting levels)")
+        raise RuntimeError(
+            "No available sys.monitoring tool IDs. The budget (IDs 2-4) is "
+            "fully consumed under gate_coverage: the gate's probe plus two "
+            "nested levels in tests/test_coverage_probe.py. Another nesting "
+            "level or a second monitoring user (debugger, profiler) exhausts it.")
 
     def on_line(code, line_number):
         filename = code.co_filename

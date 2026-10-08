@@ -81,4 +81,10 @@ def test_an_addition_in_an_epoch_with_no_billed_turn_is_not_attributed(tmp_path)
                B.user_text("orphan " * 200))
     r = budget.analyze(T.parse(p2))
     assert r.composition["user_text"] > 0
+    # Positive control: attribution IS populated for a billed turn, so the
+    # negative assertion below cannot pass merely because it is empty.
+    p1 = write(tmp_path,
+               B.user_text("billed " * 50),
+               B.assistant([], cache_read=1000))
+    assert budget.analyze(T.parse(p1)).attribution["user_text"] > 0
     assert "user_text" not in r.attribution

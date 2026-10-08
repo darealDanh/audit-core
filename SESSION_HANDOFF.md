@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-08 · **Branch:** `stage3c/core-hardening` (forked after Stage 4a merged at `3eb2a93`), working tree clean ·
-**Tests:** 807 · **Gates:** 8/8 green
+**Tests:** 813 · **Gates:** 8/8 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,9 +59,9 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage3c/core-hardening`, 37 commits, ready for whole-branch review and merge.
+- **Branch:** `stage3c/core-hardening`, 41 commits, ready for whole-branch review and merge.
   Stages 0-3, 3b and 4a are merged to `main`. Stage 3c changed no audit behaviour and ran no audit.
-- **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 37) and has never been pushed.**
+- **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 41) and has never been pushed.**
   `git pull` fails with an access-rights error; origin is unreachable from
   this machine. Everything exists only in this working copy — **take that
   seriously before any destructive git operation.**
@@ -80,11 +80,11 @@ make all          # all eight gates
 Expected:
 
 ```
-PASS  tests      807 passed in 154.82s (0:02:34)
+PASS  tests      813 passed in 63.24s (0:01:03)
 PASS  selftest   verbs  23 declared, all dispatchable / tables 15 in schema.sql, 14 under contract, columns agree / migrations 4 applied to the pre-Stage-3 baseline, result accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 149 LF
-PASS  manifest   38 features, 9 stages, 18 open items, all paths and verbs resolve
+PASS  eol        6 CRLF files, 150 LF
+PASS  manifest   38 features, 9 stages, 19 open items, all paths and verbs resolve
 PASS  install    92 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  coverage   0 unexecuted / 2392 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
@@ -93,7 +93,7 @@ all 8 gate(s) passed
 ```
 
 The real output also prints a per-gate duration after each name; the `tests`
-time (here 154.82s) varies with load, so the block omits the durations.
+time (here 63.24s) varies with load, so the block omits the durations.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
@@ -217,9 +217,11 @@ following the shipped workflow exactly produced FAIL / exit 1 on a correct run.
    the **same commit** and say why in the message.
 3. If you add a gate, put it in `scripts/harness.py`. `make`, `make list` and
    CI pick it up with no further edits.
-4. A new unexecuted `audit_core` statement needs an entry in
-   `scripts/coverage-allowlist.txt` with a reason, or a test. The coverage gate
-   fails on an unlisted gap and on a stale entry. Prefer the test; a covered
+4. A new unexecuted `audit_core` statement needs a test, or an allowlist
+   entry with a reason: `python3 scripts/coverage_allowlist.py --add
+   <module>.py:<line> "<reason>"` (the gate's FAIL output prints the exact
+   command and a pasteable line). The coverage gate fails on an unlisted gap
+   and on a stale entry. Prefer the test; a covered
    line can still be hollow, so assert on the value the line decides.
 5. Run `make all` before proposing a merge.
 
