@@ -8,6 +8,8 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import coverage_probe  # noqa: E402
 
+SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent.parent / "scripts"
+
 
 def test_executable_statements_excludes_signature_continuations(tmp_path):
     """A multi-line def's continuation lines are not statements.
@@ -78,56 +80,64 @@ def test_measure_reports_a_failing_suite_rather_than_a_number(tmp_path):
 
 
 @pytest.mark.skipif(not coverage_probe.SUPPORTED, reason="needs sys.monitoring (3.12+)")
-def test_measure_nested_calls(tmp_path):
-    """Tool ID discovery: multiple sequential measure() calls use different IDs.
+def test_measure_nests_while_the_outer_session_holds_its_id(tmp_path):
+    """A real nesting test: the inner measure() runs DURING the outer one.
 
-    Each measure() call acquires a tool ID (2, 3, or 4, depending on availability),
-    uses it during pytest execution, then frees it. Sequential calls can reuse IDs
-    from freed calls. Concurrent nesting is limited to 3 levels (sys.monitoring
-    defines IDs 0-5, minus 3 reserved). This test exercises the tool ID scan.
+    Sequential calls never exercise the tool-ID scan, because the first
+    call frees its ID before the second asks for one. Here the inner call
+    must find a second ID while the outer still holds the first - which is
+    exactly what gate_coverage does on every run.
     """
-    # Create two separate packages and test sets
-    pkg1 = tmp_path / "pkg1"
-    pkg1.mkdir()
-    (pkg1 / "__init__.py").write_text("")
-    (pkg1 / "m.py").write_text("def f():\n    return 1\n")
-
-    tests1 = tmp_path / "tests1"
-    tests1.mkdir()
-    (tests1 / "test_1.py").write_text(
+    inner_pkg = tmp_path / "inner_pkg"
+    inner_pkg.mkdir()
+    (inner_pkg / "__init__.py").write_text("")
+    (inner_pkg / "m.py").write_text(
+        "def classify(n):\n"
+        "    if n < 0:\n"
+        "        return 'negative'\n"
+        "    return 'other'\n"
+    )
+    inner_tests = tmp_path / "inner_tests"
+    inner_tests.mkdir()
+    (inner_tests / "test_inner_leaf.py").write_text(
         "import sys, pathlib\n"
         f"sys.path.insert(0, {str(tmp_path)!r})\n"
-        "from pkg1.m import f\n"
-        "def test_1():\n"
-        "    assert f() == 1\n"
+        "from inner_pkg.m import classify\n"
+        "def test_other():\n"
+        "    assert classify(1) == 'other'\n"
     )
 
-    pkg2 = tmp_path / "pkg2"
-    pkg2.mkdir()
-    (pkg2 / "__init__.py").write_text("")
-    (pkg2 / "m.py").write_text("def g():\n    return 2\n")
-
-    tests2 = tmp_path / "tests2"
-    tests2.mkdir()
-    (tests2 / "test_2.py").write_text(
-        "import sys, pathlib\n"
+    outer_pkg = tmp_path / "outer_pkg"
+    outer_pkg.mkdir()
+    (outer_pkg / "__init__.py").write_text("")
+    (outer_pkg / "m.py").write_text("def marker():\n    return 7\n")
+    outer_tests = tmp_path / "outer_tests"
+    outer_tests.mkdir()
+    # This test file calls measure() itself, so it runs nested inside ours.
+    (outer_tests / "test_outer_leaf.py").write_text(
+        "import sys, pathlib, json\n"
+        f"sys.path.insert(0, {str(SCRIPTS_DIR)!r})\n"
         f"sys.path.insert(0, {str(tmp_path)!r})\n"
-        "from pkg2.m import g\n"
-        "def test_2():\n"
-        "    assert g() == 2\n"
+        "import coverage_probe\n"
+        "from outer_pkg.m import marker\n"
+        "def test_inner_measure_runs_nested():\n"
+        "    assert marker() == 7\n"
+        f"    r = coverage_probe.measure(pathlib.Path({str(inner_pkg)!r}), [{str(inner_tests)!r}])\n"
+        "    assert r.pytest_rc == 0\n"
+        "    m = next(x for x in r.modules if x.name == 'm.py')\n"
+        "    assert m.unexecuted == (3,)\n"
+        f"    pathlib.Path({str(tmp_path / 'inner-result.json')!r}).write_text(json.dumps({{'unexecuted': list(m.unexecuted)}}))\n"
     )
 
-    # First measure() call acquires tool ID 2
-    report1 = coverage_probe.measure(pkg1, [str(tests1)])
-    assert report1.pytest_rc == 0
-    m1 = next(r for r in report1.modules if r.name == "m.py")
-    assert m1.executable == 2
+    outer = coverage_probe.measure(outer_pkg, [str(outer_tests)])
 
-    # Second measure() call reuses tool ID 2 (first call freed it)
-    report2 = coverage_probe.measure(pkg2, [str(tests2)])
-    assert report2.pytest_rc == 0
-    m2 = next(r for r in report2.modules if r.name == "m.py")
-    assert m2.executable == 2
+    # The outer suite passing is the proof the inner measure() worked while
+    # the outer tool ID was held - a failed inner call fails that test.
+    assert outer.pytest_rc == 0
+    inner_result = json.loads((tmp_path / "inner-result.json").read_text())
+    assert inner_result["unexecuted"] == [3]
+    outer_m = next(x for x in outer.modules if x.name == "m.py")
+    assert outer_m.unexecuted == ()
 
 
 @pytest.mark.skipif(not coverage_probe.SUPPORTED, reason="needs sys.monitoring (3.12+)")
