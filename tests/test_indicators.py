@@ -1,3 +1,4 @@
+import json
 import datetime
 import sqlite3
 
@@ -321,3 +322,98 @@ def test_an_empty_state_entry_is_readable():
     a = {"indicators": {"surfaces": {"state": "empty", "value": 0}}}
     b = {"indicators": {"surfaces": {"state": "empty", "value": 0}}}
     assert indicators.compare(a, b)[0].moved == "unchanged"
+
+
+# ---- Stage 3c task 7: the remaining unexecuted statements ----
+
+def test_surfaces_absent_when_attack_surface_table_missing(tmp_path):
+    con = _db(tmp_path, surfaces=False)
+    ind = indicators.collect(con, target="nosurf")
+    assert ind.surfaces.is_absent
+    assert ind.surfaces.note == "cba_attack_surface is not in this database"
+    con.close()
+
+
+def _collected(tmp_path):
+    con = _db(tmp_path)
+    ind = indicators.collect(con, target="demo")
+    con.close()
+    return ind
+
+
+def test_write_snapshot_creates_parent_directories(tmp_path):
+    ind = _collected(tmp_path)
+    target = tmp_path / "out" / "docs" / "indicators" / "2026-10-08-demo.json"
+    assert not target.parent.exists()
+    written = indicators.write_snapshot(target, ind)
+    assert written == target
+    assert target.read_text() == (
+        json.dumps(indicators.to_json(ind), indent=2) + "\n")
+
+
+def test_write_snapshot_refuses_to_overwrite_a_measurement(tmp_path):
+    """Handoff rule 4 in code: a measurement is never edited in place.
+
+    Overwriting the morning's snapshot with the afternoon's would destroy
+    a measurement and leave no trace it existed."""
+    ind = _collected(tmp_path)
+    target = tmp_path / "2026-10-08-demo.json"
+    indicators.write_snapshot(target, ind)
+    before = target.read_bytes()
+
+    other = indicators.Indicators(
+        target="different", phase="audit", coverage=ind.coverage,
+        surfaces=ind.surfaces, sweep_hits=ind.sweep_hits,
+        not_audited=ind.not_audited)
+    with pytest.raises(indicators.IndicatorError) as excinfo:
+        indicators.write_snapshot(target, other)
+    msg = str(excinfo.value)
+    assert f"{target} already exists." in msg
+    assert "Measurements are never edited in place" in msg
+    assert "--label" in msg
+    assert target.read_bytes() == before, "a refused write must change nothing"
+    assert [p.name for p in tmp_path.glob("2026-*")] == [target.name]
+
+
+def test_compare_appends_unit_to_both_sides():
+    a = {"indicators": {"coverage": {"state": "present", "value": 94.0,
+                                     "unit": "%"}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": 72.0,
+                                     "unit": "%"}}}
+    d = indicators.compare(a, b)[0]
+    assert (d.before, d.after, d.moved) == ("94.0%", "72.0%", "-22.0%")
+
+
+def test_compare_does_not_append_unit_to_an_absent_side():
+    a = {"indicators": {"coverage": {"state": "absent", "note": "n",
+                                     "unit": "%"}}}
+    b = {"indicators": {"coverage": {"state": "present", "value": 72.0,
+                                     "unit": "%"}}}
+    d = indicators.compare(a, b)[0]
+    assert (d.before, d.after) == ("absent", "72.0%")
+    d = indicators.compare(b, a)[0]
+    assert (d.before, d.after) == ("72.0%", "absent")
+
+
+def test_render_compare_header_rows_and_footer():
+    deltas = (
+        indicators.Delta("coverage", "94.0%", "72.0%", "-22.0%"),
+        indicators.Delta("sweep_hits", "not in snapshot", "2",
+                         "not comparable"))
+    out = indicators.render_compare("old.json", "new.json", deltas).split("\n")
+    assert out[0] == "comparing old.json -> new.json"
+    assert out[1] == f"  {'indicator':<18} {'before':>15} {'after':>15}   moved"
+    assert out[2] == f"  {'coverage':<18} {'94.0%':>15} {'72.0%':>15}   -22.0%"
+    assert out[3] == (f"  {'sweep_hits':<18} {'not in snapshot':>15} "
+                      f"{'2':>15}   not comparable")
+    assert out[4] == ""
+    assert out[5] == ("  `not comparable` means one snapshot has no reading "
+                      "for that indicator, not that it did not move.")
+    assert len(out) == 6
+
+
+def test_render_compare_omits_footer_when_everything_is_comparable():
+    out = indicators.render_compare(
+        "a", "b", (indicators.Delta("surfaces", "5", "5", "unchanged"),))
+    assert "not comparable" not in out
+    assert out.split("\n")[-1].endswith("unchanged")

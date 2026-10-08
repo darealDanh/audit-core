@@ -59,27 +59,6 @@ identity.py:53:bb25b2b0  Stage 3c: not yet closed
 identity.py:54:19a80a9f  Stage 3c: not yet closed
 
 # --- indicators.py ---
-indicators.py:62:fa4394a6  Stage 3c: not yet closed
-indicators.py:180:6161e3b7  Stage 3c: not yet closed
-indicators.py:181:75fd71e4  Stage 3c: not yet closed
-indicators.py:182:ee5bcc55  Stage 3c: not yet closed
-indicators.py:185:c810f35c  Stage 3c: not yet closed
-indicators.py:186:6a031112  Stage 3c: not yet closed
-indicators.py:187:c6c58296  Stage 3c: not yet closed
-indicators.py:188:dc53f8bc  Stage 3c: not yet closed
-indicators.py:189:17441dbd  Stage 3c: not yet closed
-indicators.py:191:95252f12  Stage 3c: not yet closed
-indicators.py:192:58f28cf5  Stage 3c: not yet closed
-indicators.py:247:ebae283e  Stage 3c: not yet closed
-indicators.py:249:551bb032  Stage 3c: not yet closed
-indicators.py:256:ff36fa7a  Stage 3c: not yet closed
-indicators.py:257:c817842e  Stage 3c: not yet closed
-indicators.py:258:15ac179d  Stage 3c: not yet closed
-indicators.py:259:71557155  Stage 3c: not yet closed
-indicators.py:260:81aa9f3a  Stage 3c: not yet closed
-indicators.py:261:f9c5694f  Stage 3c: not yet closed
-indicators.py:262:8e35485e  Stage 3c: not yet closed
-indicators.py:264:19a80a9f  Stage 3c: not yet closed
 
 # --- patterns.py ---
 patterns.py:87:45761200  Stage 3c: not yet closed
