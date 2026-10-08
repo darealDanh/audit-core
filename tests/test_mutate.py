@@ -103,25 +103,45 @@ SAMPLE = '''"""Doc."""
 def f(a, b, s):
     """Doc."""
     if not a and b or a in s:
-        return a is not None and a != 3 and s == "x"
+        return a is not None and a != 3 and s == "x y"
+    if 0 <= a <= 10:
+        return f"value {a} is ok"
     return True if a >= b else a <= b < 9
 '''
 
 
-def test_every_operator_fires_and_every_mutant_parses():
+def test_every_operator_fires_and_every_mutant_parses_and_differs():
     import ast
     muts = mutate.enumerate_mutations(SAMPLE, "m.py")
     assert {m.operator for m in muts} == {"compare", "boolop", "not", "constant"}
+    baseline = ast.unparse(ast.parse(SAMPLE))
     for m in muts:
         mutated = mutate.apply_mutation(SAMPLE, m)
         ast.parse(mutated)
-        assert mutated != mutate.apply_mutation(SAMPLE, mutate.Mutation(
-            "m.py", 1, 0, "none", "", ""))
+        assert mutated != baseline, m.label
+
+
+def test_labels_are_unique():
+    muts = mutate.enumerate_mutations(SAMPLE, "m.py")
+    labels = [m.label for m in muts]
+    assert len(labels) == len(set(labels))
+
+
+def test_chained_comparison_mutates_each_bound_independently():
+    import ast
+    source = "def f(v):\n    return 1 <= v <= 10\n"
+    muts = mutate.enumerate_mutations(source, "m.py")
+    assert [m.op_index for m in muts if m.operator == "compare"] == [0, 1]
+    outs = [mutate.apply_mutation(source, m) for m in muts
+            if m.operator == "compare"]
+    assert "1 < v <= 10" in outs[0]
+    assert "1 <= v < 10" in outs[1]
+    assert all(ast.parse(o) for o in outs)
 
 
 def test_label_format():
     m = mutate.Mutation("m.py", 3, 4, "compare", "Lt", "LtE")
-    assert m.label == "m.py:3:4 compare Lt->LtE"
+    assert m.label == "m.py:3:4 compare[0] Lt->LtE"
 
 
 def test_nested_boolops_sharing_a_position_each_apply():

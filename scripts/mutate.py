@@ -33,11 +33,15 @@ class Mutation:
     operator: str
     before: str
     after: str
+    # Index of the operator within a Compare's `ops`; 0 for every other
+    # operator. Without it, `a <= b <= c` yields two mutations with one label.
+    op_index: int = 0
 
     @property
     def label(self) -> str:
         return (f"{self.module}:{self.lineno}:{self.col} "
-                f"{self.operator} {self.before}->{self.after}")
+                f"{self.operator}[{self.op_index}] "
+                f"{self.before}->{self.after}")
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:
@@ -54,28 +58,22 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
 
 
 def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
-    # KNOWN LIMITATION: a chained comparison whose operators are identical
-    # (`a < b < c`) yields two Mutations with the same (lineno, col, before),
-    # hence the same label, and the transformer applies only the first. The
-    # second is a duplicate that can never be independently killed. Accepted:
-    # same-operator chains are rare, and de-duplicating by operator INDEX
-    # would complicate the transformer for a case audit_core does not contain.
-    # The same applies to a nested Compare that shares both its operator and
-    # its start position with its parent (`(a < b) < c`): the transformer can
-    # hit the wrong one. The fix is operator-index tracking; not done because
-    # audit_core does not contain the shape.
-    # If a survivor's label is ambiguous, this is why.
+    # Chained comparisons (`a <= b <= c`) carry one Mutation per operator,
+    # distinguished by op_index, so labels are unique and every bound is
+    # tested. (An earlier version applied only the first matching operator;
+    # audit_core has three such chains.) A nested Compare such as `(a<b)<c`
+    # starts at a different column from its parent, so positions never clash.
     tree = ast.parse(source)
     skip = _docstring_nodes(tree)
     out: list[Mutation] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare):
-            for op in node.ops:
+            for index, op in enumerate(node.ops):
                 name = type(op).__name__
                 if name in COMPARE_FLIPS:
-                    out.append(Mutation(module, op.lineno if hasattr(op, "lineno")
-                                        else node.lineno, node.col_offset,
-                                        "compare", name, COMPARE_FLIPS[name]))
+                    out.append(Mutation(module, node.lineno, node.col_offset,
+                                        "compare", name, COMPARE_FLIPS[name],
+                                        index))
         elif isinstance(node, ast.BoolOp):
             name = type(node.op).__name__
             out.append(Mutation(module, node.lineno, node.col_offset,
@@ -117,11 +115,11 @@ class _Transformer(ast.NodeTransformer):
     def visit_Compare(self, node: ast.Compare) -> ast.AST:
         self.generic_visit(node)
         if self.target.operator == "compare" and self._matches(node):
-            for i, op in enumerate(node.ops):
-                if type(op).__name__ == self.target.before:
-                    node.ops[i] = getattr(ast, self.target.after)()
-                    self.applied = True
-                    break
+            i = self.target.op_index
+            if (i < len(node.ops)
+                    and type(node.ops[i]).__name__ == self.target.before):
+                node.ops[i] = getattr(ast, self.target.after)()
+                self.applied = True
         return node
 
     def visit_BoolOp(self, node: ast.BoolOp) -> ast.AST:
@@ -143,7 +141,8 @@ class _Transformer(ast.NodeTransformer):
         return node
 
     def visit_Constant(self, node: ast.Constant) -> ast.AST:
-        if self.target.operator == "constant" and self._matches(node):
+        if (self.target.operator == "constant" and self._matches(node)
+                and repr(node.value) == self.target.before):
             node.value = ast.literal_eval(self.target.after)
             self.applied = True
         return node
