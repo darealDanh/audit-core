@@ -726,6 +726,7 @@
       "stage": "post-stage3",
       "modules": [
         "scripts/mutate.py",
+        "scripts/mutation-verify.py",
         "scripts/mutation-allowlist.txt",
         "scripts/harness.py"
       ],
