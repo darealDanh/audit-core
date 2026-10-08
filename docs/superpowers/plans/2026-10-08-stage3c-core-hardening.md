@@ -1110,7 +1110,7 @@ def test_rows_names_every_unknown_column(tmp_path):
 
 For 411, 522–523, 528–529, 560, 566 and 578–579 the implementer reads each site and writes a test asserting the behaviour:
 
-- **411** — call the `--replace` path with a row that omits an optional column and assert the stored value is **kept**, which is the documented merge limitation. This test is load-bearing: `replace-blanks-optional-columns` is a recorded open item and this pins the current contract.
+- **411** — CORRECTED after reading the code: this is the early `return row` in `_merge_with_stored`, taken when the caller does not name the whole primary key. It is NOT the "omitted optional column keeps its stored value" path. With `replace=True` and no key named, `put` performs a plain INSERT and merges nothing. Pin that. The merge path proper deserves its own sibling test, but it is not line 411. Note also that `replace-blanks-optional-columns` is **closed** (`closed_in: stage3b`), not open as an earlier draft of this plan said.
 - **522–523, 528–529** — build a run with two feature groups and two verdicts, call `status` then `render_status`, and assert both the `groups:` block and the `verdicts:` block appear with their counts.
 - **560, 566** — read the loop at `db.py:550-570` and supply the input each `continue` skips.
 - **578–579** — call `_as_int` with a non-numeric value and assert it returns `0`.
