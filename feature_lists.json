@@ -681,6 +681,42 @@
         "docs/superpowers/specs/2026-10-07-stage4a-qualify-design.md"
       ],
       "notes": "Three filters, each failing closed. Filter 3 (still supported) is the binding one and has no data behind it, so it is asserted with evidence that must name something checkable - a date, a version or a host. db.check_identity_evidence alone was measured accepting 'Zyxel NWA50AX is supported', which is why the checkable-reference rule exists."
+    },
+    {
+      "id": "coverage-probe",
+      "name": "Statement coverage probe over audit_core",
+      "area": "harness",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "modules": [
+        "scripts/coverage_probe.py"
+      ],
+      "tests": [
+        "tests/test_coverage_probe.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage3c-core-hardening-design.md"
+      ],
+      "notes": "sys.monitoring probe reporting which audit_core statements the suite never executes. Filters line 0 and multi-line signature continuations on both sides of the ratio. Only correct from a cold import graph, so the gate runs it as a subprocess."
+    },
+    {
+      "id": "coverage-allowlist-gate",
+      "name": "Coverage allowlist gate",
+      "area": "harness",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "modules": [
+        "scripts/coverage_allowlist.py",
+        "scripts/coverage-allowlist.txt",
+        "scripts/harness.py"
+      ],
+      "tests": [
+        "tests/test_coverage_allowlist.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage3c-core-hardening-design.md"
+      ],
+      "notes": "Eighth gate. Every unexecuted statement must be listed with a reason; fails on an unlisted gap, a stale digest, and a listed line that now runs. Shells out to the probe CLI and checks pytest_rc. SKIPs below Python 3.12."
     }
   ],
   "open_items": [

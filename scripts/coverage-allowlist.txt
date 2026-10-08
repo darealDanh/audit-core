@@ -1,0 +1,164 @@
+# Statements in audit_core that no test executes.
+#
+# This is a contract, not a scoreboard. Every entry needs a reason, and the
+# gate fails in BOTH directions: an unexecuted statement that is not listed
+# here is a regression, and a listed statement that now runs is a stale entry.
+#
+# The digest is the first 8 hex of the SHA-1 of the stripped source line. A
+# line-number key alone re-aims itself at an unrelated statement after any
+# insertion above it; the digest turns that into a loud "stale" rather than a
+# silent wrong permission.
+#
+# Entries below marked "Stage 3c: not yet closed" are the 115 statements
+# measured on 2026-10-08. They are debt, seeded so the gate can be switched on
+# before the debt is paid. Stage 3c removes them. An entry that outlives the
+# stage must be rewritten with a real reason or its code deleted.
+#
+# Format: <module>.py:<line>:<digest>  <reason>
+
+
+# --- bench.py ---
+bench.py:108:eee0bbba  Stage 3c: not yet closed
+
+# --- budget.py ---
+budget.py:63:78d02f3d  Stage 3c: not yet closed
+budget.py:110:eee0bbba  Stage 3c: not yet closed
+
+# --- ceiling.py ---
+ceiling.py:104:5f580ae3  Stage 3c: not yet closed
+
+# --- coverage.py ---
+coverage.py:60:df14e2b8  Stage 3c: not yet closed
+coverage.py:63:49928436  Stage 3c: not yet closed
+coverage.py:64:99d01a58  Stage 3c: not yet closed
+coverage.py:70:ff7dd9cc  Stage 3c: not yet closed
+coverage.py:71:ef711a16  Stage 3c: not yet closed
+coverage.py:72:1a304f9c  Stage 3c: not yet closed
+coverage.py:88:f0602d50  Stage 3c: not yet closed
+coverage.py:89:1c5f8d7a  Stage 3c: not yet closed
+coverage.py:90:0432c4dc  Stage 3c: not yet closed
+coverage.py:200:a858bdfe  Stage 3c: not yet closed
+coverage.py:202:20cd704c  Stage 3c: not yet closed
+coverage.py:204:be6f2d31  Stage 3c: not yet closed
+coverage.py:272:f51385fa  Stage 3c: not yet closed
+coverage.py:273:652b5a33  Stage 3c: not yet closed
+coverage.py:274:7a3676a8  Stage 3c: not yet closed
+coverage.py:275:19a80a9f  Stage 3c: not yet closed
+
+# --- db.py ---
+db.py:330:e8ce276d  Stage 3c: not yet closed
+db.py:337:5648980b  Stage 3c: not yet closed
+db.py:338:091f8345  Stage 3c: not yet closed
+db.py:339:a671507c  Stage 3c: not yet closed
+db.py:411:ff9f5272  Stage 3c: not yet closed
+db.py:466:b9adf8d6  Stage 3c: not yet closed
+db.py:522:f39d658f  Stage 3c: not yet closed
+db.py:523:d734a16a  Stage 3c: not yet closed
+db.py:528:b52dd131  Stage 3c: not yet closed
+db.py:529:f36c21a3  Stage 3c: not yet closed
+db.py:560:eee0bbba  Stage 3c: not yet closed
+db.py:566:eee0bbba  Stage 3c: not yet closed
+db.py:578:e986cc21  Stage 3c: not yet closed
+db.py:579:06d3d9b2  Stage 3c: not yet closed
+
+# --- extract.py ---
+extract.py:129:5eef5925  Stage 3c: not yet closed
+extract.py:130:eee7fef8  Stage 3c: not yet closed
+extract.py:186:0641cdf1  Stage 3c: not yet closed
+
+# --- goldens.py ---
+goldens.py:30:d5ce051b  Stage 3c: not yet closed
+goldens.py:31:c4d21ec4  Stage 3c: not yet closed
+goldens.py:33:39b0a4fe  Stage 3c: not yet closed
+goldens.py:40:bb0264d1  Stage 3c: not yet closed
+goldens.py:60:5eef5925  Stage 3c: not yet closed
+goldens.py:61:c4d21ec4  Stage 3c: not yet closed
+goldens.py:63:4a193c9a  Stage 3c: not yet closed
+goldens.py:81:5eef5925  Stage 3c: not yet closed
+goldens.py:82:c4d21ec4  Stage 3c: not yet closed
+
+# --- identity.py ---
+identity.py:43:4cce6260  Stage 3c: not yet closed
+identity.py:44:caaef207  Stage 3c: not yet closed
+identity.py:48:dbcb9c93  Stage 3c: not yet closed
+identity.py:49:5969992f  Stage 3c: not yet closed
+identity.py:50:bc950e28  Stage 3c: not yet closed
+identity.py:51:e96aef0c  Stage 3c: not yet closed
+identity.py:52:0b167d7c  Stage 3c: not yet closed
+identity.py:53:bb25b2b0  Stage 3c: not yet closed
+identity.py:54:19a80a9f  Stage 3c: not yet closed
+
+# --- indicators.py ---
+indicators.py:62:fa4394a6  Stage 3c: not yet closed
+indicators.py:180:6161e3b7  Stage 3c: not yet closed
+indicators.py:181:75fd71e4  Stage 3c: not yet closed
+indicators.py:182:ee5bcc55  Stage 3c: not yet closed
+indicators.py:185:c810f35c  Stage 3c: not yet closed
+indicators.py:186:6a031112  Stage 3c: not yet closed
+indicators.py:187:c6c58296  Stage 3c: not yet closed
+indicators.py:188:dc53f8bc  Stage 3c: not yet closed
+indicators.py:189:17441dbd  Stage 3c: not yet closed
+indicators.py:191:95252f12  Stage 3c: not yet closed
+indicators.py:192:58f28cf5  Stage 3c: not yet closed
+indicators.py:247:ebae283e  Stage 3c: not yet closed
+indicators.py:249:551bb032  Stage 3c: not yet closed
+indicators.py:256:ff36fa7a  Stage 3c: not yet closed
+indicators.py:257:c817842e  Stage 3c: not yet closed
+indicators.py:258:15ac179d  Stage 3c: not yet closed
+indicators.py:259:71557155  Stage 3c: not yet closed
+indicators.py:260:81aa9f3a  Stage 3c: not yet closed
+indicators.py:261:f9c5694f  Stage 3c: not yet closed
+indicators.py:262:8e35485e  Stage 3c: not yet closed
+indicators.py:264:19a80a9f  Stage 3c: not yet closed
+
+# --- patterns.py ---
+patterns.py:87:45761200  Stage 3c: not yet closed
+
+# --- pivot.py ---
+pivot.py:45:ff7dd9cc  Stage 3c: not yet closed
+pivot.py:46:b6c6dc02  Stage 3c: not yet closed
+pivot.py:107:56e572c3  Stage 3c: not yet closed
+pivot.py:108:34033213  Stage 3c: not yet closed
+pivot.py:109:189865e9  Stage 3c: not yet closed
+pivot.py:112:56427c72  Stage 3c: not yet closed
+
+# --- preflight.py ---
+preflight.py:35:5eef5925  Stage 3c: not yet closed
+preflight.py:36:a974edbe  Stage 3c: not yet closed
+preflight.py:38:3c10f4ed  Stage 3c: not yet closed
+preflight.py:51:605bf3ee  Stage 3c: not yet closed
+preflight.py:52:e3eea30e  Stage 3c: not yet closed
+
+# --- qualify.py ---
+qualify.py:72:a999d6e4  Stage 3c: not yet closed
+qualify.py:73:4d562375  Stage 3c: not yet closed
+qualify.py:94:e5f516f6  Stage 3c: not yet closed
+qualify.py:106:eee0bbba  Stage 3c: not yet closed
+qualify.py:133:a999d6e4  Stage 3c: not yet closed
+qualify.py:134:4d562375  Stage 3c: not yet closed
+qualify.py:180:86ea3282  Stage 3c: not yet closed
+qualify.py:256:4c3c2904  Stage 3c: not yet closed
+qualify.py:257:bd0f2f38  Stage 3c: not yet closed
+qualify.py:258:760c5f22  Stage 3c: not yet closed
+qualify.py:259:2aa82616  Stage 3c: not yet closed
+qualify.py:260:905f121b  Stage 3c: not yet closed
+qualify.py:262:f7205481  Stage 3c: not yet closed
+qualify.py:344:eb63ee4a  Stage 3c: not yet closed
+qualify.py:345:6c4fc2a2  Stage 3c: not yet closed
+qualify.py:347:f74bb9fa  Stage 3c: not yet closed
+
+# --- sweep.py ---
+sweep.py:90:eee0bbba  Stage 3c: not yet closed
+sweep.py:98:03c89125  Stage 3c: not yet closed
+sweep.py:99:eee0bbba  Stage 3c: not yet closed
+sweep.py:174:ae053e29  Stage 3c: not yet closed
+sweep.py:175:cc343ad5  Stage 3c: not yet closed
+
+# --- transcript.py ---
+transcript.py:114:eee0bbba  Stage 3c: not yet closed
+transcript.py:177:eee0bbba  Stage 3c: not yet closed
+transcript.py:198:eee0bbba  Stage 3c: not yet closed
+transcript.py:202:8720dcfd  Stage 3c: not yet closed
+transcript.py:206:e903b19b  Stage 3c: not yet closed
+transcript.py:207:ce046a57  Stage 3c: not yet closed
+

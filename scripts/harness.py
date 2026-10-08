@@ -440,6 +440,66 @@ def gate_manifest() -> Result:
                   f"all paths and verbs resolve")
 
 
+def gate_coverage() -> Result:
+    """Every unexecuted statement in audit_core is listed, with a reason.
+
+    The probe runs in a subprocess, never in-process: it is only correct from
+    a cold import graph, and earlier gates may already have imported
+    audit_core. SKIPs below 3.12 (no sys.monitoring; 3.10 is the declared
+    floor). A skip is reported, not swallowed.
+    """
+    if sys.version_info < (3, 12):
+        return Result("coverage", SKIP,
+                      f"needs Python 3.12+ for sys.monitoring; running "
+                      f"{sys.version_info[0]}.{sys.version_info[1]}")
+
+    from types import SimpleNamespace                             # noqa: PLC0415
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import coverage_allowlist as allowlist                    # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "coverage.json"
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "coverage_probe.py"),
+             "--package", "audit_core", "--tests", "tests",
+             "--json-out", str(out)],
+            cwd=ROOT, capture_output=True, text=True)
+        if proc.returncode != 0 or not out.exists():
+            return Result("coverage", FAIL,
+                          f"the probe did not run (rc {proc.returncode})",
+                          detail=(proc.stderr or proc.stdout)[-2000:])
+        data = json.loads(out.read_text())
+
+    if data["pytest_rc"] != 0:
+        return Result("coverage", FAIL,
+                      "the suite did not pass, so the measurement is from a "
+                      f"partial run (pytest rc {data['pytest_rc']})")
+
+    report = SimpleNamespace(modules=[SimpleNamespace(**m)
+                                      for m in data["modules"]])
+    entries = allowlist.parse(
+        (ROOT / "scripts" / "coverage-allowlist.txt").read_text())
+    result = allowlist.compare(report, entries, ROOT / "audit_core")
+
+    summary = (f"{data['total_unexecuted']} unexecuted / "
+               f"{data['total_executable']} statements, "
+               f"{len(result.permitted)} allowed")
+    if result.ok:
+        return Result("coverage", PASS, summary)
+
+    detail = []
+    for label, items in (("unlisted", result.regressed),
+                         ("stale", result.stale),
+                         ("now executed, remove from the list",
+                          result.executed_but_listed)):
+        for item in items:
+            detail.append(f"  {label}: {item}")
+    return Result("coverage", FAIL, summary, detail="\n".join(detail))
+
+
 GATES = {
     "tests": gate_tests,
     "selftest": gate_selftest,
@@ -447,11 +507,12 @@ GATES = {
     "eol": gate_eol,
     "manifest": gate_manifest,
     "install": gate_install,
+    "coverage": gate_coverage,
     "bench": gate_bench,
 }
 
 # `make check` runs these; `bench` is opt-in via --only bench or --all.
-DEFAULT = ["tests", "selftest", "lint", "eol", "manifest", "install"]
+DEFAULT = ["tests", "selftest", "lint", "eol", "manifest", "install", "coverage"]
 
 GLYPH = {PASS: "PASS", FAIL: "FAIL", SKIP: "SKIP"}
 

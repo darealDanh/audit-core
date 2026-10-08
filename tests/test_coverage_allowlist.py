@@ -156,3 +156,69 @@ def test_compare_reports_stale_when_unexecuted_line_is_past_eof(tmp_path):
     assert len(result.stale) == 1 and "m.py:100" in result.stale[0]
     assert result.permitted == ()
     assert result.regressed == ()
+
+
+def test_shipped_allowlist_parses_and_every_entry_has_a_reason():
+    text = (pathlib.Path(__file__).resolve().parent.parent
+            / "scripts" / "coverage-allowlist.txt").read_text()
+    entries = al.parse(text)
+    assert entries, "the shipped allowlist is empty"
+    assert all(e.reason for e in entries)
+
+
+def _load_harness():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "harness", pathlib.Path(__file__).resolve().parent.parent
+        / "scripts" / "harness.py")
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    return harness
+
+
+def test_harness_exposes_the_coverage_gate():
+    harness = _load_harness()
+    assert "coverage" in harness.GATES
+    assert "coverage" in harness.DEFAULT
+
+
+def test_coverage_gate_skips_below_3_12_with_its_reason(monkeypatch):
+    harness = _load_harness()
+    monkeypatch.setattr(harness.sys, "version_info", (3, 10, 0, "final", 0))
+    result = harness.gate_coverage()
+    assert result.name == "coverage"
+    assert result.status == harness.SKIP
+    assert "3.12" in result.summary and "3.10" in result.summary
+
+
+def _fake_probe(harness, monkeypatch, payload):
+    import json
+    import subprocess
+
+    def fake_run(cmd, **kwargs):
+        out = pathlib.Path(cmd[cmd.index("--json-out") + 1])
+        out.write_text(json.dumps(payload))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(harness.subprocess, "run", fake_run)
+
+
+@pytest.mark.skipif(not probe.SUPPORTED, reason="needs 3.12+")
+def test_coverage_gate_fails_when_the_measured_suite_failed(monkeypatch):
+    harness = _load_harness()
+    _fake_probe(harness, monkeypatch, {"pytest_rc": 1, "total_executable": 0,
+                                       "total_unexecuted": 0, "modules": []})
+    result = harness.gate_coverage()
+    assert result.status == harness.FAIL
+    assert "pytest rc 1" in result.summary
+
+
+@pytest.mark.skipif(not probe.SUPPORTED, reason="needs 3.12+")
+def test_coverage_gate_fails_naming_an_unlisted_gap(monkeypatch):
+    harness = _load_harness()
+    _fake_probe(harness, monkeypatch, {
+        "pytest_rc": 0, "total_executable": 10, "total_unexecuted": 1,
+        "modules": [{"name": "qualify.py", "executable": 10,
+                     "unexecuted": [1]}]})
+    result = harness.gate_coverage()
+    assert result.status == harness.FAIL
+    assert "unlisted: qualify.py:1" in result.detail
