@@ -83,3 +83,36 @@ def test_compare_reports_a_moved_line_as_stale_not_permitted(tmp_path):
     assert not result.ok
     assert result.stale and "m.py:2" in result.stale[0]
     assert result.permitted == ()
+    # Also verify the moved line is not reported as regressed
+    assert result.regressed == ()
+
+
+def test_compare_reports_stale_when_listed_file_deleted(tmp_path):
+    """A listed entry whose module file has been deleted reports stale, not executed."""
+    src = "a = 1\nb = 2\nc = 3\n"
+    report = _report(tmp_path, "m.py", src, [])
+    entries = al.parse(f"m.py:2:{al.line_digest('b = 2')}  deliberate\n")
+    # Delete the file after creating it
+    (tmp_path / "m.py").unlink()
+    result = al.compare(report, entries, tmp_path)
+    assert not result.ok
+    assert result.stale == ("m.py:2  the listed line no longer exists; "
+                            "re-check the reason and update the digest (deliberate)",)
+    assert result.executed_but_listed == ()
+
+
+def test_compare_reports_stale_when_line_past_eof(tmp_path):
+    """A listed entry whose line number is past EOF reports stale, not executed."""
+    src = "a = 1\nb = 2\nc = 3\n"
+    report = _report(tmp_path, "m.py", src, [])
+    entries = al.parse(f"m.py:100:{al.line_digest('past EOF')}  deliberate\n")
+    result = al.compare(report, entries, tmp_path)
+    assert not result.ok
+    assert result.stale == ("m.py:100  the listed line no longer exists; "
+                            "re-check the reason and update the digest (deliberate)",)
+    assert result.executed_but_listed == ()
+
+
+def test_line_digest_ignores_whitespace():
+    """Reindenting a block should not invalidate every entry inside it."""
+    assert al.line_digest("  x = 1") == al.line_digest("x = 1")

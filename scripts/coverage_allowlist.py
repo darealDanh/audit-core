@@ -51,6 +51,13 @@ class Comparison:
 
 
 def line_digest(text: str) -> str:
+    """Compute first 8 hex of SHA-1 of stripped text.
+
+    Strips leading/trailing whitespace so reindenting a block does not
+    invalidate every entry inside it. Trade-off: moving a statement into
+    or out of a conditional (changing control-flow meaning while keeping
+    text identical) is also undetected.
+    """
     return hashlib.sha1(text.strip().encode()).hexdigest()[:8]
 
 
@@ -89,7 +96,7 @@ def _source_line(package: pathlib.Path, module: str, line: int) -> str | None:
     path = package / module
     if not path.is_file():
         return None
-    lines = path.read_text().splitlines()
+    lines = path.read_text(encoding="utf-8").split("\n")
     if not 1 <= line <= len(lines):
         return None
     return lines[line - 1]
@@ -121,7 +128,17 @@ def compare(report, entries, package: pathlib.Path) -> Comparison:
 
     for key in sorted(set(by_key) - unexecuted):
         module, line = key
-        executed_but_listed.append(f"{module}:{line}  {by_key[key].reason}")
+        # Check if this is a stale entry (file deleted or line past EOF)
+        # rather than a line that now runs.
+        source = _source_line(package, module, line)
+        if source is None:
+            # File deleted or line past EOF: classify as stale, not executed.
+            stale.append(
+                f"{module}:{line}  the listed line no longer exists; "
+                f"re-check the reason and update the digest "
+                f"({by_key[key].reason})")
+        else:
+            executed_but_listed.append(f"{module}:{line}  {by_key[key].reason}")
 
     return Comparison(tuple(regressed), tuple(stale), tuple(permitted),
                       tuple(executed_but_listed))
