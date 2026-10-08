@@ -308,3 +308,101 @@ def test_the_gate_failure_names_the_command_that_clears_it(con):
     g = coverage.gate(coverage.report(con, phase="audit"))
     assert g.ok is False
     assert "coverage --db <db> --record" in " ".join(g.failures)
+
+
+# --- Stage 3c: the recorder's input guards and the three renderers ---
+
+def test_record_without_a_phase_says_what_a_phase_is_for(con):
+    with pytest.raises(db.DbError, match="needs a --phase"):
+        coverage.record(con, units=["a.py"], phase="", state="analyzed")
+    assert con.execute("SELECT COUNT(*) FROM cba_coverage").fetchone()[0] == 0
+
+
+def test_record_rejects_a_state_outside_the_enum_and_lists_the_legal_ones(con):
+    with pytest.raises(db.DbError) as exc:
+        coverage.record(con, units=["a.py"], phase="audit", state="maybe")
+    assert "state='maybe'" in str(exc.value)
+    for state in coverage.COVERAGE_STATES:
+        assert state in str(exc.value)
+
+
+def test_the_state_guard_runs_before_the_units_are_looked_at(con):
+    """The table validator downstream words an illegal state identically, so
+    only an input that would otherwise fail differently (no units at all)
+    proves it is the recorder's own guard that fires."""
+    with pytest.raises(db.DbError) as exc:
+        coverage.record(con, units=[], phase="audit", state="maybe")
+    assert "state='maybe' is not one of" in str(exc.value)
+    assert "no units" not in str(exc.value)
+
+
+def test_record_refuses_a_unit_list_that_is_really_a_whole_tree(con):
+    n = coverage.MAX_UNITS_PER_CALL + 1
+    units = [f"f{i}.py" for i in range(n)]
+    with pytest.raises(db.DbError) as exc:
+        coverage.record(con, units=units, phase="audit", state="analyzed")
+    message = str(exc.value)
+    assert f"{n} units in one call" in message
+    assert f"{coverage.MAX_UNITS_PER_CALL} bound" in message
+    assert "split the list" in message
+    assert "whole tree" in message
+    # nothing was written
+    assert con.execute("SELECT COUNT(*) FROM cba_coverage").fetchone()[0] == 0
+
+
+def test_record_accepts_exactly_the_bound(con):
+    units = [f"f{i}.py" for i in range(coverage.MAX_UNITS_PER_CALL)]
+    result = coverage.record(con, units=units, phase="audit", state="analyzed")
+    assert result.units == coverage.MAX_UNITS_PER_CALL
+    assert (con.execute("SELECT COUNT(*) FROM cba_coverage").fetchone()[0]
+            == coverage.MAX_UNITS_PER_CALL)
+
+
+def test_render_record_states_count_state_and_phase(con):
+    result = coverage.record(con, units=["a.py", "b.py"], phase="audit",
+                             state="analyzed")
+    assert coverage.render_record(result) == (
+        "coverage: 2 unit(s) recorded as analyzed (phase audit)")
+
+
+def test_render_record_includes_the_reason_when_there_is_one(con):
+    result = coverage.record(con, units=["a.py"], phase="audit",
+                             state="not_audited", reason="budget")
+    assert coverage.render_record(result) == (
+        "coverage: 1 unit(s) recorded as not_audited reason=budget "
+        "(phase audit)")
+
+
+def test_render_advises_how_to_record_unrecorded_units(con):
+    inventory(con, "a.c", "b.c", "c.c")
+    text = coverage.render(coverage.report(con, phase="audit"))
+    assert "3 inventoried unit(s) have no coverage row" in text
+    assert "--phase audit --state analyzed --from-file <list>" in text
+    assert ", ".join(db.NOT_AUDITED_REASONS) in text
+
+
+def test_render_advice_uses_a_placeholder_when_the_report_has_no_phase(con):
+    inventory(con, "a.c")
+    text = coverage.render(coverage.report(con))
+    assert "--phase <phase> --state analyzed" in text
+
+
+def test_render_gate_prints_verdict_failures_and_warnings(con):
+    inventory(con, "a.c", "b.c")
+    db.put(con, "cba_coverage", {"unit": "a.c", "phase": "audit",
+                                 "state": "not_audited", "reason": "vendored"})
+    g = coverage.gate(coverage.report(con, phase="audit"))
+    lines = coverage.render_gate(g).split("\n")
+    assert lines[0] == "coverage gate: FAIL"
+    assert lines[1] == f"  FAIL  {g.failures[0]}"
+    assert "unrecorded" in lines[1]
+    assert lines[2] == "  warn  1 unit(s) not_audited(reason='vendored')"
+    assert len(lines) == 3
+
+
+def test_render_gate_says_pass_with_no_detail_lines_when_clean(con):
+    inventory(con, "a.c")
+    db.put(con, "cba_coverage",
+           {"unit": "a.c", "phase": "audit", "state": "analyzed"})
+    g = coverage.gate(coverage.report(con, phase="audit"))
+    assert coverage.render_gate(g) == "coverage gate: PASS"

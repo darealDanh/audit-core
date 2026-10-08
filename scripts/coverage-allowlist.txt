@@ -28,22 +28,6 @@ budget.py:110:eee0bbba  Stage 3c: not yet closed
 ceiling.py:104:5f580ae3  Stage 3c: not yet closed
 
 # --- coverage.py ---
-coverage.py:60:df14e2b8  Stage 3c: not yet closed
-coverage.py:63:49928436  Stage 3c: not yet closed
-coverage.py:64:99d01a58  Stage 3c: not yet closed
-coverage.py:70:ff7dd9cc  Stage 3c: not yet closed
-coverage.py:71:ef711a16  Stage 3c: not yet closed
-coverage.py:72:1a304f9c  Stage 3c: not yet closed
-coverage.py:88:f0602d50  Stage 3c: not yet closed
-coverage.py:89:1c5f8d7a  Stage 3c: not yet closed
-coverage.py:90:0432c4dc  Stage 3c: not yet closed
-coverage.py:200:a858bdfe  Stage 3c: not yet closed
-coverage.py:202:20cd704c  Stage 3c: not yet closed
-coverage.py:204:be6f2d31  Stage 3c: not yet closed
-coverage.py:272:f51385fa  Stage 3c: not yet closed
-coverage.py:273:652b5a33  Stage 3c: not yet closed
-coverage.py:274:7a3676a8  Stage 3c: not yet closed
-coverage.py:275:19a80a9f  Stage 3c: not yet closed
 
 # --- db.py ---
 db.py:330:e8ce276d  Stage 3c: not yet closed
