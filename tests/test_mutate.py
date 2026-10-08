@@ -300,7 +300,7 @@ def test_sweep_resumes_and_does_not_rerun_checkpointed_mutants(tmp_path, monkeyp
 
     monkeypatch.setattr(mutate, "_run", dying_run)
     with pytest.raises(Boom):
-        mutate.run_sweep(pkg, tests, state, timeout=60)
+        mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
     partial = mutate.load_state(state)
     assert len(partial) == 1, "exactly the first mutant should be checkpointed"
 
@@ -311,7 +311,7 @@ def test_sweep_resumes_and_does_not_rerun_checkpointed_mutants(tmp_path, monkeyp
         return real_run(tree, paths, timeout, *rest)
 
     monkeypatch.setattr(mutate, "_run", counting_run)
-    results = mutate.run_sweep(pkg, tests, state, timeout=60)
+    results = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
     total = len(mutate.enumerate_mutations(TWO_FUNCS, "m.py"))
     assert len(results) == total
     resumed_label = next(iter(partial))
@@ -401,3 +401,43 @@ def test_a_test_that_already_fails_does_not_turn_survivors_into_kills(tmp_path):
     results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
     lt = next(r for r in results if "Lt->LtE" in r.mutation.label)
     assert lt.outcome == "survived"
+
+
+def test_decorator_constants_are_not_mutated():
+    src = ("from dataclasses import dataclass\n"
+           "@dataclass(frozen=True, slots=True)\n"
+           "class A:\n"
+           "    x: int = 5\n"
+           "@cache(maxsize=3)\n"
+           "def f():\n"
+           "    return True\n")
+    befores = {(m.lineno, m.before) for m in mutate.enumerate_mutations(src, "m.py")}
+    assert (2, "True") not in befores and (5, "3") not in befores
+    # the class body and function body are still mutated
+    assert (4, "5") in befores and (7, "True") in befores
+
+
+def test_parallel_sweep_matches_serial_and_is_sorted(tmp_path):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    serial = mutate.run_sweep(pkg, tests, tmp_path / "a.json", timeout=60, jobs=1)
+    parallel = mutate.run_sweep(pkg, tests, tmp_path / "b.json", timeout=60, jobs=4)
+    assert [(r.mutation.label, r.outcome) for r in parallel] == \
+        [(r.mutation.label, r.outcome) for r in serial]
+    labels = [r.mutation.label for r in parallel]
+    assert labels == sorted(labels)
+    assert mutate.load_state(tmp_path / "b.json") == {
+        r.mutation.label: r.outcome for r in parallel}
+
+
+def test_baseline_is_cached_beside_the_state_file(tmp_path, monkeypatch):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    state = tmp_path / "s.json"
+    mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    assert (tmp_path / "s.json.baseline").is_file()
+    state.unlink()  # force a second full sweep with the sidecars intact
+
+    def boom(*a, **k):
+        raise AssertionError("baseline recomputed despite a valid cache")
+
+    monkeypatch.setattr(mutate, "_baseline_failures", boom)
+    mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)

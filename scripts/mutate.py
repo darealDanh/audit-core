@@ -66,6 +66,26 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     return out
 
 
+def _decorator_constants(tree: ast.AST) -> set[int]:
+    """ids of every Constant reachable from a decorator expression.
+
+    `@dataclass(frozen=True, slots=True)` and friends are configuration, not
+    logic: 84 of audit_core's 129 boolean constants are decorator keywords.
+    No test should be asserting dataclass semantics, so those mutants are
+    near-guaranteed survivors that mean nothing and would bury the real
+    ones in triage. Same family of rule as the prose-only string filter.
+    """
+    out: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            for decorator in node.decorator_list:
+                for inner in ast.walk(decorator):
+                    if isinstance(inner, ast.Constant):
+                        out.add(id(inner))
+    return out
+
+
 def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
     # Chained comparisons (`a <= b <= c`) carry one Mutation per operator,
     # distinguished by op_index, so labels are unique and every bound is
@@ -73,7 +93,7 @@ def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
     # audit_core has three such chains.) A nested Compare such as `(a<b)<c`
     # starts at a different column from its parent, so positions never clash.
     tree = ast.parse(source)
-    skip = _docstring_nodes(tree)
+    skip = _docstring_nodes(tree) | _decorator_constants(tree)
     out: list[Mutation] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare):
@@ -344,7 +364,7 @@ def tests_for_mutation(test_map: dict[str, dict[str, list[int]]],
 
 
 def _run_suite(tree: pathlib.Path, tests: pathlib.Path, skip: set[str],
-               timeout: int, deselect: tuple[str, ...]):
+               timeout: int, deselect: tuple[str, ...], parallel: int = 8):
     """Run every test file except `skip` (already passed) and test_mutate.py,
     in parallel chunks: a survivor is the common expensive case and the suite
     is ~30s serial. Verdict precedence matches _classify: timeout, then
@@ -353,7 +373,7 @@ def _run_suite(tree: pathlib.Path, tests: pathlib.Path, skip: set[str],
              if f.name not in skip and f.name != "test_mutate.py"]
     if not files:
         return 0, False, False
-    workers = max(1, min(8, os.cpu_count() or 1, len(files)))
+    workers = max(1, min(parallel, os.cpu_count() or 1, len(files)))
     chunks = [files[i::workers] for i in range(workers)]
     with concurrent.futures.ThreadPoolExecutor(workers) as pool:
         outs = list(pool.map(
@@ -369,68 +389,143 @@ def _run_suite(tree: pathlib.Path, tests: pathlib.Path, skip: set[str],
     return (bad[0] if bad else 0), False, False
 
 
-def run_sweep(package: pathlib.Path, tests_dir: pathlib.Path,
-              state_path: pathlib.Path, timeout: int = 60
-              ) -> tuple[MutantResult, ...]:
-    """Mutate a COPY of the tree; the real tree is never written to.
+def _baseline_key(package: pathlib.Path, tests_dir: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    for d in (tests_dir, package):
+        for q in sorted(d.glob("*.py")):
+            h.update(q.name.encode() + b"\0" + q.read_bytes() + b"\0")
+    return h.hexdigest()
 
-    Resumable: every verdict is checkpointed to `state_path` as it lands, and
-    labels already present there are not re-run.
+
+def _cached_baseline(path: pathlib.Path, key: str):
+    if path.is_file():
+        cached = json.loads(path.read_text())
+        if cached.get("key") == key:
+            return tuple(cached["failures"])
+    return None
+
+
+def _write_atomic(path: pathlib.Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def run_sweep(package: pathlib.Path, tests_dir: pathlib.Path,
+              state_path: pathlib.Path, timeout: int = 60, jobs: int = 8
+              ) -> tuple[MutantResult, ...]:
+    """Mutate COPIES of the tree; the real tree is never written to.
+
+    `jobs` workers each own one tree copy for the whole run and restore the
+    mutated file after every mutant. Only the parent touches the state file:
+    workers return verdicts and the parent checkpoints each as it lands, so a
+    killed run resumes from the labels already recorded. The test map and the
+    baseline-failure set are computed once in the parent and cached beside
+    the state file. Results are returned sorted by label, so two runs report
+    identically however the workers interleave.
     """
     package = pathlib.Path(package).resolve()
     tests_dir = pathlib.Path(tests_dir).resolve()
     repo = package.parent
-    state = load_state(state_path)
-    results: list[MutantResult] = []
     state_path = pathlib.Path(state_path)
+    state = load_state(state_path)
     test_map = build_test_map(
-        package, tests_dir,
-        state_path.with_name(state_path.name + ".testmap"))
+        package, tests_dir, state_path.with_name(state_path.name + ".testmap"))
 
+    jobs_list = []  # (mutation, source, names, fallback)
+    done: dict[str, MutantResult] = {}
+    sources: dict[str, str] = {}
+    for source_path in sorted(package.glob("*.py")):
+        original = source_path.read_text()
+        sources[source_path.name] = original
+        mutations = enumerate_mutations(original, source_path.name)
+        fallback = not any(mods.get(source_path.name)
+                           for mods in test_map.values())
+        pending = [m for m in mutations if m.label not in state]
+        for m in mutations:
+            if m.label in state:
+                done[m.label] = MutantResult(m, state[m.label])
+        if fallback and pending:
+            print(f"  NOTE {source_path.name}: no test file executes it; "
+                  f"falling back to the whole suite for every mutant "
+                  f"(slow)", file=sys.stderr, flush=True)
+        for m in pending:
+            names = [] if fallback else tests_for_mutation(test_map, m)
+            jobs_list.append((m, names, fallback))
+
+    if jobs_list:
+        _sweep_pending(package, tests_dir, repo, state_path, state, jobs_list,
+                       sources, timeout, jobs, done)
+    return tuple(sorted(done.values(), key=lambda r: r.mutation.label))
+
+
+def _sweep_pending(package, tests_dir, repo, state_path, state, jobs_list,
+                   sources, timeout, jobs, done) -> None:
+    import threading
+    workers = max(1, min(jobs, len(jobs_list)))
+    local = threading.local()
     with tempfile.TemporaryDirectory() as tmp:
-        tree = pathlib.Path(tmp).resolve() / repo.name
-        shutil.copytree(repo, tree, symlinks=True, ignore=shutil.ignore_patterns(
-            ".git", ".superpowers", "__pycache__", ".pytest_cache"))
-        tree_tests = tree / tests_dir.relative_to(repo)
-        baseline = tuple(_baseline_failures(tree, tree_tests))
+        root = pathlib.Path(tmp).resolve()
+        ignore = shutil.ignore_patterns(
+            ".git", ".superpowers", "__pycache__", ".pytest_cache")
+
+        def make_tree(name: str) -> pathlib.Path:
+            tree = root / name / repo.name
+            shutil.copytree(repo, tree, symlinks=True, ignore=ignore)
+            return tree
+
+        # Baseline: tests that already fail on the UNMUTATED copy.
+        base_path = state_path.with_name(state_path.name + ".baseline")
+        key = _baseline_key(package, tests_dir)
+        baseline = _cached_baseline(base_path, key)
+        if baseline is None:
+            tree0 = make_tree("baseline")
+            baseline = tuple(_baseline_failures(
+                tree0, tree0 / tests_dir.relative_to(repo)))
+            _write_atomic(base_path, json.dumps(
+                {"key": key, "failures": list(baseline)}))
         if baseline:
             print(f"  NOTE {len(baseline)} test(s) already fail on the "
                   f"unmutated copy and are excluded from every run: "
                   f"{', '.join(baseline)}", file=sys.stderr, flush=True)
 
-        for source_path in sorted(package.glob("*.py")):
-            original = source_path.read_text()
-            mutations = enumerate_mutations(original, source_path.name)
-            if not mutations:
-                continue
-            fallback = not any(mods.get(source_path.name)
-                               for mods in test_map.values())
-            if fallback and any(m.label not in state for m in mutations):
-                print(f"  NOTE {source_path.name}: no test file executes it; "
-                      f"falling back to the whole suite for every mutant "
-                      f"(slow)", file=sys.stderr, flush=True)
-            target = tree / package.name / source_path.name
+        counter = iter(range(10**9))
+        counter_lock = threading.Lock()
+
+        def work(item):
+            mutation, names, fallback = item
+            if not hasattr(local, "tree"):
+                with counter_lock:
+                    n = next(counter)
+                local.tree = make_tree(f"w{n}")
+            tree = local.tree
+            tree_tests = tree / tests_dir.relative_to(repo)
+            target = tree / package.name / mutation.module
+            original = sources[mutation.module]
             try:
-                for mutation in mutations:
-                    if mutation.label in state:
-                        results.append(
-                            MutantResult(mutation, state[mutation.label]))
-                        continue
-                    target.write_text(apply_mutation(original, mutation))
-                    names = ([] if fallback
-                             else tests_for_mutation(test_map, mutation))
-                    rel = ([str(tree_tests / n) for n in names]
-                           or [str(tree_tests)])
-                    outcome = _classify(*_run(tree, rel, timeout, baseline))
-                    # A narrowed selection can manufacture a survivor whose
-                    # killing test lives in a skipped file: confirm on the
-                    # whole suite before reporting.
-                    if outcome == "survived" and rel != [str(tree_tests)]:
-                        outcome = _classify(*_run_suite(
-                            tree, tree_tests, set(names), timeout, baseline))
-                    state[mutation.label] = outcome
-                    save_state(state_path, state)
-                    results.append(MutantResult(mutation, outcome))
+                target.write_text(apply_mutation(original, mutation))
+                rel = ([str(tree_tests / n) for n in names]
+                       or [str(tree_tests)])
+                outcome = _classify(*_run(tree, rel, timeout, baseline))
+                # A narrowed selection can manufacture a survivor whose
+                # killing test lives in a skipped file: confirm on the rest
+                # of the suite before reporting.
+                if outcome == "survived" and rel != [str(tree_tests)]:
+                    outcome = _classify(*_run_suite(
+                        tree, tree_tests, set(names), timeout * 4, baseline,
+                        parallel=1 if workers > 1 else 8))
             finally:
                 target.write_text(original)
-    return tuple(results)
+            return mutation, outcome
+
+        pool = concurrent.futures.ThreadPoolExecutor(workers)
+        try:
+            futures = [pool.submit(work, item) for item in jobs_list]
+            for future in concurrent.futures.as_completed(futures):
+                mutation, outcome = future.result()
+                state[mutation.label] = outcome
+                save_state(state_path, state)
+                done[mutation.label] = MutantResult(mutation, outcome)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
