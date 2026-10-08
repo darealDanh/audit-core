@@ -16,6 +16,7 @@ written so the correction is visible in git history.
 
 | File | Target | Status |
 |---|---|---|
+| `2026-10-08-mutation-sweep.md` | audit_core (mutation sweep) | **current** - first mutation score: 66.3% (708/1068); logic 87%, prose strings 46%. 351 survivors unexplained, gate fails by design. |
 | `2026-10-05-stage3-tiering-gate.md` | tplink DL110 v2 1.0.11 | **procedure, not a measurement.** The held Sonnet tiering change for feature mapping and FP-check — two before-runs, apply the diff, two after-runs, compare. **Not run; the change is not applied.** Carries the exact diff. |
 | `2026-10-05-stage3-gate.md` | tplink DL110 v2 1.0.11 | **procedure, not a measurement.** The Stage 3 gate — two full re-runs covering the five quality mechanisms, cost must fall and recall must be ≥ 9/19. **The gate has not been run.** Also carries the project's open verification gaps. |
 | `2026-10-05-stage2-gate.md` | tplink DL110 v2 1.0.11 | **procedure, not a measurement.** The Stage 2 gate — two full re-runs, cost must fall and recall must be ≥ 9/19. **The gate has not been run.** Also carries the project's open verification gaps. |

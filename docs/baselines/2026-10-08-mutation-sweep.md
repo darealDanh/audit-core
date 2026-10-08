@@ -29,6 +29,25 @@ The brief's ~42% survivor estimate was high; the real rate is a third.
 Gate outcome: **FAIL**, as intended. 360 survivors, 9 allowlisted as
 equivalent, **351 unexplained**, 0 stale allowlist entries.
 
+## Where the tests are strong and weak
+
+| Mutant kind | Killed / total | Kill rate |
+|---|---|---|
+| `not` removal | 89 / 89 | 100.0% |
+| logic: compare + boolop | 225 / 258 | **87.2%** |
+| all logic (compare + boolop + `not`) | 314 / 347 | 90.5% |
+| constant: numeric and bool | 160 / 216 | 74.1% |
+| constant: prose string (incl. 7 equivalent attribute docstrings) | 234 / 505 | **46.3%** |
+| constant: prose string, excluding those 7 | 234 / 498 | 47.0% |
+| **overall** | **708 / 1068** | **66.3%** |
+
+**`audit_core`'s tests verify behaviour well and message text poorly.** Only 33
+of the 360 survivors are logic; 271 are prose strings. Counts of survivors
+alone mislead (strings are simply the most numerous constant), so rank work by
+these rates, not by the survivor table below. Recomputed from the state file;
+the coordinator's logic row (225/258) matches, and the table adds the 89 `not`
+mutants, which that row omitted (258 + 216 + 505 = 979, not 1068).
+
 ## Real defects
 
 **None found.** No sampled mutant was a case where the mutated behaviour was
@@ -47,155 +66,154 @@ mutants only (see Sampling), not about the 360.
 | boolop flip | 16 |
 | **total** | 360 |
 
-73% of survivors are string fragments: error and report text that tests
-execute but whose wording nothing asserts. The expensive survivors are the 33
-compare/boolop ones and the 47 numeric constants, which are boundaries and
-fallbacks.
+String fragments are 73% of survivors but also 47% of all mutants (505 of
+1068), so the share says little; use the kill-rate table above for priority. The
+expensive survivors are the 33 compare/boolop ones and the 56 numeric and bool
+constants, which are boundaries, defaults and fallbacks.
 
 ## Survivors by (module, operator): 38 buckets
 
-Sample = the first, the median and the last survivor of the bucket by line
+Sample (listed in full below) = the first, the median and the last survivor of the bucket by line
 number (fewer when the bucket has fewer than three). Verdict rule applied to
 each sampled mutant after reading its source line: a string fragment in output
 the tests run -> weak test; a boundary, limit, default or boolean flag no test
 distinguishes -> missing test; provably unobservable -> equivalent.
 
-| module | operator | survivors | composition | sampled mutant -> verdict |
+| module | operator | survivors | composition | sampled |
 |---|---|---|---|---|
-| `annotations.py` | compare | 1 | 1 compare | `annotations.py:119` compare -> missing test |
-| `annotations.py` | constant | 11 | 2 bool, 1 number, 8 string | `annotations.py:22` number -> missing test; `annotations.py:55` string -> weak test; `annotations.py:118` string -> weak test |
-| `bench.py` | compare | 1 | 1 compare | `bench.py:119` compare -> equivalent |
-| `bench.py` | constant | 8 | 1 attr-docstring, 3 number, 4 string | `bench.py:37` attr-docstring -> equivalent; `bench.py:233` number -> missing test; `bench.py:322` string -> weak test |
-| `briefs.py` | constant | 10 | 2 bool, 1 number, 7 string | `briefs.py:43` number -> equivalent; `briefs.py:62` string -> weak test; `briefs.py:77` bool -> missing test |
-| `budget.py` | constant | 47 | 6 number, 41 string | `budget.py:35` number -> missing test; `budget.py:154` string -> weak test; `budget.py:171` string -> weak test |
-| `ceiling.py` | compare | 2 | 2 compare | `ceiling.py:92` compare -> missing test; `ceiling.py:92` compare -> missing test |
-| `ceiling.py` | constant | 27 | 5 number, 22 string | `ceiling.py:48` number -> missing test; `ceiling.py:105` string -> weak test; `ceiling.py:113` string -> weak test |
-| `chains.py` | boolop | 1 | 1 boolop | `chains.py:162` boolop -> missing test |
-| `chains.py` | constant | 18 | 1 bool, 2 number, 15 string | `chains.py:26` number -> missing test; `chains.py:224` string -> weak test; `chains.py:239` string -> weak test |
-| `coverage.py` | boolop | 1 | 1 boolop | `coverage.py:258` boolop -> missing test |
-| `coverage.py` | constant | 15 | 1 number, 14 string | `coverage.py:21` number -> missing test; `coverage.py:193` string -> weak test; `coverage.py:261` string -> weak test |
-| `db.py` | boolop | 1 | 1 boolop | `db.py:419` boolop -> missing test |
-| `db.py` | compare | 2 | 2 compare | `db.py:157` compare -> missing test; `db.py:570` compare -> missing test |
-| `db.py` | constant | 51 | 2 number, 49 string | `db.py:68` string -> weak test; `db.py:352` string -> weak test; `db.py:529` string -> weak test |
-| `extract.py` | compare | 2 | 2 compare | `extract.py:141` compare -> missing test; `extract.py:222` compare -> missing test |
-| `extract.py` | constant | 22 | 2 bool, 6 number, 14 string | `extract.py:25` number -> missing test; `extract.py:134` bool -> missing test; `extract.py:216` string -> weak test |
-| `goldens.py` | constant | 3 | 3 string | `goldens.py:42` string -> weak test; `goldens.py:44` string -> weak test; `goldens.py:91` string -> weak test |
-| `identity.py` | constant | 1 | 1 bool | `identity.py:26` bool -> missing test |
-| `indicators.py` | boolop | 1 | 1 boolop | `indicators.py:232` boolop -> missing test |
-| `indicators.py` | constant | 10 | 2 number, 8 string | `indicators.py:55` number -> missing test; `indicators.py:126` string -> weak test; `indicators.py:243` number -> missing test |
-| `patterns.py` | boolop | 2 | 2 boolop | `patterns.py:52` boolop -> missing test; `patterns.py:53` boolop -> missing test |
-| `patterns.py` | constant | 14 | 14 string | `patterns.py:75` string -> weak test; `patterns.py:102` string -> weak test; `patterns.py:108` string -> weak test |
-| `pivot.py` | boolop | 3 | 3 boolop | `pivot.py:62` boolop -> missing test; `pivot.py:63` boolop -> missing test; `pivot.py:77` boolop -> missing test |
-| `pivot.py` | constant | 6 | 6 string | `pivot.py:43` string -> weak test; `pivot.py:61` string -> weak test; `pivot.py:61` string -> weak test |
-| `preflight.py` | constant | 7 | 1 number, 6 string | `preflight.py:32` string -> weak test; `preflight.py:48` string -> weak test; `preflight.py:65` number -> missing test |
-| `qualify.py` | boolop | 4 | 4 boolop | `qualify.py:90` boolop -> missing test; `qualify.py:185` boolop -> missing test; `qualify.py:211` boolop -> missing test |
-| `qualify.py` | compare | 7 | 7 compare | `qualify.py:116` compare -> missing test; `qualify.py:187` compare -> missing test; `qualify.py:350` compare -> missing test |
-| `qualify.py` | constant | 32 | 4 attr-docstring, 2 number, 26 string | `qualify.py:33` attr-docstring -> equivalent; `qualify.py:154` attr-docstring -> equivalent; `qualify.py:355` string -> weak test |
-| `rerate.py` | compare | 1 | 1 compare | `rerate.py:107` compare -> missing test |
-| `rerate.py` | constant | 16 | 2 attr-docstring, 1 bool, 4 number, 9 string | `rerate.py:51` string -> weak test; `rerate.py:155` string -> weak test; `rerate.py:178` string -> weak test |
-| `skill_lint.py` | constant | 9 | 9 string | `skill_lint.py:110` string -> weak test; `skill_lint.py:131` string -> weak test; `skill_lint.py:162` string -> weak test |
-| `sweep.py` | boolop | 1 | 1 boolop | `sweep.py:171` boolop -> missing test |
-| `sweep.py` | compare | 1 | 1 compare | `sweep.py:94` compare -> missing test |
-| `sweep.py` | constant | 12 | 4 number, 8 string | `sweep.py:26` number -> missing test; `sweep.py:157` string -> weak test; `sweep.py:177` string -> weak test |
-| `text.py` | constant | 1 | 1 string | `text.py:54` string -> weak test |
-| `transcript.py` | boolop | 2 | 2 boolop | `transcript.py:139` boolop -> missing test; `transcript.py:167` boolop -> missing test |
-| `transcript.py` | constant | 7 | 7 number | `transcript.py:135` number -> missing test; `transcript.py:161` number -> missing test; `transcript.py:204` number -> missing test |
+| `annotations.py` | compare | 1 | 1 compare | 1 |
+| `annotations.py` | constant | 11 | 2 bool, 1 number, 8 string | 3 |
+| `bench.py` | compare | 1 | 1 compare | 1 |
+| `bench.py` | constant | 8 | 1 attr-docstring, 3 number, 4 string | 3 |
+| `briefs.py` | constant | 10 | 2 bool, 1 number, 7 string | 3 |
+| `budget.py` | constant | 47 | 6 number, 41 string | 3 |
+| `ceiling.py` | compare | 2 | 2 compare | 2 |
+| `ceiling.py` | constant | 27 | 5 number, 22 string | 3 |
+| `chains.py` | boolop | 1 | 1 boolop | 1 |
+| `chains.py` | constant | 18 | 1 bool, 2 number, 15 string | 3 |
+| `coverage.py` | boolop | 1 | 1 boolop | 1 |
+| `coverage.py` | constant | 15 | 1 number, 14 string | 3 |
+| `db.py` | boolop | 1 | 1 boolop | 1 |
+| `db.py` | compare | 2 | 2 compare | 2 |
+| `db.py` | constant | 51 | 2 number, 49 string | 3 |
+| `extract.py` | compare | 2 | 2 compare | 2 |
+| `extract.py` | constant | 22 | 2 bool, 6 number, 14 string | 3 |
+| `goldens.py` | constant | 3 | 3 string | 3 |
+| `identity.py` | constant | 1 | 1 bool | 1 |
+| `indicators.py` | boolop | 1 | 1 boolop | 1 |
+| `indicators.py` | constant | 10 | 2 number, 8 string | 3 |
+| `patterns.py` | boolop | 2 | 2 boolop | 2 |
+| `patterns.py` | constant | 14 | 14 string | 3 |
+| `pivot.py` | boolop | 3 | 3 boolop | 3 |
+| `pivot.py` | constant | 6 | 6 string | 3 |
+| `preflight.py` | constant | 7 | 1 number, 6 string | 3 |
+| `qualify.py` | boolop | 4 | 4 boolop | 3 |
+| `qualify.py` | compare | 7 | 7 compare | 3 |
+| `qualify.py` | constant | 32 | 4 attr-docstring, 2 number, 26 string | 3 |
+| `rerate.py` | compare | 1 | 1 compare | 1 |
+| `rerate.py` | constant | 16 | 2 attr-docstring, 1 bool, 4 number, 9 string | 3 |
+| `skill_lint.py` | constant | 9 | 9 string | 3 |
+| `sweep.py` | boolop | 1 | 1 boolop | 1 |
+| `sweep.py` | compare | 1 | 1 compare | 1 |
+| `sweep.py` | constant | 12 | 4 number, 8 string | 3 |
+| `text.py` | constant | 1 | 1 string | 1 |
+| `transcript.py` | boolop | 2 | 2 boolop | 2 |
+| `transcript.py` | constant | 7 | 7 number | 3 |
 
 ## Sampled mutants read
 
-| mutant | operator | source line | verdict |
-|---|---|---|---|
-| `annotations.py:119` | compare | `if len(summary) > SUMMARY_CHARS:` | missing test |
-| `annotations.py:22` | constant | `SUMMARY_CHARS = 120` | missing test |
-| `annotations.py:55` | constant | `raise AnnotationError(f"kind={kind!r} is not one of {', '.join(KINDS)}` | weak test |
-| `annotations.py:118` | constant | `summary = latest.text.strip().replace("\n", " ")` | weak test |
-| `bench.py:119` | compare | `if steps > 0:` | equivalent |
-| `bench.py:37` | constant | `"""Credit lost per ladder step a match is under-rated.` | equivalent |
-| `bench.py:233` | constant | `duplicates=counts.get("DUPLICATE", 0),` | missing test |
-| `bench.py:322` | constant | `"location overlap: " + ", ".join(sorted(shared))))` | weak test |
-| `briefs.py:43` | constant | `return match.group(0)` | equivalent |
-| `briefs.py:62` | constant | `raise BriefError("; ".join(problems))` | weak test |
-| `briefs.py:77` | constant | `out_dir.mkdir(parents=True, exist_ok=True)` | missing test |
-| `budget.py:35` | constant | `return [t for t in turns if t.context > 0]` | missing test |
-| `budget.py:154` | constant | `out.append(f"  reconciliation   parsed sum_context {s.sum_context:,}  ` | weak test |
-| `budget.py:171` | constant | `f"{e.mean:10,} {e.growth_per_turn:9,.0f}")` | weak test |
-| `ceiling.py:92` | compare | `if e.turns < min_turns or e.mean <= 0:` | missing test |
-| `ceiling.py:92` | compare | `if e.turns < min_turns or e.mean <= 0:` | missing test |
-| `ceiling.py:48` | constant | `if growth_per_turn <= 0:` | missing test |
-| `ceiling.py:105` | constant | `out = [f"  {'epoch':>5s} {'turns':>6s} {'measured mean':>14s} "` | weak test |
-| `ceiling.py:113` | constant | `out.append("  figure above is unreliable for this session - report it ` | weak test |
-| `chains.py:162` | boolop | `if cid == eid or cgroup == egroup or not precondition:` | missing test |
-| `chains.py:26` | constant | `MAX_CANDIDATES = 100` | missing test |
-| `chains.py:224` | constant | `out = [f"chain candidates: {len(p.candidates)} across "` | weak test |
-| `chains.py:239` | constant | `f"  {p.without_precondition} of {p.findings_scanned} finding(s) "` | weak test |
-| `coverage.py:258` | boolop | `f"{r.phase or '<phase>'} --state analyzed --from-file <list>` "` | missing test |
-| `coverage.py:21` | constant | `MAX_UNITS_PER_CALL = 5000` | missing test |
-| `coverage.py:193` | constant | `out.extend(f"    {reason:16s} {n}" for reason, n in r.by_reason)` | weak test |
-| `coverage.py:261` | constant | `f"{', '.join(NOT_AUDITED_REASONS)}.")` | weak test |
-| `db.py:419` | boolop | `if c not in row and stored[c] is not None}` | missing test |
-| `db.py:157` | compare | `if len(evidence) < MIN_EVIDENCE_CHARS:` | missing test |
-| `db.py:570` | compare | `hi, lo = ((a, b) if _conf(a) >= _conf(b) else (b, a))` | missing test |
-| `db.py:68` | constant | `raise DbError(f"{column}={value!r} is not one of {', '.join(allowed)}"` | weak test |
-| `db.py:352` | constant | `names = ", ".join(missing_tables or missing_columns)` | weak test |
-| `db.py:529` | constant | `out.extend(f"    {v:20s} {n}" for v, n in s.verdicts)` | weak test |
-| `extract.py:141` | compare | `truncated = len(data) > MAX_UNIT_BYTES` | missing test |
-| `extract.py:222` | compare | `taken = {r.name: r.source for r in store.manifest() if r.unit == unit}` | missing test |
-| `extract.py:25` | constant | `BATCH_SIZE = 25` | missing test |
-| `extract.py:134` | constant | `self.base.mkdir(parents=True, exist_ok=True)` | missing test |
-| `extract.py:216` | constant | `f"(items {start}..{start + len(chunk) - 1}): {exc}") from exc` | weak test |
-| `goldens.py:42` | constant | `raise GoldenError(f"{path}[{i}]: 'locations' must be non-empty")` | weak test |
-| `goldens.py:44` | constant | `raise GoldenError(f"{path}: duplicate reference id {item['id']}")` | weak test |
-| `goldens.py:91` | constant | `raise GoldenError(f"{path}[{i}]: missing '{key}'")` | weak test |
-| `identity.py:26` | constant | `replace: bool = False) -> None:` | missing test |
-| `indicators.py:232` | boolop | `if ea.get("state") == ABSENT or eb.get("state") == ABSENT:` | missing test |
-| `indicators.py:55` | constant | `return Reading.of(round(100 * r.fraction, 1),` | missing test |
-| `indicators.py:126` | constant | `out.append(f"  {_LABELS[key]:<18} {r.render(_UNITS[key])}")` | weak test |
-| `indicators.py:243` | constant | `moved = f"{round(diff, 6):+}{unit}"` | missing test |
-| `patterns.py:52` | boolop | `return [PatternState(id=r["id"], name=r["name"] or "",` | missing test |
-| `patterns.py:53` | boolop | `origin_finding=r["origin_finding"] or "",` | missing test |
-| `patterns.py:75` | constant | `f"no pattern {pattern_id!r} to mark swept; register one with "` | weak test |
-| `patterns.py:102` | constant | `out.append(f"  {s.id:6s} {s.name:40.40s} {mark:11s} "` | weak test |
-| `patterns.py:108` | constant | `out.append("  A confirmed pattern that was never swept is the tplink "` | weak test |
-| `pivot.py:62` | boolop | `"severity_hint": severity_hint or "",` | missing test |
-| `pivot.py:63` | boolop | `"location": location or ""})` | missing test |
-| `pivot.py:77` | boolop | `if (rule_applied or "").strip():` | missing test |
-| `pivot.py:43` | constant | `raise db.DbError("a pivot needs --mechanism: what refuted the finding"` | weak test |
-| `pivot.py:61` | constant | `"observation": f"Pivot from {finding_id}: {mechanism} -- {enables}",` | weak test |
-| `pivot.py:61` | constant | `"observation": f"Pivot from {finding_id}: {mechanism} -- {enables}",` | weak test |
-| `preflight.py:32` | constant | `raise PreflightError(f"not found: {config_path}")` | weak test |
-| `preflight.py:48` | constant | `+ (", ".join(sorted(found)) or "(none)"))` | weak test |
-| `preflight.py:65` | constant | `path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")` | missing test |
-| `qualify.py:90` | boolop | `msg += f"  found:    {', '.join(actual) or '(no header)'}"` | missing test |
-| `qualify.py:185` | boolop | `f"CVE span {score.first_pub or '(missing)'}..{score.last_pub or '(miss` | missing test |
-| `qualify.py:211` | boolop | `f"{score.top_source or 'unknown'}")` | missing test |
-| `qualify.py:116` | compare | `if not (math.isfinite(max_cvss) and 0 <= max_cvss <= 10):` | missing test |
-| `qualify.py:187` | compare | `overlaps = score.first_pub <= WINDOW_END and score.last_pub >= WINDOW_` | missing test |
-| `qualify.py:350` | compare | `if "supported" in failed:` | missing test |
-| `qualify.py:33` | constant | `"""The header of `_intel/target-scores.csv` as of 2026-10-07.` | equivalent |
-| `qualify.py:154` | constant | `"""Tier C, verbatim: "Anything with >20 CVEs and >50% VulDB."` | equivalent |
-| `qualify.py:355` | constant | `return " ".join(parts)` | weak test |
-| `rerate.py:107` | compare | `"..." if end < len(text) else "")` | missing test |
-| `rerate.py:51` | constant | `"the finding's own text says it is reachable without credentials"),` | weak test |
-| `rerate.py:155` | constant | `"member of a composed chain recorded as pre_auth",` | weak test |
-| `rerate.py:178` | constant | `out.append(f"  {f.finding_id}  filed {f.severity}, "` | weak test |
-| `skill_lint.py:110` | constant | `f"prose names `audit.py {verb}`, which is not a real verb"))` | weak test |
-| `skill_lint.py:131` | constant | `f"literal {SKILL_DIR_SENTINEL} survived install; "` | weak test |
-| `skill_lint.py:162` | constant | `"brief template does not state the R2 one-line return contract"))` | weak test |
-| `sweep.py:171` | boolop | `out = [f"sweep {result.pattern_id or '(unrecorded)'}: {len(result.hits` | missing test |
-| `sweep.py:94` | compare | `if path.stat().st_size > MAX_FILE_BYTES:` | missing test |
-| `sweep.py:26` | constant | `MAX_HITS = 500` | missing test |
-| `sweep.py:157` | constant | `f"stopped at {len(result.hits)} hits and does not know what it "` | weak test |
-| `sweep.py:177` | constant | `out.append(f"  truncated at {len(result.hits)} hits - the pattern is "` | weak test |
-| `text.py:54` | constant | `return _WS.sub(" ", _NOISE.sub(" ", (value or "").lower())).strip()` | weak test |
-| `transcript.py:139` | boolop | `session_id = session_id or rec.get("sessionId", "")` | missing test |
-| `transcript.py:167` | boolop | `thinking=(usage.get("output_tokens_details")` | missing test |
-| `transcript.py:135` | constant | `if tokens > 0:` | missing test |
-| `transcript.py:161` | constant | `+ usage.get("input_tokens", 0))` | missing test |
-| `transcript.py:204` | constant | `name, in_tokens = pending.pop(block.get("tool_use_id", ""), ("?", 0))` | missing test |
+| mutant (full label; long ones truncated with `...`) | source line | verdict |
+|---|---|---|
+| `annotations.py:119:11 compare[0] Gt->GtE` | `if len(summary) > SUMMARY_CHARS:` | missing test |
+| `annotations.py:22:16 constant[0] 120->121` | `SUMMARY_CHARS = 120` | missing test |
+| `annotations.py:55:61 constant[0] ', '->''` | `raise AnnotationError(f"kind={kind!r} is not one of {', '.join(KINDS)}` | weak test |
+| `annotations.py:118:52 constant[0] ' '->''` | `summary = latest.text.strip().replace("\n", " ")` | weak test |
+| `bench.py:119:11 compare[0] Gt->GtE` | `if steps > 0:` | equivalent |
+| `bench.py:37:0 constant[0] 'Credit lost per ladder step a match is u...` | `"""Credit lost per ladder step a match is under-rated.` | equivalent |
+| `bench.py:233:43 constant[0] 0->1` | `duplicates=counts.get("DUPLICATE", 0),` | missing test |
+| `bench.py:322:39 constant[0] ', '->''` | `"location overlap: " + ", ".join(sorted(shared))))` | weak test |
+| `briefs.py:43:31 constant[0] 0->1` | `return match.group(0)` | equivalent |
+| `briefs.py:62:25 constant[0] '; '->''` | `raise BriefError("; ".join(problems))` | weak test |
+| `briefs.py:77:26 constant[0] True->False` | `out_dir.mkdir(parents=True, exist_ok=True)` | missing test |
+| `budget.py:35:44 constant[0] 0->1` | `return [t for t in turns if t.context > 0]` | missing test |
+| `budget.py:154:72 constant[0] '  vs  modelUsage '->''` | `out.append(f"  reconciliation   parsed sum_context {s.sum_context:,}  ` | weak test |
+| `budget.py:171:33 constant[0] ' '->''` | `f"{e.mean:10,} {e.growth_per_turn:9,.0f}")` | weak test |
+| `ceiling.py:92:11 compare[0] Lt->LtE` | `if e.turns < min_turns or e.mean <= 0:` | missing test |
+| `ceiling.py:92:34 compare[0] LtE->Lt` | `if e.turns < min_turns or e.mean <= 0:` | missing test |
+| `ceiling.py:48:30 constant[0] 0->1` | `if growth_per_turn <= 0:` | missing test |
+| `ceiling.py:105:28 constant[0] ' '->''` | `out = [f"  {'epoch':>5s} {'turns':>6s} {'measured mean':>14s} "` | weak test |
+| `ceiling.py:113:15 constant[0] '  figure above is unreliable for thi...` | `out.append("  figure above is unreliable for this session - report it ` | weak test |
+| `chains.py:162:15 boolop[0] Or->And` | `if cid == eid or cgroup == egroup or not precondition:` | missing test |
+| `chains.py:26:17 constant[0] 100->101` | `MAX_CANDIDATES = 100` | missing test |
+| `chains.py:224:50 constant[0] ' across '->''` | `out = [f"chain candidates: {len(p.candidates)} across "` | weak test |
+| `chains.py:239:40 constant[0] ' of '->''` | `f"  {p.without_precondition} of {p.findings_scanned} finding(s) "` | weak test |
+| `coverage.py:258:15 boolop[0] Or->And` | `f"{r.phase or '<phase>'} --state analyzed --from-file <list>` "` | missing test |
+| `coverage.py:21:21 constant[0] 5000->5001` | `MAX_UNITS_PER_CALL = 5000` | missing test |
+| `coverage.py:193:21 constant[0] '    '->''` | `out.extend(f"    {reason:16s} {n}" for reason, n in r.by_reason)` | weak test |
+| `coverage.py:261:15 constant[0] ', '->''` | `f"{', '.join(NOT_AUDITED_REASONS)}.")` | weak test |
+| `db.py:419:15 boolop[0] And->Or` | `if c not in row and stored[c] is not None}` | missing test |
+| `db.py:157:7 compare[0] Lt->LtE` | `if len(evidence) < MIN_EVIDENCE_CHARS:` | missing test |
+| `db.py:570:32 compare[0] GtE->Gt` | `hi, lo = ((a, b) if _conf(a) >= _conf(b) else (b, a))` | missing test |
+| `db.py:68:46 constant[0] ' is not one of '->''` | `raise DbError(f"{column}={value!r} is not one of {', '.join(allowed)}"` | weak test |
+| `db.py:352:16 constant[0] ', '->''` | `names = ", ".join(missing_tables or missing_columns)` | weak test |
+| `db.py:529:32 constant[0] ' '->''` | `out.extend(f"    {v:20s} {n}" for v, n in s.verdicts)` | weak test |
+| `extract.py:141:20 compare[0] Gt->GtE` | `truncated = len(data) > MAX_UNIT_BYTES` | missing test |
+| `extract.py:222:63 compare[0] Eq->NotEq` | `taken = {r.name: r.source for r in store.manifest() if r.unit == unit}` | missing test |
+| `extract.py:25:13 constant[0] 25->26` | `BATCH_SIZE = 25` | missing test |
+| `extract.py:134:32 constant[0] True->False` | `self.base.mkdir(parents=True, exist_ok=True)` | missing test |
+| `extract.py:216:58 constant[0] '): '->''` | `f"(items {start}..{start + len(chunk) - 1}): {exc}") from exc` | weak test |
+| `goldens.py:42:42 constant[0] "]: 'locations' must be non-empty"->''` | `raise GoldenError(f"{path}[{i}]: 'locations' must be non-empty")` | weak test |
+| `goldens.py:44:38 constant[0] ': duplicate reference id '->''` | `raise GoldenError(f"{path}: duplicate reference id {item['id']}")` | weak test |
+| `goldens.py:91:46 constant[0] "]: missing '"->''` | `raise GoldenError(f"{path}[{i}]: missing '{key}'")` | weak test |
+| `identity.py:26:27 constant[0] False->True` | `replace: bool = False) -> None:` | missing test |
+| `indicators.py:232:11 boolop[0] Or->And` | `if ea.get("state") == ABSENT or eb.get("state") == ABSENT:` | missing test |
+| `indicators.py:55:46 constant[0] 1->2` | `return Reading.of(round(100 * r.fraction, 1),` | missing test |
+| `indicators.py:126:21 constant[0] '  '->''` | `out.append(f"  {_LABELS[key]:<18} {r.render(_UNITS[key])}")` | weak test |
+| `indicators.py:243:39 constant[0] 6->7` | `moved = f"{round(diff, 6):+}{unit}"` | missing test |
+| `patterns.py:52:42 boolop[0] Or->And` | `return [PatternState(id=r["id"], name=r["name"] or "",` | missing test |
+| `patterns.py:53:40 boolop[0] Or->And` | `origin_finding=r["origin_finding"] or "",` | missing test |
+| `patterns.py:75:14 constant[0] 'no pattern '->''` | `f"no pattern {pattern_id!r} to mark swept; register one with "` | weak test |
+| `patterns.py:102:32 constant[0] ' '->''` | `out.append(f"  {s.id:6s} {s.name:40.40s} {mark:11s} "` | weak test |
+| `patterns.py:108:19 constant[0] '  A confirmed pattern that was neve...` | `out.append("  A confirmed pattern that was never swept is the tplink "` | weak test |
+| `pivot.py:62:25 boolop[0] Or->And` | `"severity_hint": severity_hint or "",` | missing test |
+| `pivot.py:63:20 boolop[0] Or->And` | `"location": location or ""})` | missing test |
+| `pivot.py:77:8 boolop[0] Or->And` | `if (rule_applied or "").strip():` | missing test |
+| `pivot.py:43:25 constant[0] 'a pivot needs --mechanism: what refuted...` | `raise db.DbError("a pivot needs --mechanism: what refuted the finding"` | weak test |
+| `pivot.py:61:25 constant[0] 'Pivot from '->''` | `"observation": f"Pivot from {finding_id}: {mechanism} -- {enables}",` | weak test |
+| `pivot.py:61:61 constant[0] ' -- '->''` | `"observation": f"Pivot from {finding_id}: {mechanism} -- {enables}",` | weak test |
+| `preflight.py:32:31 constant[0] 'not found: '->''` | `raise PreflightError(f"not found: {config_path}")` | weak test |
+| `preflight.py:48:19 constant[0] ', '->''` | `+ (", ".join(sorted(found)) or "(none)"))` | weak test |
+| `preflight.py:65:63 constant[0] 2->3` | `path.write_text(json.dumps({"mcpServers": servers}, indent=2) + "\n")` | missing test |
+| `qualify.py:90:38 boolop[0] Or->And` | `msg += f"  found:    {', '.join(actual) or '(no header)'}"` | missing test |
+| `qualify.py:185:58 boolop[0] Or->And` | `f"CVE span {score.first_pub or '(missing)'}..{score.last_pub or '(miss` | missing test |
+| `qualify.py:211:11 boolop[0] Or->And` | `f"{score.top_source or 'unknown'}")` | missing test |
+| `qualify.py:116:60 compare[0] LtE->Lt` | `if not (math.isfinite(max_cvss) and 0 <= max_cvss <= 10):` | missing test |
+| `qualify.py:187:15 compare[0] LtE->Lt` | `overlaps = score.first_pub <= WINDOW_END and score.last_pub >= WINDOW_` | missing test |
+| `qualify.py:350:7 compare[0] In->NotIn` | `if "supported" in failed:` | missing test |
+| `qualify.py:33:0 constant[0] 'The header of `_intel/target-scores.cs...` | `"""The header of `_intel/target-scores.csv` as of 2026-10-07.` | equivalent |
+| `qualify.py:154:0 constant[0] 'Tier C, verbatim: "Anything with >20 ...` | `"""Tier C, verbatim: "Anything with >20 CVEs and >50% VulDB."` | equivalent |
+| `qualify.py:355:11 constant[0] ' '->''` | `return " ".join(parts)` | weak test |
+| `rerate.py:107:17 compare[0] Lt->LtE` | `"..." if end < len(text) else "")` | missing test |
+| `rerate.py:51:9 constant[0] "the finding's own text says it is reach...` | `"the finding's own text says it is reachable without credentials"),` | weak test |
+| `rerate.py:155:16 constant[0] 'member of a composed chain recorded a...` | `"member of a composed chain recorded as pre_auth",` | weak test |
+| `rerate.py:178:61 constant[0] ', evidence implies at least '->''` | `out.append(f"  {f.finding_id}  filed {f.severity}, "` | weak test |
+| `skill_lint.py:110:22 constant[0] 'prose names `audit.py '->''` | `f"prose names `audit.py {verb}`, which is not a real verb"))` | weak test |
+| `skill_lint.py:131:18 constant[0] 'literal '->''` | `f"literal {SKILL_DIR_SENTINEL} survived install; "` | weak test |
+| `skill_lint.py:162:20 constant[0] 'brief template does not state the...` | `"brief template does not state the R2 one-line return contract"))` | weak test |
+| `sweep.py:171:20 boolop[0] Or->And` | `out = [f"sweep {result.pattern_id or '(unrecorded)'}: {len(result.hits` | missing test |
+| `sweep.py:94:19 compare[0] Gt->GtE` | `if path.stat().st_size > MAX_FILE_BYTES:` | missing test |
+| `sweep.py:26:11 constant[0] 500->501` | `MAX_HITS = 500` | missing test |
+| `sweep.py:157:43 constant[0] ' hits and does not know what it did no...` | `f"stopped at {len(result.hits)} hits and does not know what it "` | weak test |
+| `sweep.py:177:54 constant[0] ' hits - the pattern is too broad to tr...` | `out.append(f"  truncated at {len(result.hits)} hits - the pattern is "` | weak test |
+| `text.py:54:35 constant[0] ' '->''` | `return _WS.sub(" ", _NOISE.sub(" ", (value or "").lower())).strip()` | weak test |
+| `transcript.py:139:21 boolop[0] Or->And` | `session_id = session_id or rec.get("sessionId", "")` | missing test |
+| `transcript.py:167:30 boolop[0] Or->And` | `thinking=(usage.get("output_tokens_details")` | missing test |
+| `transcript.py:135:20 constant[0] 0->1` | `if tokens > 0:` | missing test |
+| `transcript.py:161:55 constant[0] 0->1` | `+ usage.get("input_tokens", 0))` | missing test |
+| `transcript.py:204:90 constant[0] 0->1` | `name, in_tokens = pending.pop(block.get("tool_use_id", ""), ("?", 0))` | missing test |
 
-Totals over the 87 sampled: see the verdict column. The bucket
-verdict is mixed wherever a bucket contains both string and non-string
-constants; read the composition column before generalising a bucket verdict.
+**Sample totals (87 mutants):** equivalent 5, weak test 38, missing test 44, real defect 0.
+The verdict is assigned by kind (string fragment -> weak test; boundary, limit, default or flag -> missing test), so these totals restate the sample's composition more than they test it. The bucket verdict is mixed wherever a bucket holds both string and non-string constants; read the composition column before generalising.
 
 ## Allowlisted (9, equivalent only)
 
