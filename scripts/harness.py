@@ -500,6 +500,60 @@ def gate_coverage() -> Result:
     return Result("coverage", FAIL, summary, detail="\n".join(detail))
 
 
+def parse_mutation_allowlist(text: str) -> dict[str, str]:
+    """label -> reason. An entry without a reason is refused (ValueError)."""
+    out: dict[str, str] = {}
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        label, sep, reason = line.rpartition(" #")
+        if not sep or not reason.strip() or not label.strip():
+            raise ValueError(f"mutation-allowlist.txt:{n}: entry has no "
+                             f"reason (write `<label>  # why`): {line}")
+        out[label.strip()] = reason.strip()
+    return out
+
+
+def gate_mutate() -> Result:
+    """Opt-in (~1h): every surviving mutant of audit_core is allowlisted.
+
+    Reachable by `--only mutate` or `make mutate`, deliberately not by
+    `--all`: ci.yml runs --all on three Python versions and this gate does
+    not skip.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import mutate                                             # noqa: PLC0415
+    finally:
+        sys.path.pop(0)
+    try:
+        permitted = parse_mutation_allowlist(
+            (ROOT / "scripts" / "mutation-allowlist.txt").read_text())
+    except (OSError, ValueError) as exc:
+        return Result("mutate", FAIL, "the allowlist is unusable",
+                      detail=str(exc))
+    try:
+        results = mutate.run_sweep(ROOT / "audit_core", ROOT / "tests",
+                                   ROOT / ".mutate-state.json")
+    except RuntimeError as exc:
+        # The canary and other aborts mean "no report can be trusted":
+        # surface the runner's own message, not a generic error.
+        return Result("mutate", FAIL, "the sweep aborted", detail=str(exc))
+
+    counts = {o: sum(1 for r in results if r.outcome == o)
+              for o in mutate.OUTCOMES}
+    unexplained = [r for r in results
+                   if r.outcome == "survived" and r.mutation.label not in permitted]
+    summary = (f"{len(results)} mutants: {counts['killed']} killed, "
+               f"{counts['survived']} survived, {counts['timeout']} timeout, "
+               f"{counts['error']} error; {len(unexplained)} unexplained")
+    if not unexplained:
+        return Result("mutate", PASS, summary)
+    detail = "\n".join(f"  survived: {r.mutation.label}" for r in unexplained)
+    return Result("mutate", FAIL, summary, detail=detail)
+
+
 GATES = {
     "tests": gate_tests,
     "selftest": gate_selftest,
@@ -509,10 +563,14 @@ GATES = {
     "install": gate_install,
     "coverage": gate_coverage,
     "bench": gate_bench,
+    "mutate": gate_mutate,
 }
 
-# `make check` runs these; `bench` is opt-in via --only bench or --all.
+# `make check` runs DEFAULT. `--all` adds ALL_EXTRA. Anything in GATES but in
+# neither is reachable only by `--only <name>`: that is where a gate whose cost
+# is minutes rather than seconds belongs, because ci.yml runs `--all`.
 DEFAULT = ["tests", "selftest", "lint", "eol", "manifest", "install", "coverage"]
+ALL_EXTRA = ["bench"]
 
 GLYPH = {PASS: "PASS", FAIL: "FAIL", SKIP: "SKIP"}
 
@@ -546,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         selected = list(dict.fromkeys(args.only))
     else:
-        selected = list(GATES) if args.all else list(DEFAULT)
+        selected = (DEFAULT + ALL_EXTRA) if args.all else list(DEFAULT)
     selected = [g for g in selected if g not in set(args.skip)]
 
     results: list[Result] = []

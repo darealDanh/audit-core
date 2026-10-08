@@ -14,7 +14,7 @@ PYTHON ?= python3
 HARNESS := $(PYTHON) scripts/harness.py
 
 .DEFAULT_GOAL := check
-.PHONY: check all list test selftest lint eol install-smoke bench json clean help
+.PHONY: check all list test selftest lint eol install-smoke bench mutate json clean help
 
 ## check: the pre-merge gate - tests, selftest, lint, eol, install (no bench)
 check:
@@ -55,6 +55,10 @@ install-smoke:
 ## bench: score the golden set; SKIPs when the corpus is not on this machine
 bench:
 	@$(HARNESS) --only bench
+
+## mutate: mutation sweep over audit_core (~1h; opt-in, not part of `make all`)
+mutate:
+	@$(HARNESS) --only mutate
 
 ## clean: remove Python caches (never touches reports/ or any audit.db)
 clean:

@@ -586,3 +586,87 @@ def test_a_package_without_init_gets_a_legible_canary_error(tmp_path):
     (pkg / "__init__.py").unlink()
     with pytest.raises(RuntimeError, match="no __init__.py"):
         mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60, jobs=1)
+
+
+def _load_harness():
+    import importlib.util
+    root = pathlib.Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location("harness_under_test", root / "scripts" / "harness.py")
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    return harness
+
+
+def test_harness_exposes_mutate_but_keeps_it_out_of_default_and_all():
+    harness = _load_harness()
+    assert "mutate" in harness.GATES
+    assert "mutate" not in harness.DEFAULT
+    assert "mutate" not in harness.ALL_EXTRA, (
+        "ci.yml runs --all across three Python versions; a ~1 hour "
+        "non-skipping gate there is hours per push")
+
+
+def test_all_flag_selects_exactly_default_plus_extra(monkeypatch, capsys):
+    harness = _load_harness()
+    ran = []
+    monkeypatch.setattr(harness, "GATES", {
+        n: (lambda n=n: ran.append(n) or harness.Result(n, harness.PASS, "ok"))
+        for n in list(harness.GATES)})
+    harness.main(["--all", "--json"])
+    assert ran == harness.DEFAULT + harness.ALL_EXTRA
+    assert "mutate" not in ran
+
+
+def test_allowlist_refuses_an_entry_without_a_reason():
+    harness = _load_harness()
+    ok = harness.parse_mutation_allowlist(
+        "# c\n\nm.py:1:2 Compare[0] <->  <=  # equivalent: never observable\n")
+    assert ok == {"m.py:1:2 Compare[0] <->  <=": "equivalent: never observable"}
+    for bad in ("m.py:1:2 Compare[0] <-><=\n", "m.py:1:2 Compare[0] <-><=  #\n"):
+        with pytest.raises(ValueError, match="no reason"):
+            harness.parse_mutation_allowlist(bad)
+
+
+def _fake_sweep(monkeypatch, harness, results=None, exc=None):
+    def run_sweep(*a, **k):
+        if exc:
+            raise exc
+        return results
+    monkeypatch.setattr(mutate, "run_sweep", run_sweep)
+
+
+def _mut(line, outcome):
+    return mutate.MutantResult(
+        mutate.Mutation("m.py", line, 0, "Compare", "<", "<="), outcome)
+
+
+def test_gate_fails_naming_unexplained_survivors_and_counts(monkeypatch):
+    harness = _load_harness()
+    _fake_sweep(monkeypatch, harness, results=(
+        _mut(1, "killed"), _mut(2, "survived"), _mut(3, "timeout"),
+        _mut(4, "error")))
+    res = harness.gate_mutate()
+    assert res.name == "mutate" and res.status == harness.FAIL
+    assert "m.py:2:0" in res.detail and "m.py:1:0" not in res.detail
+    for frag in ("4 mutants", "1 killed", "1 survived", "1 timeout",
+                 "1 error", "1 unexplained"):
+        assert frag in res.summary
+
+
+def test_gate_passes_when_every_survivor_is_allowlisted(monkeypatch):
+    harness = _load_harness()
+    surv = _mut(2, "survived")
+    _fake_sweep(monkeypatch, harness, results=(_mut(1, "killed"), surv))
+    monkeypatch.setattr(harness, "parse_mutation_allowlist",
+                        lambda text: {surv.mutation.label: "equivalent"})
+    res = harness.gate_mutate()
+    assert res.status == harness.PASS and "0 unexplained" in res.summary
+
+
+def test_gate_surfaces_the_canary_abort_message_as_fail(monkeypatch):
+    harness = _load_harness()
+    _fake_sweep(monkeypatch, harness,
+                exc=RuntimeError("mutation canary survived (rc=0)"))
+    res = harness.gate_mutate()
+    assert res.status == harness.FAIL
+    assert "mutation canary survived (rc=0)" in res.detail

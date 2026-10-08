@@ -717,6 +717,25 @@
         "docs/superpowers/specs/2026-10-08-stage3c-core-hardening-design.md"
       ],
       "notes": "Eighth gate. Every unexecuted statement must be listed with a reason; fails on an unlisted gap, a stale digest, and a listed line that now runs. Shells out to the probe CLI and checks pytest_rc. SKIPs below Python 3.12."
+    },
+    {
+      "id": "mutation-harness",
+      "name": "Mutation harness and gate",
+      "area": "harness",
+      "status": "shipped",
+      "stage": "post-stage3",
+      "modules": [
+        "scripts/mutate.py",
+        "scripts/mutation-allowlist.txt",
+        "scripts/harness.py"
+      ],
+      "tests": [
+        "tests/test_mutate.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage3c-core-hardening-design.md"
+      ],
+      "notes": "AST mutation over temp copies of the tree, finding tests that execute a line while asserting nothing that depends on it. Opt-in: in GATES, in neither DEFAULT nor ALL_EXTRA, because ci.yml runs --all across three Python versions and the sweep takes about an hour. Run with make mutate."
     }
   ],
   "open_items": [

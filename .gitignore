@@ -25,4 +25,4 @@ harness-*.json
 .superpowers/
 
 # Mutation sweep resume state (scripts/mutate.py checkpoints here)
-.mutate-state.json
+.mutate-state.json*

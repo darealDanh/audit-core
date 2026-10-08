@@ -1,0 +1,12 @@
+# Mutants that survive and are permitted to.
+#
+# A surviving mutant normally means no test asserts anything that depends on
+# the mutated line. Some are EQUIVALENT: the change has no observable effect,
+# so no test can kill it and demanding one is make-work. Those go here, with
+# the reason.
+#
+# An entry without a reason is refused. Format (label as printed by the gate):
+#
+#   <module>.py:<line>:<col> <operator>[<i>] <before>-><after>  # why it is unkillable
+#
+# Populated by Task 14 from the first sweep.
