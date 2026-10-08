@@ -80,15 +80,20 @@ make all          # all eight gates
 Expected:
 
 ```
-PASS  tests       807 passed
-PASS  selftest    verbs 23 declared / tables 15 in schema.sql, 14 under contract / migrations 4
-PASS  lint        skill lint: clean
-PASS  eol         6 CRLF files, 149 LF
-PASS  manifest    38 features ... all paths and verbs resolve
-PASS  install     92 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  tests      807 passed in 154.82s (0:02:34)
+PASS  selftest   verbs  23 declared, all dispatchable / tables 15 in schema.sql, 14 under contract, columns agree / migrations 4 applied to the pre-Stage-3 baseline, result accepted by connect()
+PASS  lint       skill lint: clean
+PASS  eol        6 CRLF files, 149 LF
+PASS  manifest   38 features, 9 stages, 18 open items, all paths and verbs resolve
+PASS  install    92 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  coverage   0 unexecuted / 2392 statements, 0 allowed
-PASS  bench       recall 9/19, 45 findings, precision 39/40, $73.15 per match
+PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
+
+all 8 gate(s) passed
 ```
+
+The real output also prints a per-gate duration after each name; the `tests`
+time (here 154.82s) varies with load, so the block omits the durations.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
