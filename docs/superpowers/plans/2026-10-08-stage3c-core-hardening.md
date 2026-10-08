@@ -811,7 +811,7 @@ Each task's commit message states the count closed, deleted and re-reasoned.
 - Modify: `tests/test_qualify.py`
 - Modify: `scripts/coverage-allowlist.txt`
 
-**The statements:** 72, 73 (`except (UnicodeDecodeError, csv.Error)` on the header read), 94 (`unexpected:` in the header-mismatch message), 106 (`continue` on `rce_cves < 0`), 133, 134 (the same `except` on the row loop), 180 (`"no RCE CVEs on record"`), 256–262 (thin support evidence), 305, 344, 345, 347 (the NO-GO footer prose).
+**The statements:** 72, 73 (`except (UnicodeDecodeError, csv.Error)` on the header read), 94 (`unexpected:` in the header-mismatch message), 106 (`continue` on `rce_cves < 0`), 133, 134 (the same `except` on the row loop), 180 (`"no RCE CVEs on record"`), 256–262 (thin support evidence), 344, 345, 347 (the NO-GO footer prose). Sixteen — and line 305 is deliberately NOT among them: it is a continuation line of a multi-line `def`, which the corrected probe does not count as a statement.
 
 **Interfaces:**
 - Consumes: `audit_core.qualify.load_scores`, `filter_proven_bad`, `filter_supported`, `qualify`, `render`; `audit_core.qualify.QualifyError`.
@@ -908,7 +908,7 @@ def test_missing_support_evidence_is_refused():
     assert "(0 characters given)" in result.detail
 ```
 
-For statements 305, 344, 345 and 347 — the NO-GO footer prose — the implementer must read `audit_core/qualify.py:300-350` and write one test per reachable branch, asserting the **exact** sentence rendered. The two branches are "strip-mined" and "no proven RCE history". Follow the shape above: construct a `Qualification` through `qualify.qualify(...)` with inputs that reach each branch, call `qualify.render(...)`, and assert the sentence appears.
+For statements 344, 345 and 347 — the NO-GO footer prose — the implementer must read `audit_core/qualify.py:300-350` and write one test per reachable branch, asserting the **exact** sentence rendered. The two branches are "strip-mined" and "no proven RCE history". Follow the shape above: construct a `Qualification` through `qualify.qualify(...)` with inputs that reach each branch, call `qualify.render(...)`, and assert the sentence appears.
 
 - [ ] **Step 2: Run the tests**
 
@@ -921,7 +921,7 @@ Run:
 ```bash
 python3 - <<'PY'
 import pathlib
-closed = {72, 73, 94, 106, 133, 134, 180, 256, 257, 258, 259, 260, 262, 305, 344, 345, 347}
+closed = {72, 73, 94, 106, 133, 134, 180, 256, 257, 258, 259, 260, 262, 344, 345, 347}
 p = pathlib.Path("scripts/coverage-allowlist.txt")
 out = [l for l in p.read_text().splitlines()
        if not (l.startswith("qualify.py:")
@@ -1129,7 +1129,7 @@ test. Also pins the documented merge-on-replace limitation."
 - Modify: `tests/test_indicators.py`
 - Modify: `scripts/coverage-allowlist.txt`
 
-**The statements:** 62 (`cba_attack_surface is not in this database`), 180–192 (`write_snapshot`: mkdir, exclusive create, the `FileExistsError` refusal), 247 and 249 (the before/after accumulators in the comparison), 255–264 (`render_comparison`).
+**The statements:** 62 (`cba_attack_surface is not in this database`), 180–192 (`write_snapshot`: mkdir, exclusive create, the `FileExistsError` refusal), 247 and 249 (the before/after accumulators in the comparison), 256–264 (`render_comparison`). Twenty-one — line 255 is a multi-line `def` continuation and is not a statement.
 
 The exclusive-create refusal is `SESSION_HANDOFF.md` rule 4 enforced in code — *"Measurements are never edited in place"* — and nothing tests that it holds. That is the highest-value test in this task.
 
@@ -1176,7 +1176,7 @@ The implementer adds, in the same style:
 
 - **62** — call the reading that inspects `cba_attack_surface` against a database created without that table, and assert the `Reading` is `absent` with that exact message.
 - **247, 249** — build two snapshots whose values differ and assert the accumulated `before` and `after` totals.
-- **255–264** — call `render_comparison` on a set of deltas including at least one `not comparable`, and assert the header row, one delta row, and the explanatory footer all appear.
+- **256–264** — call `render_comparison` on a set of deltas including at least one `not comparable`, and assert the header row, one delta row, and the explanatory footer all appear.
 
 **Note:** `an_indicator_set` above is a placeholder for whatever fixture `tests/test_indicators.py` already uses to build an indicator set. Read the file first and use the existing fixture; do not add a second.
 
