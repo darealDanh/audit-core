@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-07 · **HEAD:** `main` at `3eb2a93` (Stage 4a merged), working tree clean · **Tests:** 621 ·
-**Gates:** 7/7 green (`make all`) · **Benchmark gates: deferred on cost — see §7**
+**Last updated:** 2026-10-07 · **HEAD:** `main` at `3eb2a93` (Stage 4a merged), working tree clean · **Tests:** 807 ·
+**Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -32,6 +32,7 @@ benchmark-gated before it ships.
 | 3 | Quality additions (five mechanisms) | 17 | 45 files, +8,154 / −67 | **merged** (`3aaebb5`) — gate NOT run |
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
+| 3c | Core hardening: coverage gate and mutation harness | 37 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -169,6 +170,46 @@ gained `readings.py`, `indicators.py` and `rerate.py`. No `indicators` harness
 gate was added: it needs a database, the only one lives outside the repo, and a
 gate that SKIPs everywhere but one machine is noise.
 
+### Stage 3c - Core hardening
+
+**This stage changed no audit behaviour and claims no movement in recall or
+precision.** It added tests and tooling and touched no `audit_core` logic; it
+cannot have moved either. No audit was run. `SKILL.md`, `workflows/` and
+`references/` are untouched.
+
+Two instruments, both shipped:
+
+1. **Coverage gate** (`gate_coverage`, in `DEFAULT`). A `sys.monitoring` probe
+   measures which `audit_core` statements no test executes; an allowlist names
+   every permitted gap with a reason and a content digest, and the gate fails in
+   both directions (unlisted gap, stale entry, moved line). **Start: 115
+   unexecuted of 2,392 statements (95.2%). End: 0 of 2,392**, closed across 15
+   modules.
+2. **Mutation harness** (`gate_mutate`, opt-in, in neither `DEFAULT` nor
+   `ALL_EXTRA`; the sweep takes about 54 minutes). Frozen in
+   `docs/baselines/2026-10-08-mutation-sweep.md`: 1068 mutants, 708 killed, 360
+   survived, 0 timeout, 0 error, **score 66.3%**. By class: logic not-removal
+   89/89, logic compare+boolop 225/258 (87.2%), constants numeric/bool 160/216
+   (74.1%), constants prose-string 234/505 (46.3%). The tests verify behaviour
+   well and message text poorly. Task 15 then killed all 32 unallowlisted logic
+   survivors; 9 equivalent mutants are allowlisted with proofs. **The gate is
+   left failing** on the remaining prose-string survivors: an opt-in gate stating
+   the true position beats a passing one made to pass. A post-fix sweep is
+   recorded separately as its own dated note.
+
+**Why the stage argues for itself.** `qualify.py:179` is `if score.rce_cves < 1:`,
+the guard on a GO/NO-GO verdict branch. Task 4 wrote a test for it using
+`rce_cves=0`, where `< 1` and `<= 1` agree, so it never pinned the boundary. The
+line was covered, the coverage gate was green on it and the task review passed.
+Only the mutation sweep found it. Three other hollow tests surfaced the same
+way: `chains.py:162`'s same-group test shared one token (below threshold) so it
+passed whether or not the rule worked; `pivot.py`'s `severity_hint`, `location`
+and `rule_applied` were written by tests and never read back; `patterns.py`'s
+NULL-name branch is unreachable under a `NOT NULL` column. Line coverage cannot
+see this defect class.
+
+Tests: 621 at stage start, 807 at end. `make all` runs 8 gates.
+
 ### Stage 4a - `qualify`, the first slice of `firmware-audit`
 
 Stage 4 is being built as **vertical slices**, because eleven phases is not one
@@ -219,7 +260,7 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **`main` is 122 commits ahead of `origin/main` and has never been pushed.**
+7. **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 37) and has never been pushed.**
    `git pull` fails with an access-rights error; origin is unreachable from
    this machine. All completed stages exist only in this working copy.
 
@@ -274,7 +315,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 621 tests |
+| `tests` | The pytest suite — 807 tests |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -355,7 +396,7 @@ Everything below is zero-audit-cost. The five items that used to head this list
 parked defects) shipped as Stage 3b and are recorded in §2.
 
 1. **Push `main` to `origin` `main`** once origin is
-   reachable. `main` is 122 commits ahead of `origin/main` (as of writing, from
+   reachable. `main` was 124 commits ahead of `origin/main` before Stage 3c (as of writing, from
    `git rev-list --count origin/main..main`); this branch adds its own on top.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for

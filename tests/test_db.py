@@ -289,7 +289,7 @@ def test_put_replace_without_the_primary_key_inserts_and_merges_nothing(con):
 
 def test_put_replace_keeps_an_omitted_optional_column_when_the_key_is_named(con):
     """The documented merge contract (sibling of 411): omitted columns keep
-    their stored value. Recorded open item: replace-blanks-optional-columns."""
+    their stored value. Closed in stage3b: replace-blanks-optional-columns."""
     db.put(con, "cba_fp_verdicts", {
         "finding_id": "G1-F1", "verdict": "TRUE_POSITIVE", "final_id": "F-07"})
     db.put(con, "cba_fp_verdicts",

@@ -263,16 +263,17 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (621 tests). |
+| `tests` | yes | The pytest suite (807 tests). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |
 | `manifest` | yes | `feature_lists.json` against the tree it describes: every path exists, every verb is dispatchable, every status is in the enum. |
 | `install` | yes | A sandboxed `install.sh` run, no surviving `__SKILL_DIR__`, and the real install's mtime unmoved. |
+| `coverage` | yes | Every `audit_core` statement a test executes, or is named in `scripts/coverage-allowlist.txt` with a reason and a content digest. |
 | `bench` | opt-in | Recall, precision and cost against the tplink golden set. SKIPs when the corpus is absent. |
 
 ```bash
-make check          # the six default gates
+make check          # the default gates (coverage included)
 make all            # plus bench
 make list           # every gate and what it checks
 make json           # one JSON object, for CI and for agents
@@ -286,6 +287,25 @@ operator's real working skill at `~/.claude/skills/codebase-audit/`. The gate
 builds a throwaway `HOME`, **refuses to proceed if that HOME resolves to the
 real one**, and asserts afterwards that all four real destinations' mtimes did
 not move. A recipe that forgets one `env` assignment does the damage silently.
+
+### Stage 3c: two instruments for what the tests do not see
+
+**Coverage gate** (`scripts/coverage_probe.py`, `scripts/coverage_allowlist.py`,
+`scripts/coverage-allowlist.txt`, `gate_coverage`; in `DEFAULT`). A
+`sys.monitoring` probe reports which `audit_core` statements no test executes.
+It catches *untested code*. Every permitted gap is named in the allowlist with a
+reason and a content digest, and the gate fails in both directions: an unlisted
+gap is a regression, a listed line that now runs is a stale entry, and a moved
+line reports as stale rather than silently re-aiming its permission. Measured
+start: 115 unexecuted of 2,392 statements (95.2%); end: 0 of 2,392.
+
+**Mutation harness** (`scripts/mutate.py`, `scripts/mutation-verify.py`,
+`scripts/mutation-allowlist.txt`, `gate_mutate`). It mutates `audit_core` and
+reruns the tests. It catches *hollow tests*: a line that is executed while
+nothing asserted depends on it, which line coverage cannot see. It is excluded
+from both `DEFAULT` and `ALL_EXTRA` because the sweep takes about 54 minutes and
+`ci.yml` runs `--all` across three Python versions. The frozen measurement is
+`docs/baselines/2026-10-08-mutation-sweep.md` (1068 mutants, 66.3% killed).
 
 ---
 

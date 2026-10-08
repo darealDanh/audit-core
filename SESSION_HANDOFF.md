@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-07 · **Branch:** `main` at `3eb2a93` (Stage 4a merged), working tree clean ·
-**Tests:** 615 · **Gates:** 7/7 green
+**Written:** 2026-10-08 · **Branch:** `stage3c/core-hardening` (forked after Stage 4a merged at `3eb2a93`), working tree clean ·
+**Tests:** 807 · **Gates:** 8/8 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,9 +59,9 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4a/qualify`, forked from `main` at `7f1de0d`.
-  Stages 0-3 and 3b are merged to `main`; Stage 4a is complete on this branch, not yet merged.
-- **`main` is 122 commits ahead of `origin/main` and has never been pushed.**
+- **Branch:** `stage3c/core-hardening`, 37 commits, ready for whole-branch review and merge.
+  Stages 0-3, 3b and 4a are merged to `main`. Stage 3c changed no audit behaviour and ran no audit.
+- **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 37) and has never been pushed.**
   `git pull` fails with an access-rights error; origin is unreachable from
   this machine. Everything exists only in this working copy — **take that
   seriously before any destructive git operation.**
@@ -74,18 +74,19 @@ These are not style preferences. Each one has a specific, known cost.
 
 ```bash
 cd ~/Documents/Offsec/Tools/codebase-audit
-make all          # all seven gates, ~30s
+make all          # all eight gates
 ```
 
 Expected:
 
 ```
-PASS  tests       615 passed
+PASS  tests       807 passed
 PASS  selftest    verbs 23 declared / tables 15 in schema.sql, 14 under contract / migrations 4
 PASS  lint        skill lint: clean
-PASS  eol         6 CRLF files, 134 LF
-PASS  manifest    35 features ... all paths and verbs resolve
+PASS  eol         6 CRLF files, 149 LF
+PASS  manifest    38 features ... all paths and verbs resolve
 PASS  install     92 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 2392 statements, 0 allowed
 PASS  bench       recall 9/19, 45 findings, precision 39/40, $73.15 per match
 ```
 
@@ -113,16 +114,26 @@ the deferral.
 
 ## 4. What to do next
 
-Stage 3b (measurement hardening) is merged to `main`, and Stage 4a (`qualify`) is
-done on branch `stage4a/qualify`; the leading indicators, severity agreement,
+Stage 3b (measurement hardening) and Stage 4a (`qualify`) are merged to `main`, and
+Stage 3c (coverage gate, mutation harness) is done on `stage3c/core-hardening`; the leading indicators, severity agreement,
 coverage in `bench`, `rerate` and the four parked defects are no longer options.
 What remains:
 
 ### Merge and push
 
-Merge `stage4a/qualify` to `main`. `main` is 122 commits ahead of origin (from
+Merge `stage3c/core-hardening` to `main`. `main` was 124 commits ahead of origin before Stage 3c (from
 `git rev-list --count origin/main..main` when written) and has never been
 pushed; pushing needs a reachable origin.
+
+### Decide the remaining prose-string mutation survivors
+
+`make mutate` (opt-in, about 54 minutes) is left failing on purpose: 360 of
+1068 mutants survived the frozen sweep, Task 15 killed 32 logic survivors and
+allowlisted 9 equivalent ones, and the rest are mostly prose-string constants
+(`audit_core`'s tests assert behaviour, not message text). Either pin the
+messages that matter or allowlist the rest with reasons. A post-fix sweep is
+recorded as its own dated note; never edit
+`docs/baselines/2026-10-08-mutation-sweep.md`.
 
 ### Take a second indicator snapshot
 
@@ -201,7 +212,11 @@ following the shipped workflow exactly produced FAIL / exit 1 on a correct run.
    the **same commit** and say why in the message.
 3. If you add a gate, put it in `scripts/harness.py`. `make`, `make list` and
    CI pick it up with no further edits.
-4. Run `make all` before proposing a merge.
+4. A new unexecuted `audit_core` statement needs an entry in
+   `scripts/coverage-allowlist.txt` with a reason, or a test. The coverage gate
+   fails on an unlisted gap and on a stale entry. Prefer the test; a covered
+   line can still be hollow, so assert on the value the line decides.
+5. Run `make all` before proposing a merge.
 
 ---
 

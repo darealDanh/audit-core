@@ -64,6 +64,13 @@
       "summary": "The first vertical slice of firmware-audit. Scores one vendor|model against the hunting plan's three filters and refuses to start a pipeline on a target that cannot pay. Deterministic work against _intel/target-scores.csv, verifiable at zero audit cost."
     },
     {
+      "id": "stage3c",
+      "name": "Core hardening - coverage gate and mutation harness",
+      "status": "shipped",
+      "gate": "none - no audit run",
+      "summary": "Two instruments, no audit behaviour change. A sys.monitoring coverage gate with an allowlist (115 unexecuted of 2,392 statements to 0) and an opt-in mutation harness (1068 mutants, 66.3% killed) that finds tests which execute a line while asserting nothing about it. Added tests and tooling only; claims no movement in recall or precision."
+    },
+    {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
@@ -470,7 +477,7 @@
     },
     {
       "id": "verification-harness",
-      "name": "Seven-gate verification harness",
+      "name": "Eight-gate verification harness",
       "area": "harness",
       "status": "shipped",
       "stage": "post-stage3",
@@ -687,7 +694,7 @@
       "name": "Statement coverage probe over audit_core",
       "area": "harness",
       "status": "shipped",
-      "stage": "post-stage3",
+      "stage": "stage3c",
       "modules": [
         "scripts/coverage_probe.py"
       ],
@@ -704,7 +711,7 @@
       "name": "Coverage allowlist gate",
       "area": "harness",
       "status": "shipped",
-      "stage": "post-stage3",
+      "stage": "stage3c",
       "modules": [
         "scripts/coverage_allowlist.py",
         "scripts/coverage-allowlist.txt",
@@ -936,7 +943,9 @@
         "tests/test_qualify.py"
       ],
       "note": "Found by the Stage 4a whole-branch re-review. The branch itself is present and correct - only its test coverage is illusory. Same class as the Task 2 test that substituted an easier input for the one its finding named.",
-      "destination": "a later firmware-audit slice"
+      "destination": "a later firmware-audit slice",
+      "status": "closed",
+      "closed_in": "stage3c"
     }
   ]
 }
