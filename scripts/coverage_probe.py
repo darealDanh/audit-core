@@ -10,6 +10,16 @@ called, they will not re-execute their top-level statements and `def` lines.
 Pre-imported modules will incorrectly report as having unexecuted statements.
 Always call `measure()` in a fresh subprocess; see the CLI entry point.
 
+**Nesting limit:** sys.monitoring defines tool IDs 0-5. Reserving 0 (debugger),
+1 (coverage), and 5 (optimizer) leaves IDs 2, 3, 4 for `measure()` — a hard
+ceiling of three concurrent nested calls. Each recursive invocation uses the
+next available ID. Beyond that ceiling, `measure()` raises RuntimeError.
+
+**For Task 3 integration:** The CLI exits 0 whenever it measured successfully,
+including when the measured test suite failed. To distinguish a broken
+instrument from a real regression, check `pytest_rc` in the JSON output:
+0 means all tests passed, 1 means test failures, 2+ means collection errors.
+
 Two counting rules earn their keep:
 
   * Line 0 is an artifact of `co_lines()` and is never a statement.
@@ -84,12 +94,10 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
     hit: dict[str, set[int]] = collections.defaultdict(set)
     prefix = str(package) + os.sep
 
-    # Reserved tool IDs: 0 (debugger), 1 (coverage), 5 (optimizer).
-    # Start from PROFILER_ID and skip reserved ones, trying up to 20 IDs.
+    # sys.monitoring defines tool IDs 0-5. Reserved: 0 (debugger), 1 (coverage),
+    # 5 (optimizer). Available: 2, 3, 4 (hard ceiling of 3 concurrent nesting levels).
     tool = None
-    for tool_id in range(20):
-        if tool_id in (0, 1, 5):
-            continue
+    for tool_id in (2, 3, 4):
         try:
             sys.monitoring.use_tool_id(tool_id, "coverage_probe")
             tool = tool_id
@@ -97,7 +105,7 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
         except ValueError:
             continue
     if tool is None:
-        raise RuntimeError("No available sys.monitoring tool IDs")
+        raise RuntimeError("No available sys.monitoring tool IDs (max 3 nesting levels)")
 
     def on_line(code, line_number):
         filename = code.co_filename
@@ -131,8 +139,16 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
 def main() -> int:
     """CLI entry point for coverage measurement.
 
-    Outputs JSON with pytest_rc, total_executable, total_unexecuted, and modules.
-    Exit 0 on successful measurement (regardless of coverage result), non-zero on error.
+    With --json-out PATH: writes JSON object with pytest_rc, total_executable,
+    total_unexecuted, and modules list to PATH. Stdout reserved for pytest.
+
+    Without --json-out: prints human-readable summary to stdout.
+
+    Exit 0 on successful measurement (regardless of coverage result);
+    exit non-zero on measurement failure (with error on stderr).
+
+    Consumers of --json-out must check pytest_rc to distinguish test failures
+    (rc=1) from collection errors (rc=2+) or other issues.
     """
     import argparse
 
@@ -143,12 +159,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Measure unexecuted statements in a package")
     parser.add_argument("--package", type=pathlib.Path, required=True, help="Package to measure")
     parser.add_argument("--tests", type=str, required=True, help="Test directory or pytest argument")
-    parser.add_argument("--json", action="store_true", help="Output JSON")
+    parser.add_argument("--json-out", type=pathlib.Path, help="Write JSON output to file")
     args = parser.parse_args()
 
     try:
         report = measure(args.package, [args.tests])
-        if args.json:
+
+        if args.json_out:
             output = {
                 "pytest_rc": report.pytest_rc,
                 "total_executable": report.total_executable,
@@ -162,7 +179,14 @@ def main() -> int:
                     for m in report.modules
                 ]
             }
-            print(json.dumps(output))
+            args.json_out.write_text(json.dumps(output))
+        else:
+            # Human-readable output to stdout
+            print(f"{report.total_unexecuted} / {report.total_executable}")
+            for m in report.modules:
+                if m.unexecuted:
+                    print(f"  {m.name}: {', '.join(map(str, m.unexecuted))}")
+
         return 0
     except Exception as e:
         sys.stderr.write(f"Error: {e}\n")
