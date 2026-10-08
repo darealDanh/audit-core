@@ -36,28 +36,6 @@ extract.py:129:5eef5925  Stage 3c: not yet closed
 extract.py:130:eee7fef8  Stage 3c: not yet closed
 extract.py:186:0641cdf1  Stage 3c: not yet closed
 
-# --- goldens.py ---
-goldens.py:30:d5ce051b  Stage 3c: not yet closed
-goldens.py:31:c4d21ec4  Stage 3c: not yet closed
-goldens.py:33:39b0a4fe  Stage 3c: not yet closed
-goldens.py:40:bb0264d1  Stage 3c: not yet closed
-goldens.py:60:5eef5925  Stage 3c: not yet closed
-goldens.py:61:c4d21ec4  Stage 3c: not yet closed
-goldens.py:63:4a193c9a  Stage 3c: not yet closed
-goldens.py:81:5eef5925  Stage 3c: not yet closed
-goldens.py:82:c4d21ec4  Stage 3c: not yet closed
-
-# --- identity.py ---
-identity.py:43:4cce6260  Stage 3c: not yet closed
-identity.py:44:caaef207  Stage 3c: not yet closed
-identity.py:48:dbcb9c93  Stage 3c: not yet closed
-identity.py:49:5969992f  Stage 3c: not yet closed
-identity.py:50:bc950e28  Stage 3c: not yet closed
-identity.py:51:e96aef0c  Stage 3c: not yet closed
-identity.py:52:0b167d7c  Stage 3c: not yet closed
-identity.py:53:bb25b2b0  Stage 3c: not yet closed
-identity.py:54:19a80a9f  Stage 3c: not yet closed
-
 # --- indicators.py ---
 
 # --- patterns.py ---

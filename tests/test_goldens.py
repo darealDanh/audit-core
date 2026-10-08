@@ -124,3 +124,87 @@ def test_a_blank_reason_is_refused_like_a_missing_one(tmp_path):
                               "reason": "   "}]))
     with pytest.raises(goldens.GoldenError):
         goldens.load_rejections(p)
+
+
+# --- loader validations (Stage 3c task 8). Every fixture lives in tmp_path;
+# tests/goldens/ is the benchmark's only independent reference and is never
+# written. All five _REQUIRED keys are present in _ref() so each test reaches
+# the guard it names, not an earlier one.
+def _ref(**over):
+    base = {"id": "REF-1", "title": "t", "locations": ["a.c:1"],
+            "root_cause_key": "cmdi", "severity": "HIGH"}
+    base.update(over)
+    return base
+
+
+def test_reference_load_reports_unreadable_json(tmp_path):
+    p = tmp_path / "refs.json"
+    p.write_text("{not json")
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_reference(p)
+    assert str(exc.value).startswith(f"cannot read {p}: ")
+
+
+def test_reference_load_requires_a_list(tmp_path):
+    p = tmp_path / "refs.json"
+    p.write_text('{"id": "REF-1"}')
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_reference(p)
+    assert str(exc.value) == f"{p}: expected a list of reference objects"
+
+
+def test_reference_load_names_the_index_and_key_of_the_bad_entry(tmp_path):
+    p = tmp_path / "refs.json"
+    p.write_text(json.dumps([_ref(), {"id": "REF-2"}]))
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_reference(p)
+    assert str(exc.value) == f"{p}[1]: missing 'title'"
+
+
+def test_reference_without_root_cause_key_is_refused_before_locations(tmp_path):
+    item = _ref(locations=[])
+    del item["root_cause_key"]
+    p = tmp_path / "refs.json"
+    p.write_text(json.dumps([item]))
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_reference(p)
+    assert str(exc.value) == f"{p}[0]: missing 'root_cause_key'"
+
+
+def test_matches_load_reports_unreadable_json(tmp_path):
+    p = tmp_path / "matches.json"
+    p.write_text("{not json")
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_matches(p)
+    assert str(exc.value).startswith(f"cannot read {p}: ")
+
+
+def test_matches_load_requires_an_object(tmp_path):
+    p = tmp_path / "matches.json"
+    p.write_text('["REF-1", "F-1"]')
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_matches(p)
+    assert str(exc.value) == (
+        f"{p}: expected an object mapping reference id to finding id")
+
+
+def test_matches_load_coerces_values_to_strings(tmp_path):
+    p = tmp_path / "matches.json"
+    p.write_text('{"REF-1": 7}')
+    assert goldens.load_matches(p) == {"REF-1": "7"}
+
+
+def test_rejections_load_reports_unreadable_json(tmp_path):
+    p = tmp_path / "rejections.json"
+    p.write_text("[not json")
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_rejections(p)
+    assert str(exc.value).startswith(f"cannot read {p}: ")
+
+
+def test_rejections_load_requires_a_list_with_its_own_message(tmp_path):
+    p = tmp_path / "rejections.json"
+    p.write_text('{"reference_id": "REF-10"}')
+    with pytest.raises(goldens.GoldenError) as exc:
+        goldens.load_rejections(p)
+    assert str(exc.value) == f"{p}: expected a list of rejection objects"

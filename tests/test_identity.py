@@ -162,3 +162,35 @@ def test_confidence_empty_is_null_and_eight_is_stored(con):
                     evidence=_EVID, confidence="8")
     got = {r["path"]: r["confidence"] for r in db.rows(con, "cba_components")}
     assert got == {"images/a.elf": None, "images/b.elf": 8}
+
+
+def test_render_with_no_components_tells_the_operator_what_to_do():
+    out = identity.render([])
+    assert out.startswith("components: none asserted.\n")
+    assert "`audit.py identify`" in out
+    assert out.endswith("A filename is an assertion by whoever named it.")
+
+
+def test_render_lists_path_kind_identity_and_evidence(con):
+    identity.record(con, path="bin/httpd", kind="binary",
+                    identity="GoAhead webserver",
+                    evidence="DT_NEEDED libgoahead.so.1 and the string "
+                             "'GoAhead-Webs/3.6.5' at .rodata+0x4120",
+                    confidence="8")
+    out = identity.render(db.rows(con, "cba_components"))
+    assert out.splitlines() == [
+        "components: 1 asserted",
+        "  bin/httpd",
+        "    binary: GoAhead webserver (confidence 8)",
+        "    evidence: DT_NEEDED libgoahead.so.1 and the string "
+        "'GoAhead-Webs/3.6.5' at .rodata+0x4120",
+    ]
+
+
+def test_render_omits_the_confidence_suffix_when_absent(con):
+    identity.record(con, path="bin/other", kind="binary", identity="BusyBox",
+                    evidence="applet table at .rodata+0x9000 lists 212 applets")
+    out = identity.render(db.rows(con, "cba_components"))
+    assert "components: 1 asserted" in out
+    assert "    binary: BusyBox\n" in out + "\n"
+    assert "(confidence" not in out
