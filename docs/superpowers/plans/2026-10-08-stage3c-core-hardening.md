@@ -2240,9 +2240,34 @@ This is a measurement, so `SESSION_HANDOFF.md` rule 4 binds: **the document is n
 Run: `time make mutate 2>&1 | tee /tmp/cba-mutation-run.log`
 Expected: ~20 minutes plus ~28s per survivor. It will likely FAIL on the first run — that is the point.
 
-- [ ] **Step 2: Triage every survivor**
+- [ ] **Step 2: Triage — CATEGORICALLY, not one mutant at a time**
 
-For each, decide and record which it is:
+**Scope correction, made 2026-10-08 after measuring.** This plan assumed
+survivors would be few. They are not: the measured survivor rate is ~42%, so
+the full sweep yields roughly **450 survivors**. Adjudicating 450 mutants
+individually is not work this stage can absorb, and pretending otherwise would
+produce a half-finished triage nobody trusts.
+
+So the deliverable of this task is **the measurement**, not a cleared board.
+The mutation score is the first this project has ever had, and spec §6.1
+assigns exactly that role to a deterministic leading indicator between
+expensive benchmark runs.
+
+Triage proceeds by group:
+
+1. Bucket every survivor by `(module, operator)`. Report the counts.
+2. For each bucket, read a **sample of three** and classify the bucket as a
+   whole. Record the sample you read, so a later reader can check your
+   generalisation rather than take it.
+3. Allowlist only mutants you are confident are **equivalent** — the change
+   has no observable effect, so no test can kill it. A bucket that is
+   uniformly equivalent may be allowlisted as a group with one shared reason.
+4. Everything else is left unallowlisted and recorded in the baseline document
+   as the gap to close. The `mutate` gate will FAIL until they are addressed,
+   which is correct and intended: it is opt-in, and it states the true
+   position rather than a flattering one.
+
+For the sample you read in each bucket, decide and record which it is:
 
 | Verdict | Meaning | Action |
 |---|---|---|
@@ -2310,6 +2335,25 @@ only equivalent mutants; weak and missing tests are the next task."
 **Files:**
 - Modify: the test files and `audit_core` modules the triage named.
 - Modify: `scripts/mutation-allowlist.txt`
+
+**Scope correction, made 2026-10-08.** With ~450 survivors, this task does not
+fix them all. It fixes a **bounded, prioritised subset** and records the rest.
+
+Priority order, highest first:
+1. Survivors in the refusal paths, verdict branches and contract guards that
+   Tasks 4-10 just closed. A statement this stage added a test for, whose
+   mutant still survives, means that test does not assert what it claims —
+   which is the precise defect this stage exists to remove, found inside this
+   stage's own work.
+2. Survivors in `db.py` and `coverage.py`, the two modules every other one
+   reaches state through.
+3. The worst-scoring module by survivor rate (`budget.py` at the last
+   measurement, 47 of 69).
+
+Stop when those three are done. Record the remainder in the baseline document
+with its mutation score, and leave the `mutate` gate failing — an opt-in gate
+stating the true position is worth more than a passing gate that was made to
+pass by allowlisting what it found.
 
 - [ ] **Step 1: Strengthen each weak test**
 
