@@ -452,3 +452,122 @@ def test_a_real_hostname_still_counts_after_the_lookahead_narrowing():
     r = qualify.filter_supported(
         "zyxel", "nwa50ax", True, "EoS listing at zyxel.com shows no end date")
     assert r.passed is True
+
+
+# --- Stage 3c Task 4: close the unexecuted statements -----------------------
+
+HEADER = ",".join(qualify.EXPECTED_HEADER)
+
+
+# EXPECTED_HEADER is TEN columns. A short row does not raise - csv.DictReader
+# pads with None and later columns read the wrong field - so rows here are
+# always full width.
+def _row(vendor="acme", model="widget", rce_cves="3", slop_pct="10.0",
+         max_cvss="9.8", first_pub="2024-01-01", last_pub="2025-01-01",
+         top_source="nvd", top_ref_hosts="example.com",
+         sample_cves="CVE-2024-1"):
+    return ",".join([vendor, model, rce_cves, slop_pct, max_cvss,
+                     first_pub, last_pub, top_source, top_ref_hosts,
+                     sample_cves])
+
+
+def _csv(tmp_path, body, name="scores.csv"):
+    path = tmp_path / name
+    path.write_text(f"{HEADER}\n{body}")
+    return path
+
+
+def test_load_scores_reports_an_undecodable_header(tmp_path):
+    """qualify.py:72-73 - the encoding handler c4d9021 added."""
+    path = tmp_path / "scores.csv"
+    path.write_bytes(b"\xff\xfe\x00bad header\n")
+    with pytest.raises(qualify.QualifyError, match="cannot read"):
+        qualify.load_scores(path)
+
+
+def test_load_scores_reports_an_undecodable_row(tmp_path):
+    """qualify.py:133-134 - same handler on the row loop. The bad byte sits
+    past the first 8 KiB read chunk, so the header decodes cleanly and the
+    failure surfaces while iterating rows, not in the header read."""
+    path = tmp_path / "scores.csv"
+    good = (_row() + "\n").encode()
+    filler = b"".join(
+        _row(model=f"m{i}").encode() + b"\n" for i in range(400))
+    assert len(filler) > 16384
+    bad = b"acme,bad,1,0.0,9.8,\xff\xfe,2025-01-01,nvd,example.com,CVE-1\n"
+    path.write_bytes(HEADER.encode() + b"\n" + good + filler + bad)
+    with pytest.raises(qualify.QualifyError, match="cannot read") as excinfo:
+        qualify.load_scores(path)
+    assert "codec can't decode" in str(excinfo.value)
+
+
+def test_header_mismatch_names_the_unexpected_column(tmp_path):
+    """qualify.py:94 - the operator needs to know which column is the stranger."""
+    path = tmp_path / "scores.csv"
+    path.write_text(HEADER + ",surprise\n")
+    with pytest.raises(qualify.QualifyError) as excinfo:
+        qualify.load_scores(path)
+    assert "unexpected: surprise" in str(excinfo.value)
+
+
+def test_a_negative_rce_count_is_skipped_not_trusted(tmp_path):
+    """qualify.py:106. An earlier test used a Unicode minus, so int() rejected
+    the value before this branch could run. ASCII '-1' is what int() accepts."""
+    path = _csv(tmp_path, _row(rce_cves="-1") + "\n" + _row(model="ok") + "\n")
+    scores = qualify.load_scores(path)
+    assert ("acme", "widget") not in scores
+    assert ("acme", "ok") in scores
+
+
+def test_zero_rce_cves_is_a_no_go_naming_the_cause(tmp_path):
+    """qualify.py:180 - GO/NO-GO verdict branch."""
+    path = _csv(tmp_path, _row(rce_cves="0") + "\n")
+    scores = qualify.load_scores(path)
+    result = qualify.filter_proven_bad(scores[("acme", "widget")])
+    assert result.passed is False
+    assert result.reason == "no RCE CVEs on record"
+
+
+def test_thin_support_evidence_is_refused_and_counted():
+    """qualify.py:256-262 - the message 65f6c07 rewrote."""
+    result = qualify.filter_supported("acme", "widget", True, "yes")
+    assert result.passed is False
+    assert result.reason.startswith("support evidence is missing or too thin")
+    assert "(3 characters given)" in result.reason
+
+
+def test_missing_support_evidence_is_refused():
+    result = qualify.filter_supported("acme", "widget", True, "")
+    assert result.passed is False
+    assert "(0 characters given)" in result.reason
+
+
+def _scores_for(tmp_path, **kw):
+    return qualify.load_scores(_csv(tmp_path, _row(**kw) + "\n"))
+
+
+GOOD_EVIDENCE = "vendor advisory acme.com published 2025-03-01 firmware 2.1.4"
+
+
+def test_nogo_footer_names_strip_mined(tmp_path):
+    """qualify.py:344-345 - only low-slop fails."""
+    scores = _scores_for(tmp_path, rce_cves="60", slop_pct="90.0")
+    q = qualify.qualify(scores, "acme", "widget", True, GOOD_EVIDENCE)
+    assert [f.name for f in q.filters if not f.passed] == ["low-slop"]
+    out = qualify.render(q)
+    assert ("  NO-GO. The SKU is strip-mined: its CVEs are already "
+            "harvested by others. It pays zero and costs thousands of "
+            "tokens; this gate exists to say so before the pipeline "
+            "starts.") in out
+    assert "no proven RCE history" not in out
+
+
+def test_nogo_footer_names_no_proven_rce_history(tmp_path):
+    """qualify.py:347 - only proven-bad fails."""
+    scores = _scores_for(tmp_path, rce_cves="0")
+    q = qualify.qualify(scores, "acme", "widget", True, GOOD_EVIDENCE)
+    assert [f.name for f in q.filters if not f.passed] == ["proven-bad"]
+    out = qualify.render(q)
+    assert ("  NO-GO. The SKU has no proven RCE history inside the window, "
+            "so there is little evidence it is worth auditing.") in out
+    assert "strip-mined" not in out.split("NO-GO.")[1]

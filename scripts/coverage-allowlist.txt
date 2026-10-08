@@ -130,22 +130,6 @@ preflight.py:51:605bf3ee  Stage 3c: not yet closed
 preflight.py:52:e3eea30e  Stage 3c: not yet closed
 
 # --- qualify.py ---
-qualify.py:72:a999d6e4  Stage 3c: not yet closed
-qualify.py:73:4d562375  Stage 3c: not yet closed
-qualify.py:94:e5f516f6  Stage 3c: not yet closed
-qualify.py:106:eee0bbba  Stage 3c: not yet closed
-qualify.py:133:a999d6e4  Stage 3c: not yet closed
-qualify.py:134:4d562375  Stage 3c: not yet closed
-qualify.py:180:86ea3282  Stage 3c: not yet closed
-qualify.py:256:4c3c2904  Stage 3c: not yet closed
-qualify.py:257:bd0f2f38  Stage 3c: not yet closed
-qualify.py:258:760c5f22  Stage 3c: not yet closed
-qualify.py:259:2aa82616  Stage 3c: not yet closed
-qualify.py:260:905f121b  Stage 3c: not yet closed
-qualify.py:262:f7205481  Stage 3c: not yet closed
-qualify.py:344:eb63ee4a  Stage 3c: not yet closed
-qualify.py:345:6c4fc2a2  Stage 3c: not yet closed
-qualify.py:347:f74bb9fa  Stage 3c: not yet closed
 
 # --- sweep.py ---
 sweep.py:90:eee0bbba  Stage 3c: not yet closed
