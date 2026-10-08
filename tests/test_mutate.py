@@ -441,3 +441,82 @@ def test_baseline_is_cached_beside_the_state_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mutate, "_baseline_failures", boom)
     mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+
+
+def test_only_rc_1_is_a_kill():
+    """Review: every other non-zero rc is the instrument failing, not a kill."""
+    for rc in (3, 4, 5, -9, -11, 137):
+        assert mutate._classify(rc=rc, timed_out=False, import_error=False) == "error"
+    assert mutate._classify(rc=1, timed_out=False, import_error=False) == "killed"
+
+
+def test_the_confirmation_run_gets_four_times_the_timeout(tmp_path, monkeypatch):
+    """A serial whole-suite pass under load exceeds the per-mutant timeout.
+    Dropping the multiplier once produced 51 spurious timeouts in 231."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    seen = []
+
+    def spy(tree, tests_path, skip, timeout, deselect, parallel=8):
+        seen.append(timeout)
+        return 0, False, False
+
+    monkeypatch.setattr(mutate, "_run_suite", spy)
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=7, jobs=1)
+    assert any(r.outcome == "survived" for r in results)
+    assert seen and set(seen) == {28}
+
+
+def test_stale_verdicts_are_discarded_when_a_test_changes(tmp_path, capsys):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    state = tmp_path / "s.json"
+    first = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    lt = next(r for r in first if "Lt->LtE" in r.mutation.label)
+    assert lt.outcome == "survived"
+    # Task 15 adds the missing test: the old `survived` verdict is now wrong.
+    (tests / "test_m.py").write_text(
+        (tests / "test_m.py").read_text()
+        + "def test_under_at_the_boundary():\n    assert under(10) is False\n")
+    capsys.readouterr()
+    second = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    assert "discarding" in capsys.readouterr().err
+    lt2 = next(r for r in second if "Lt->LtE" in r.mutation.label)
+    assert lt2.outcome == "killed"
+
+
+def test_timeout_and_error_verdicts_are_retried_on_resume(tmp_path, capsys):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    state = tmp_path / "s.json"
+    first = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    gt = next(r for r in first if "Gt->GtE" in r.mutation.label)
+    lt = next(r for r in first if "Lt->LtE" in r.mutation.label)
+    saved = mutate.load_state(state)
+    saved[gt.mutation.label] = "timeout"      # load-induced, not final
+    saved[lt.mutation.label] = "survived"     # final: must be kept
+    mutate.save_state(state, saved)
+    capsys.readouterr()
+    second = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    assert "retrying 1" in capsys.readouterr().err
+    assert next(r for r in second
+                if r.mutation.label == gt.mutation.label).outcome == "killed"
+
+
+def test_the_canary_aborts_a_sweep_whose_tests_import_the_original_tree(tmp_path):
+    """The brief's own bug: tests that put the ORIGINAL repo on sys.path
+    never see a mutant. The sweep must refuse to produce a report."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    (tests / "test_m.py").write_text(
+        f"import sys\nsys.path.insert(0, {str(repo)!r})\n" + WEAK_AND_STRONG)
+    with pytest.raises(RuntimeError, match="canary survived"):
+        mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60, jobs=1)
+    assert mutate.load_state(tmp_path / "s.json") == {}
+
+
+def test_a_stray_pythonpath_cannot_hide_the_mutated_copy(tmp_path, monkeypatch):
+    """cwd precedes PYTHONPATH under `python -m pytest`, so a stray PYTHONPATH
+    at the original repo must not change any verdict."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    (tests / "test_m.py").write_text(WEAK_AND_STRONG)
+    monkeypatch.setenv("PYTHONPATH", str(repo))
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60, jobs=1)
+    assert any(r.outcome == "killed" and "Gt->GtE" in r.mutation.label
+               for r in results)

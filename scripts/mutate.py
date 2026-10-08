@@ -209,11 +209,22 @@ def select_tests(module: str, tests_dir: pathlib.Path) -> tuple[list[str], bool]
 
 
 def _classify(rc: int | None, timed_out: bool, import_error: bool) -> str:
+    """`killed` means pytest returned 1 (a test failed) and nothing else.
+
+    Any other non-zero rc - 2 collection error, 3 internal error, 4 usage,
+    5 nothing collected, or a negative signal number from an OOM kill or a
+    segfault - is the instrument having a bad day, not evidence that a test
+    caught the mutant, so it is `error` and never inflates the kill count.
+    """
     if timed_out:
         return "timeout"
     if import_error:
         return "error"
-    return "survived" if rc == 0 else "killed"
+    if rc == 0:
+        return "survived"
+    if rc == 1:
+        return "killed"
+    return "error"
 
 
 def load_state(path: pathlib.Path) -> dict[str, str]:
@@ -245,23 +256,34 @@ def _baseline_failures(tree: pathlib.Path, tests: pathlib.Path) -> list[str]:
     needs `.git`, which the copy omits). Left in, they make every whole-suite
     confirmation fail, so every survivor would be recorded as killed."""
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", str(tests), *_suite_args([str(tests)]),
-         "-q", "--no-header", "--tb=no", "-rfE", "-p", "no:cacheprovider",
-         f"--rootdir={tree}"],
-        cwd=tree, env=env, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", str(tests),
+             *_suite_args([str(tests)]),
+             "-q", "--no-header", "--tb=no", "-rfE", "-p", "no:cacheprovider",
+             f"--rootdir={tree}"],
+            cwd=tree, env=env, capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("the unmutated copy's test suite hung (900s); "
+                           "cannot establish a baseline") from None
     if proc.returncode == 2:
         raise RuntimeError("unmutated copy fails at collection:\n"
                            + proc.stdout[-600:])
     ids = []
     for line in proc.stdout.splitlines():
         if line.startswith(("FAILED ", "ERROR ")):
-            ids.append(line.split(" ", 1)[1].split(" - ")[0].strip())
+            rest = line.split(" ", 1)[1]
+            if "[" in rest.split("::")[-1] and "] - " in rest:
+                # parametrized id: it may itself contain " - "
+                ids.append(rest[:rest.index("] - ") + 1].strip())
+            else:
+                # a failure message may contain " - ", an id rarely does
+                ids.append(rest.split(" - ", 1)[0].strip())
     return ids
 
 
-def _run(tree: pathlib.Path, test_paths: list[str], timeout: int,
-         deselect: tuple[str, ...] = ()):
+def _pytest_run(tree: pathlib.Path, test_paths: list[str], timeout: int,
+                deselect: tuple[str, ...] = ()):
     """Run pytest in `tree`; return (rc, timed_out, import_error)."""
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     skip = [a for node in deselect for a in ("--deselect", node)]
@@ -363,6 +385,11 @@ def tests_for_mutation(test_map: dict[str, dict[str, list[int]]],
                   if mods.get(mutation.module))
 
 
+def _run(tree, test_paths, timeout, deselect=()):
+    """Per-mutant test run (the seam the tests instrument)."""
+    return _pytest_run(tree, test_paths, timeout, deselect)
+
+
 def _run_suite(tree: pathlib.Path, tests: pathlib.Path, skip: set[str],
                timeout: int, deselect: tuple[str, ...], parallel: int = 8):
     """Run every test file except `skip` (already passed) and test_mutate.py,
@@ -383,18 +410,84 @@ def _run_suite(tree: pathlib.Path, tests: pathlib.Path, skip: set[str],
     # rc 5 here means every test in the chunk was deselected as a known
     # baseline failure, not that nothing ran.
     outs = [(0 if rc == 5 else rc, t, e and rc != 5) for rc, t, e in outs]
-    if any(e for _, _, e in outs):
+    if any(e for _, _, e in outs) and not any(rc == 1 for rc, _, _ in outs):
         return 2, False, True
+    if any(rc == 1 for rc, _, _ in outs):
+        return 1, False, False  # a real assertion failure is a real kill
     bad = [rc for rc, _, _ in outs if rc != 0]
     return (bad[0] if bad else 0), False, False
 
 
-def _baseline_key(package: pathlib.Path, tests_dir: pathlib.Path) -> str:
+_SKIP_DIRS = {".git", ".superpowers", "__pycache__", ".pytest_cache"}
+
+
+def _digest_tree(root: pathlib.Path) -> str:
+    """Hash of every file under `root` (names and bytes), minus caches."""
     h = hashlib.sha256()
-    for d in (tests_dir, package):
-        for q in sorted(d.glob("*.py")):
-            h.update(q.name.encode() + b"\0" + q.read_bytes() + b"\0")
+    for q in sorted(root.rglob("*")):
+        rel = q.relative_to(root)
+        if _SKIP_DIRS & set(rel.parts) or not q.is_file():
+            continue
+        h.update(str(rel).encode() + b"\0" + q.read_bytes() + b"\0")
     return h.hexdigest()
+
+
+def _canary(tree: pathlib.Path, package: pathlib.Path,
+            tests_rel: pathlib.Path, timeout: int,
+            baseline: tuple[str, ...]) -> None:
+    """Prove mutants reach the tests, or abort.
+
+    A stray PYTHONPATH, an editable install, or a test that hard-codes the
+    original repo path makes every test import UNMUTATED code, so every
+    mutant would survive and the report would read as a catastrophic
+    test-quality finding instead of a broken tool. Plant a lethal change in
+    the copy (the package's __init__ raises on import) and require the suite
+    to notice, and require the package to resolve inside the copy.
+    """
+    init = tree / package.name / "__init__.py"
+    init.write_text(init.read_text()
+                    + "\nraise ImportError('mutate canary')\n")
+    rc, timed_out, _ = _pytest_run(tree, [str(tree / tests_rel)], timeout,
+                                   baseline)
+    if timed_out or rc not in (1, 2):
+        raise RuntimeError(
+            f"mutation canary survived (rc={rc}, timed_out={timed_out}): "
+            f"the tests do not import the mutated copy of {package.name!r}. "
+            f"Check PYTHONPATH, editable installs and hard-coded paths. "
+            f"Aborting; no report can be trusted.")
+    init.write_text(init.read_text().replace(
+        "\nraise ImportError('mutate canary')\n", ""))
+    probe = subprocess.run(
+        [sys.executable, "-c",
+         f"import {package.name} as p; print(p.__file__)"],
+        cwd=tree, env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"),
+        capture_output=True, text=True, timeout=timeout)
+    where = pathlib.Path(probe.stdout.strip()).resolve() if probe.stdout.strip() else None
+    if where is None or tree not in where.parents:
+        raise RuntimeError(
+            f"{package.name!r} resolves to {where} instead of the temp tree "
+            f"{tree}; the sweep would measure unmutated code. Aborting.")
+
+
+def _baseline_key(repo: pathlib.Path) -> str:
+    """Baseline failures depend on the whole tree: fixtures, scripts/, the
+    Makefile - not only the package and the test modules."""
+    return _digest_tree(repo)
+
+
+def _verdict_key(package: pathlib.Path, tests_dir: pathlib.Path) -> str:
+    """A verdict means 'this suite did/didn't notice this change to this
+    source'. It is stale when the source or any test file changes."""
+    h = hashlib.sha256()
+    for q in sorted(package.glob("*.py")):
+        h.update(q.name.encode() + b"\0" + q.read_bytes() + b"\0")
+    h.update(_digest_tree(tests_dir).encode())
+    return h.hexdigest()
+
+
+# Only these are durable. A timeout or error may be load-induced and is
+# retried on resume.
+FINAL_OUTCOMES = ("killed", "survived")
 
 
 def _cached_baseline(path: pathlib.Path, key: str):
@@ -430,6 +523,20 @@ def run_sweep(package: pathlib.Path, tests_dir: pathlib.Path,
     repo = package.parent
     state_path = pathlib.Path(state_path)
     state = load_state(state_path)
+    key_path = state_path.with_name(state_path.name + ".key")
+    vkey = _verdict_key(package, tests_dir)
+    stored = json.loads(key_path.read_text())["key"] if key_path.is_file() else None
+    if state and stored != vkey:
+        print(f"  NOTE the package source or the tests changed since this "
+              f"state file was written; discarding {len(state)} stale "
+              f"verdict(s) and starting over", file=sys.stderr, flush=True)
+        state = {}
+    retry = [k for k, v in state.items() if v not in FINAL_OUTCOMES]
+    if retry:
+        print(f"  NOTE retrying {len(retry)} timeout/error verdict(s) from "
+              f"the previous run", file=sys.stderr, flush=True)
+        state = {k: v for k, v in state.items() if v in FINAL_OUTCOMES}
+    _write_atomic(key_path, json.dumps({"key": vkey}))
     test_map = build_test_map(
         package, tests_dir, state_path.with_name(state_path.name + ".testmap"))
 
@@ -477,7 +584,7 @@ def _sweep_pending(package, tests_dir, repo, state_path, state, jobs_list,
 
         # Baseline: tests that already fail on the UNMUTATED copy.
         base_path = state_path.with_name(state_path.name + ".baseline")
-        key = _baseline_key(package, tests_dir)
+        key = _baseline_key(repo)
         baseline = _cached_baseline(base_path, key)
         if baseline is None:
             tree0 = make_tree("baseline")
@@ -489,6 +596,9 @@ def _sweep_pending(package, tests_dir, repo, state_path, state, jobs_list,
             print(f"  NOTE {len(baseline)} test(s) already fail on the "
                   f"unmutated copy and are excluded from every run: "
                   f"{', '.join(baseline)}", file=sys.stderr, flush=True)
+
+        _canary(make_tree("canary"), package, tests_dir.relative_to(repo),
+                timeout, baseline)
 
         counter = iter(range(10**9))
         counter_lock = threading.Lock()
