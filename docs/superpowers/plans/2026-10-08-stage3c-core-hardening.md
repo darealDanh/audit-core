@@ -795,6 +795,23 @@ progress is visible as the file shrinks."
 
 1. Write tests asserting the **observable behaviour** of each listed statement — the exact message, the exception type, the returned value, the row written. Never `assert True` after calling something, and never a test whose only effect is to touch a line.
 2. Run them; they must pass against the existing implementation. **If a test fails, the code is wrong** — that is a finding, not a test bug. Stop and report it before changing anything.
+
+2a. **Then prove the tests would fail if the code broke.** Passing against
+   working code proves nothing: a test can name a branch in its title, sit in
+   the right file, and take a different code path entirely. This has already
+   happened three times in this branch's own instruments, and line coverage
+   called every one of them green.
+
+   Copy the tree to a temp directory (`mktemp -d`, never mutate the real
+   tree). Pick **three** of the statements this task closes — favour a
+   refusal message, a verdict branch, and a renderer. Break each one in turn:
+   inverting a comparison, changing a message string, or returning the other
+   value. Run the suite each time and confirm the test that names that
+   statement is the one that fails.
+
+   Record all three in the commit message and the report: what you broke, and
+   which test caught it. If a test does NOT fail when its subject is broken,
+   it is not testing what it claims — rewrite it and say so.
 3. If a statement cannot be reached by any input, **delete it** and say so in the commit. Do not contort a test into reaching it.
 4. If it is reachable only in conditions a test cannot create, keep the allowlist entry and **replace the reason** with the real one.
 5. Remove the closed entries from `scripts/coverage-allowlist.txt`.
