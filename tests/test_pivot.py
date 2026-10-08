@@ -215,3 +215,24 @@ def test_dangling_states_a_cap_like_every_other_read_path(tmp_path, monkeypatch)
     monkeypatch.setattr(db, "MAX_ROWS", 4)
     assert len(pivot.dangling(con)) == 4
     con.close()
+
+
+def test_record_rejects_an_empty_enables_before_writing_anything(tmp_path):
+    con = fresh(tmp_path)
+    with pytest.raises(db.DbError, match="a pivot needs --enables"):
+        pivot.record(con, finding_id="G1-F1", group_id="G1",
+                     mechanism="300-byte sliding-window flush",
+                     enables="   ")
+    assert db.rows(con, "cba_security_observations") == []
+    assert db.rows(con, "cba_fp_verdicts") == []
+
+
+def test_render_names_the_finding_observation_and_mechanism(tmp_path):
+    p = pivot.Pivot(finding_id="G1-F1", observation_id=7,
+                    mechanism="sliding-window flush")
+    out = pivot.render(p)
+    assert out.startswith("pivot G1-F1: FALSE_POSITIVE recorded, "
+                          "observation 7 written.")
+    assert "refuting mechanism: sliding-window flush" in out
+    assert "--where id=7" in out
+    assert "a lead, not a finding" in out

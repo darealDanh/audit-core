@@ -163,3 +163,15 @@ def test_coverage_from_a_populated_database(tmp_path):
     r = bench.coverage_from_db(db)
     assert r.state == readings.PRESENT
     assert r.value == 25.0
+
+
+def test_a_matched_pair_naming_an_unknown_id_is_ignored():
+    """bench.py:108 - a pair whose reference or finding is not in the lists
+    contributes nothing, and does not raise."""
+    refs = [ref("R1")]
+    findings = [finding("F1", "LOW")]
+    agreement = bench.severity_agreement(
+        refs, findings, (("R9", "F1"), ("R1", "F9")))
+    assert (agreement.agreed, agreement.under_rated, agreement.over_rated,
+            agreement.unrankable) == (0, 0, 0, 0)
+    assert agreement.deltas == ()

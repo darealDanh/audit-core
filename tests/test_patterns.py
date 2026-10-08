@@ -74,3 +74,9 @@ def test_a_full_pattern_list_says_the_gate_can_only_rule_on_what_it_saw():
              for i in range(patterns.MAX_PATTERNS)]
     out = patterns.render(items)
     assert "capped" in out and "PASS" in out
+
+
+def test_render_with_nothing_registered_says_so_and_says_what_to_do():
+    out = patterns.render([])
+    assert out.startswith("patterns: none registered.")
+    assert "audit.py put --table cba_patterns" in out

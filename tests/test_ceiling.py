@@ -97,3 +97,9 @@ def test_render_linearity_prints_every_deviation_not_a_verdict(tmp_path):
     out = ceiling.render_linearity(ceiling.linearity(r, min_turns=20))
     assert "deviation" in out
     assert "%" in out
+
+
+def test_linearity_declines_to_judge_a_short_history():
+    """ceiling.py:104 - refusing to model is a result, and it has a sentence."""
+    out = ceiling.render_linearity([])
+    assert out == "  linearity: no epoch long enough to judge the growth model"

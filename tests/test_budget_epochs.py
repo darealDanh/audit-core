@@ -64,3 +64,21 @@ def test_stats_prefix_floor_is_lowest_nonzero_epoch_floor(tmp_path):
     assert s.sum_context == 220_000
     assert s.turns == 3
     assert s.max_context == 95_000
+
+
+def test_stats_of_an_empty_transcript_is_all_zero(tmp_path):
+    """budget.py:63 - no billed turns means zeros, not a crash on min([])."""
+    s = budget.stats_of(T.parse(write(tmp_path)))
+    assert s == budget.Stats(0, 0, 0, 0, 0, 0, 0, 0.0)
+
+
+def test_an_addition_in_an_epoch_with_no_billed_turn_is_not_attributed(tmp_path):
+    """budget.py:110 - text that never sat in a billed context is composition
+    but carries no residency, so it must not appear in attribution."""
+    p2 = write(tmp_path,
+               B.assistant([], cache_read=1000),
+               B.compact_summary(),
+               B.user_text("orphan " * 200))
+    r = budget.analyze(T.parse(p2))
+    assert r.composition["user_text"] > 0
+    assert "user_text" not in r.attribution

@@ -215,3 +215,21 @@ def test_a_collision_inside_one_unit_does_not_constrain_another(tmp_path):
     extract.extract_batch(store, backend, "G1", ["src/osal/tss.c"])
     extract.extract_batch(store, backend, "G2", ["src/osal/tss.c"])
     assert store.items("G1") == store.items("G2") == ["src/osal/tss.c"]
+
+
+def test_a_corrupt_manifest_is_reported_not_swallowed(tmp_path):
+    """extract.py:129-130 (ExtractStore, not the preflight site)."""
+    run = tmp_path / "run"
+    (run / "extract").mkdir(parents=True)
+    manifest = run / "extract" / "manifest.json"
+    manifest.write_text("{not json")
+    with pytest.raises(extract.ExtractError) as excinfo:
+        extract.ExtractStore(run).manifest()
+    assert str(excinfo.value).startswith(f"{manifest} is not valid JSON")
+
+
+def test_a_vanished_source_root_is_reported(tmp_path):
+    """extract.py:186 - SourceTree.assert_ready."""
+    missing = tmp_path / "gone"
+    with pytest.raises(extract.ExtractError, match="source root is gone"):
+        extract.SourceTree(missing).assert_ready()

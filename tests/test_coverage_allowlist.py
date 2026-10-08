@@ -162,7 +162,8 @@ def test_shipped_allowlist_parses_and_every_entry_has_a_reason():
     text = (pathlib.Path(__file__).resolve().parent.parent
             / "scripts" / "coverage-allowlist.txt").read_text()
     entries = al.parse(text)
-    assert entries, "the shipped allowlist is empty"
+    # Stage 3c closed every gap, so the shipped list may legitimately be
+    # empty; what it may never hold is an entry without a reason.
     assert all(e.reason for e in entries)
 
 

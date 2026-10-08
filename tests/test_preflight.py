@@ -230,3 +230,28 @@ def test_merge_does_not_alias_nested_values_of_the_kept_definition():
     merged["env"]["K2"] = "v2"
     assert kept["args"] == ["a"]
     assert kept["env"] == {"K": "v"}
+
+
+def test_load_servers_reports_invalid_json(tmp_path):
+    config = tmp_path / "mcp.json"
+    config.write_text("{not json")
+    with pytest.raises(preflight.PreflightError) as excinfo:
+        preflight.load_servers(config, ["autorev"])
+    assert str(excinfo.value).startswith(f"{config} is not valid JSON")
+
+
+def test_load_servers_requires_an_object_at_the_top_level(tmp_path):
+    config = tmp_path / "mcp.json"
+    config.write_text("[]")
+    with pytest.raises(preflight.PreflightError,
+                       match="does not contain a JSON object"):
+        preflight.load_servers(config, ["autorev"])
+
+
+def test_load_servers_refuses_a_server_that_is_not_an_object(tmp_path):
+    config = tmp_path / "mcp.json"
+    config.write_text('{"mcpServers": {"autorev": "uvx autorev"}}')
+    with pytest.raises(preflight.PreflightError) as excinfo:
+        preflight.load_servers(config, ["autorev"])
+    assert "'autorev'" in str(excinfo.value)
+    assert "is not a JSON object" in str(excinfo.value)

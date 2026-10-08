@@ -249,3 +249,43 @@ def test_a_nonsense_max_hits_does_not_reach_islice(tmp_path):
     result = sweep.run(tmp_path, r"strcpy\(", max_hits=-1)
     assert len(result.hits) == 1
     assert result.truncated is True
+
+
+def test_an_unreadable_file_is_skipped_not_fatal(tmp_path):
+    """sweep.py:98-99. A tree with one unreadable file is still swept, and
+    the unreadable file is neither a hit nor counted as scanned."""
+    root = tree(tmp_path / "src", **{"good.c": "needle\n", "bad.c": "needle\n"})
+    bad = root / "bad.c"
+    bad.chmod(0o000)
+    try:
+        result = sweep.run(root, "needle")
+    finally:
+        bad.chmod(0o644)
+    assert [h.path for h in result.hits] == ["good.c"]
+    assert result.files_scanned == 1
+
+
+def test_a_path_outside_the_suffix_list_is_passed_over(tmp_path):
+    """sweep.py:90 - the suffix filter's continue, with a file it excludes."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n", "b.txt": "needle\n"})
+    result = sweep.run(root, "needle", suffixes=(".c",))
+    assert [h.path for h in result.hits] == ["a.c"]
+    assert result.files_scanned == 1
+
+
+def test_render_reports_the_files_it_skipped(tmp_path):
+    """sweep.py:174-175 - a sweep that skips files must say so."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n", "b.bin": b"\x00needle"})
+    out = sweep.render(sweep.run(root, "needle"))
+    assert "  skipped 1 binary, 0 oversized file(s)" in out
+
+
+def test_a_symlinked_file_is_not_followed(tmp_path):
+    """sweep.py:90 - a symlink to a file is skipped, so a link out of the
+    tree cannot pull foreign content into the sweep."""
+    outside = tree(tmp_path / "outside", **{"secret.c": "needle\n"})
+    root = tree(tmp_path / "src", **{"a.c": "needle\n"})
+    (root / "link.c").symlink_to(outside / "secret.c")
+    result = sweep.run(root, "needle")
+    assert [h.path for h in result.hits] == ["a.c"]
+    assert result.files_scanned == 1

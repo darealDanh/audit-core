@@ -220,3 +220,61 @@ def test_model_usage_context_tolerates_junk_entries():
                                   "d": {"inputTokens": "x"},
                                   "e": {"inputTokens": 5}}) == 5
     assert T.model_usage_context({}) == 0
+
+
+def test_a_truncated_line_is_skipped_and_the_rest_still_parses(tmp_path):
+    """transcript.py:114 - the truncated tail of a live transcript."""
+    p = write(tmp_path,
+              B.assistant([{"type": "text", "text": "a"}], cache_read=1000),
+              '{"type": "assistant", "mess\n',
+              B.assistant([{"type": "text", "text": "b"}], cache_read=2000))
+    assert [x.context for x in T.parse(p).turns] == [1000, 2000]
+
+
+def test_a_non_object_assistant_block_is_skipped(tmp_path):
+    """transcript.py:177 - a bare string among assistant content blocks."""
+    p = write(tmp_path,
+              B.assistant(["stray", {"type": "text", "text": "x" * 400}],
+                          cache_read=1000))
+    t = T.parse(p)
+    assert [a.component for a in t.additions] == ["assistant_text"]
+
+
+def test_a_non_object_user_block_is_skipped(tmp_path):
+    """transcript.py:198 - a bare string among user content blocks."""
+    p = write(tmp_path,
+              B.user_blocks(["stray",
+                             {"type": "tool_result", "tool_use_id": "t1",
+                              "content": "r" * 400}]))
+    t = T.parse(p)
+    assert [a.component for a in t.additions] == ["tool_result"]
+    assert [c.name for c in t.tool_calls] == ["?"]
+
+
+def test_a_non_string_tool_result_is_measured_as_its_json(tmp_path):
+    """transcript.py:202 - a list payload is billed as its JSON text."""
+    payload = [{"type": "text", "text": "y" * 400}]
+    p = write(tmp_path,
+              B.user_blocks([{"type": "tool_result", "tool_use_id": "t1",
+                              "content": payload}]))
+    t = T.parse(p)
+    assert t.tool_calls[0].result_tokens == T.estimate_tokens(json.dumps(payload))
+    assert t.tool_calls[0].result_tokens > T.estimate_tokens("y" * 400) - 1
+
+
+def test_a_user_text_block_is_classified_as_user_text(tmp_path):
+    """transcript.py:206-207 - a text block in a user content list goes
+    through the classifier, like a plain string would."""
+    p = write(tmp_path,
+              B.user_blocks([{"type": "text", "text": "hello " * 100}]))
+    t = T.parse(p)
+    assert [a.component for a in t.additions] == ["user_text"]
+
+
+def test_blank_lines_are_skipped(tmp_path):
+    """transcript.py:114 - a blank line between records is not a record."""
+    p = write(tmp_path,
+              B.assistant([{"type": "text", "text": "a"}], cache_read=1000),
+              "\n   \n",
+              B.assistant([{"type": "text", "text": "b"}], cache_read=2000))
+    assert [x.context for x in T.parse(p).turns] == [1000, 2000]

@@ -9,67 +9,36 @@
 # insertion above it; the digest turns that into a loud "stale" rather than a
 # silent wrong permission.
 #
-# Entries below marked "Stage 3c: not yet closed" are the 115 statements
-# measured on 2026-10-08. They are debt, seeded so the gate can be switched on
-# before the debt is paid. Stage 3c removes them. An entry that outlives the
-# stage must be rewritten with a real reason or its code deleted.
+# Stage 3c closed all 115 statements that were seeded here as debt. Any
+# entry added from now on must carry the real reason the statement cannot be
+# executed by a test.
 #
 # Format: <module>.py:<line>:<digest>  <reason>
 
 
 # --- bench.py ---
-bench.py:108:eee0bbba  Stage 3c: not yet closed
 
 # --- budget.py ---
-budget.py:63:78d02f3d  Stage 3c: not yet closed
-budget.py:110:eee0bbba  Stage 3c: not yet closed
 
 # --- ceiling.py ---
-ceiling.py:104:5f580ae3  Stage 3c: not yet closed
 
 # --- coverage.py ---
 
 # --- db.py ---
 
 # --- extract.py ---
-extract.py:129:5eef5925  Stage 3c: not yet closed
-extract.py:130:eee7fef8  Stage 3c: not yet closed
-extract.py:186:0641cdf1  Stage 3c: not yet closed
 
 # --- indicators.py ---
 
 # --- patterns.py ---
-patterns.py:87:45761200  Stage 3c: not yet closed
 
 # --- pivot.py ---
-pivot.py:45:ff7dd9cc  Stage 3c: not yet closed
-pivot.py:46:b6c6dc02  Stage 3c: not yet closed
-pivot.py:107:56e572c3  Stage 3c: not yet closed
-pivot.py:108:34033213  Stage 3c: not yet closed
-pivot.py:109:189865e9  Stage 3c: not yet closed
-pivot.py:112:56427c72  Stage 3c: not yet closed
 
 # --- preflight.py ---
-preflight.py:35:5eef5925  Stage 3c: not yet closed
-preflight.py:36:a974edbe  Stage 3c: not yet closed
-preflight.py:38:3c10f4ed  Stage 3c: not yet closed
-preflight.py:51:605bf3ee  Stage 3c: not yet closed
-preflight.py:52:e3eea30e  Stage 3c: not yet closed
 
 # --- qualify.py ---
 
 # --- sweep.py ---
-sweep.py:90:eee0bbba  Stage 3c: not yet closed
-sweep.py:98:03c89125  Stage 3c: not yet closed
-sweep.py:99:eee0bbba  Stage 3c: not yet closed
-sweep.py:174:ae053e29  Stage 3c: not yet closed
-sweep.py:175:cc343ad5  Stage 3c: not yet closed
 
 # --- transcript.py ---
-transcript.py:114:eee0bbba  Stage 3c: not yet closed
-transcript.py:177:eee0bbba  Stage 3c: not yet closed
-transcript.py:198:eee0bbba  Stage 3c: not yet closed
-transcript.py:202:8720dcfd  Stage 3c: not yet closed
-transcript.py:206:e903b19b  Stage 3c: not yet closed
-transcript.py:207:ce046a57  Stage 3c: not yet closed
 
