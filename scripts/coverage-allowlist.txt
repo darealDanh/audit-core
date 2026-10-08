@@ -30,20 +30,6 @@ ceiling.py:104:5f580ae3  Stage 3c: not yet closed
 # --- coverage.py ---
 
 # --- db.py ---
-db.py:330:e8ce276d  Stage 3c: not yet closed
-db.py:337:5648980b  Stage 3c: not yet closed
-db.py:338:091f8345  Stage 3c: not yet closed
-db.py:339:a671507c  Stage 3c: not yet closed
-db.py:411:ff9f5272  Stage 3c: not yet closed
-db.py:466:b9adf8d6  Stage 3c: not yet closed
-db.py:522:f39d658f  Stage 3c: not yet closed
-db.py:523:d734a16a  Stage 3c: not yet closed
-db.py:528:b52dd131  Stage 3c: not yet closed
-db.py:529:f36c21a3  Stage 3c: not yet closed
-db.py:560:eee0bbba  Stage 3c: not yet closed
-db.py:566:eee0bbba  Stage 3c: not yet closed
-db.py:578:e986cc21  Stage 3c: not yet closed
-db.py:579:06d3d9b2  Stage 3c: not yet closed
 
 # --- extract.py ---
 extract.py:129:5eef5925  Stage 3c: not yet closed

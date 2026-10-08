@@ -227,3 +227,118 @@ def test_duplicates_never_deletes_anything(con):
     db.put(con, "cba_findings", dict(FINDING) | {"id": "G2-F3", "group_id": "G2"})
     db.duplicates(con)
     assert len(db.rows(con, "cba_findings")) == 2
+
+
+# --- Stage 3c, Task 6: statements no test used to execute -------------------
+
+def test_connect_read_only_refuses_a_write(tmp_path):
+    """db.py:330 - the read-only path opens the file mode=ro."""
+    run, _ = workspace.init_run_with_schema(tmp_path, "20260101-000000")
+    con = db.connect(run / "audit.db", read_only=True)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            con.execute("INSERT INTO cba_sources (id, type) VALUES ('x', 'repo')")
+        assert con.execute("SELECT COUNT(*) FROM cba_sources").fetchone()[0] == 0
+    finally:
+        con.close()
+
+
+def test_connect_rejects_a_file_that_is_not_a_database(tmp_path):
+    """db.py:337-339 - a text file named audit.db is the realistic case."""
+    fake = tmp_path / "audit.db"
+    fake.write_text("this is not a database\n" * 20)
+    with pytest.raises(db.DbError) as excinfo:
+        db.connect(fake)
+    assert str(excinfo.value).startswith(f"{fake} is not a readable SQLite database: ")
+
+
+def test_rows_names_every_unknown_selected_column(tmp_path):
+    """db.py:466 - rows() checks `columns`; the where-check is a separate line."""
+    run, _ = workspace.init_run_with_schema(tmp_path, "20260101-000000")
+    con = db.connect(run / "audit.db")
+    try:
+        with pytest.raises(db.DbError) as excinfo:
+            db.rows(con, "cba_findings", columns=("id", "nope", "also_nope"))
+        # Exact text: put() words the same error differently ("; columns are:"),
+        # so equality proves this came from rows().
+        assert str(excinfo.value) == "cba_findings has no column(s): also_nope, nope"
+    finally:
+        con.close()
+
+
+def test_put_replace_without_the_primary_key_inserts_and_merges_nothing(con):
+    """db.py:411 - no key named means no row is provably replaced.
+
+    cba_attack_surface's key is an autoincrement id. A replace that does not
+    name it cannot target a stored row, so it is a plain insert: the existing
+    row keeps its optional columns and the new row does not inherit them.
+    """
+    db.put(con, "cba_attack_surface", {
+        "id": "1", "group_id": "G1", "endpoint": "/login", "method": "POST",
+        "description": "credential check"})
+    db.put(con, "cba_attack_surface", {"group_id": "G1", "endpoint": "/login"},
+           replace=True)
+    got = db.rows(con, "cba_attack_surface")
+    assert len(got) == 2
+    stored = {r["id"]: r for r in got}
+    assert stored[1]["method"] == "POST"
+    assert stored[1]["description"] == "credential check"
+    new = next(r for r in got if r["id"] != 1)
+    assert new["method"] is None and new["description"] is None
+
+
+def test_put_replace_keeps_an_omitted_optional_column_when_the_key_is_named(con):
+    """The documented merge contract (sibling of 411): omitted columns keep
+    their stored value. Recorded open item: replace-blanks-optional-columns."""
+    db.put(con, "cba_fp_verdicts", {
+        "finding_id": "G1-F1", "verdict": "TRUE_POSITIVE", "final_id": "F-07"})
+    db.put(con, "cba_fp_verdicts",
+           {"finding_id": "G1-F1", "verdict": "NEEDS_VERIFICATION"}, replace=True)
+    (row,) = db.rows(con, "cba_fp_verdicts")
+    assert row["verdict"] == "NEEDS_VERIFICATION"
+    assert row["final_id"] == "F-07"
+
+
+def test_render_status_lists_groups_and_verdicts_with_counts(con):
+    """db.py:522-523 and 528-529."""
+    db.put(con, "cba_feature_groups", {"id": "G1", "name": "auth", "status": "complete"})
+    db.put(con, "cba_feature_groups", {"id": "G2", "name": "upnp", "status": "pending"})
+    db.put(con, "cba_findings", dict(FINDING))
+    db.put(con, "cba_findings", dict(FINDING) | {"id": "G2-F1", "group_id": "G2"})
+    db.put(con, "cba_fp_verdicts", {"finding_id": "G1-F1", "verdict": "TRUE_POSITIVE"})
+    db.put(con, "cba_fp_verdicts", {"finding_id": "G2-F1", "verdict": "DUPLICATE"})
+    lines = db.render_status(db.status(con)).splitlines()
+    assert lines[0] == "groups 2   findings 2   verdicts 2   unverdicted 0"
+    g = lines.index("  groups:")
+    assert lines[g + 1].split() == ["G1", "auth", "complete"]
+    assert lines[g + 2].split() == ["G2", "upnp", "pending"]
+    v = lines.index("  verdicts:")
+    assert lines[v + 1].split() == ["DUPLICATE", "1"]
+    assert lines[v + 2].split() == ["TRUE_POSITIVE", "1"]
+
+
+def test_duplicates_skips_a_finding_whose_root_cause_normalises_to_nothing(con):
+    """db.py:560 - punctuation-only root causes would otherwise all pair up."""
+    punct = dict(FINDING) | {"root_cause": "!!! ???"}
+    db.put(con, "cba_findings", punct)
+    db.put(con, "cba_findings", punct | {"id": "G2-F1", "group_id": "G2"})
+    assert db.duplicates(con) == []
+
+
+def test_duplicates_skips_a_cross_group_pair_with_different_root_causes(con):
+    """db.py:566 - same location, different mechanism: not a duplicate."""
+    db.put(con, "cba_findings", dict(FINDING))
+    db.put(con, "cba_findings", dict(FINDING) | {
+        "id": "G2-F1", "group_id": "G2", "root_cause": "missing auth check"})
+    assert db.duplicates(con) == []
+
+
+def test_duplicates_ranks_a_non_numeric_confidence_as_zero(con):
+    """db.py:578-579 - _conf falls back to 0, so a numeric score wins."""
+    db.put(con, "cba_findings", dict(FINDING) | {"confidence": "high"})
+    db.put(con, "cba_findings", dict(FINDING) | {
+        "id": "G2-F1", "group_id": "G2", "confidence": "1"})
+    (pair,) = db.duplicates(con)
+    assert pair.keep == "G2-F1" and pair.drop == "G1-F1"
+    assert db._conf({"confidence": "high"}) == 0
+    assert db._conf({"confidence": None}) == 0
