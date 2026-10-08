@@ -306,9 +306,9 @@ def test_sweep_resumes_and_does_not_rerun_checkpointed_mutants(tmp_path, monkeyp
 
     ran = []
 
-    def counting_run(tree, paths, timeout):
+    def counting_run(tree, paths, timeout, *rest):
         ran.append(paths)
-        return real_run(tree, paths, timeout)
+        return real_run(tree, paths, timeout, *rest)
 
     monkeypatch.setattr(mutate, "_run", counting_run)
     results = mutate.run_sweep(pkg, tests, state, timeout=60)
@@ -324,9 +324,80 @@ def test_sweep_resumes_and_does_not_rerun_checkpointed_mutants(tmp_path, monkeyp
 
 
 def test_whole_suite_fallback_is_announced(tmp_path, capsys):
-    repo, pkg, tests = _fixture_repo(tmp_path, "def f(n):\n    return n > 1\n",
-                                     "from pkg.m import f\n"
-                                     "def test_f():\n    assert f(5)\n")
-    (tests / "test_m.py").rename(tests / "test_zzz.py")
-    mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
-    assert "falling back to the whole suite" in capsys.readouterr().err
+    """A module no test executes runs the whole suite - and says so."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    (pkg / "dead.py").write_text("def f(n):\n    return n > 1\n")
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
+    assert "dead.py: no test file executes it" in capsys.readouterr().err
+    dead = [r for r in results if r.mutation.module == "dead.py"]
+    assert dead and all(r.outcome == "survived" for r in dead)
+
+
+
+def _two_file_repo(tmp_path):
+    """Test files named nothing like the module: only coverage can pair them."""
+    repo, pkg, tests = _fixture_repo(
+        tmp_path, TWO_FUNCS,
+        "from pkg.m import over\ndef test_over():\n    assert over(11)\n")
+    (tests / "test_m.py").rename(tests / "test_alpha.py")
+    (tests / "test_beta.py").write_text(
+        "import sys, pathlib\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+        "from pkg.m import under\n"
+        "def test_under():\n    assert under(0)\n")
+    return repo, pkg, tests
+
+
+def test_the_test_map_pairs_files_to_mutants_by_executed_line(tmp_path):
+    repo, pkg, tests = _two_file_repo(tmp_path)
+    tmap = mutate.build_test_map(pkg, tests)
+    muts = {m.lineno: m for m in
+            mutate.enumerate_mutations((pkg / "m.py").read_text(), "m.py")}
+    assert mutate.tests_for_mutation(tmap, muts[2]) == ["test_alpha.py"]
+    assert mutate.tests_for_mutation(tmap, muts[5]) == ["test_beta.py"]
+
+
+def test_a_module_no_test_executes_has_no_selected_tests(tmp_path):
+    repo, pkg, tests = _two_file_repo(tmp_path)
+    (pkg / "dead.py").write_text("def f(n):\n    return n > 1\n")
+    tmap = mutate.build_test_map(pkg, tests)
+    mut = mutate.enumerate_mutations((pkg / "dead.py").read_text(), "dead.py")[0]
+    assert mutate.tests_for_mutation(tmap, mut) == []
+
+
+def test_the_test_map_is_cached_and_invalidated_by_a_changed_suite(tmp_path, monkeypatch):
+    repo, pkg, tests = _two_file_repo(tmp_path)
+    cache = tmp_path / "map.json"
+    first = mutate.build_test_map(pkg, tests, cache)
+
+    def boom(*a, **k):
+        raise AssertionError("probe re-ran despite a valid cache")
+
+    monkeypatch.setattr(mutate, "_probe_executed", boom)
+    assert mutate.build_test_map(pkg, tests, cache) == first
+    (tests / "test_beta.py").write_text((tests / "test_beta.py").read_text() + "\n# edit\n")
+    with pytest.raises(AssertionError, match="re-ran"):
+        mutate.build_test_map(pkg, tests, cache)
+
+
+def test_a_narrow_survivor_killed_elsewhere_is_not_reported_as_a_survivor(tmp_path):
+    """test_alpha only pins `over` at 11; `over(10)` is pinned by a file that
+    shares no name with the module. Gt->GtE survives alpha alone and must be
+    recorded killed after the whole-suite confirmation."""
+    repo, pkg, tests = _two_file_repo(tmp_path)
+    (tests / "test_gamma.py").write_text(
+        "import sys, pathlib\n"
+        "sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))\n"
+        "from pkg.m import over\n"
+        "def test_over_boundary():\n    assert over(10) is False\n")
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
+    gt = next(r for r in results if "Gt->GtE" in r.mutation.label)
+    assert gt.outcome == "killed"
+
+
+def test_a_test_that_already_fails_does_not_turn_survivors_into_kills(tmp_path):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    (tests / "test_broken.py").write_text("def test_broken():\n    assert False\n")
+    results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60)
+    lt = next(r for r in results if "Lt->LtE" in r.mutation.label)
+    assert lt.outcome == "survived"
