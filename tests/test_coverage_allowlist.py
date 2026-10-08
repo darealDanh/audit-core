@@ -116,3 +116,43 @@ def test_compare_reports_stale_when_line_past_eof(tmp_path):
 def test_line_digest_ignores_whitespace():
     """Reindenting a block should not invalidate every entry inside it."""
     assert al.line_digest("  x = 1") == al.line_digest("x = 1")
+
+
+def test_compare_reports_stale_when_an_unexecuted_entry_s_file_is_gone(tmp_path):
+    """The first loop's `source is None` guard.
+
+    The entry is BOTH in the report's unexecuted set AND its file is gone,
+    so this enters the first loop - unlike the second-loop cases, which
+    reach their guard only because the entry is absent from `unexecuted`.
+    """
+    (tmp_path / "m.py").write_text("a = 1\nb = 2\n")
+    entries = al.parse(f"m.py:2:{al.line_digest('b = 2')}  deliberate\n")
+    (tmp_path / "m.py").unlink()          # file gone, entry still listed
+    report = probe.ProbeReport(
+        modules=(probe.ModuleReport(name="m.py", executable=10,
+                                    unexecuted=(2,)),),
+        pytest_rc=0)
+    result = al.compare(report, entries, tmp_path)
+    assert not result.ok
+    assert len(result.stale) == 1 and "m.py:2" in result.stale[0]
+    assert result.permitted == ()
+    assert result.regressed == ()
+
+
+def test_compare_reports_stale_when_unexecuted_line_is_past_eof(tmp_path):
+    """The first loop's `source is None` guard for past-EOF case.
+
+    The line is in the report's unexecuted set, the file exists,
+    but the line number exceeds EOF, so `source` is None in the first loop.
+    """
+    (tmp_path / "m.py").write_text("a = 1\nb = 2\nc = 3\n")
+    entries = al.parse(f"m.py:100:{al.line_digest('past EOF')}  deliberate\n")
+    report = probe.ProbeReport(
+        modules=(probe.ModuleReport(name="m.py", executable=10,
+                                    unexecuted=(100,)),),
+        pytest_rc=0)
+    result = al.compare(report, entries, tmp_path)
+    assert not result.ok
+    assert len(result.stale) == 1 and "m.py:100" in result.stale[0]
+    assert result.permitted == ()
+    assert result.regressed == ()
