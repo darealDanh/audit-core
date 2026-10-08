@@ -507,11 +507,16 @@ def parse_mutation_allowlist(text: str) -> dict[str, str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        label, sep, reason = line.rpartition(" #")
-        if not sep or not reason.strip() or not label.strip():
+        # First " #" splits: a reason may itself contain '#'.
+        label, sep, reason = line.partition(" #")
+        label = label.strip()
+        if not sep or not reason.strip() or not label:
             raise ValueError(f"mutation-allowlist.txt:{n}: entry has no "
                              f"reason (write `<label>  # why`): {line}")
-        out[label.strip()] = reason.strip()
+        if label in out:
+            raise ValueError(f"mutation-allowlist.txt:{n}: duplicate entry "
+                             f"{label!r}")
+        out[label] = reason.strip()
     return out
 
 
@@ -543,15 +548,26 @@ def gate_mutate() -> Result:
 
     counts = {o: sum(1 for r in results if r.outcome == o)
               for o in mutate.OUTCOMES}
-    unexplained = [r for r in results
-                   if r.outcome == "survived" and r.mutation.label not in permitted]
+    survivors = {r.mutation.label for r in results if r.outcome == "survived"}
+    unexplained = sorted(survivors - set(permitted))
+    orphans = sorted(set(permitted) - survivors)
     summary = (f"{len(results)} mutants: {counts['killed']} killed, "
                f"{counts['survived']} survived, {counts['timeout']} timeout, "
-               f"{counts['error']} error; {len(unexplained)} unexplained")
-    if not unexplained:
-        return Result("mutate", PASS, summary)
-    detail = "\n".join(f"  survived: {r.mutation.label}" for r in unexplained)
-    return Result("mutate", FAIL, summary, detail=detail)
+               f"{counts['error']} error; {len(unexplained)} unexplained, "
+               f"{len(orphans)} stale allowlist entr(ies)")
+    detail = [f"  survived: {label}" for label in unexplained]
+    detail += [f"  stale allowlist entry (matches no survivor; line numbers "
+               f"shift when audit_core is edited): {label}"
+               for label in orphans]
+    if not results:
+        detail.append("  zero mutants: the package path is wrong or nothing "
+                      "was enumerable; nothing was verified")
+    if counts["timeout"] or counts["error"]:
+        detail.append(f"  {counts['timeout']} timeout and {counts['error']} "
+                      f"error mutant(s) are unverified; re-run to retry them")
+    if detail:
+        return Result("mutate", FAIL, summary, detail="\n".join(detail))
+    return Result("mutate", PASS, summary)
 
 
 GATES = {

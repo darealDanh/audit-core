@@ -627,12 +627,20 @@ def test_allowlist_refuses_an_entry_without_a_reason():
             harness.parse_mutation_allowlist(bad)
 
 
-def _fake_sweep(monkeypatch, harness, results=None, exc=None):
-    def run_sweep(*a, **k):
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _fake_sweep(monkeypatch, results=None, exc=None):
+    """Real signature, records what the gate sends."""
+    calls = []
+
+    def run_sweep(package, tests_dir, state_path, timeout=60, jobs=8):
+        calls.append((package, tests_dir, state_path))
         if exc:
             raise exc
         return results
     monkeypatch.setattr(mutate, "run_sweep", run_sweep)
+    return calls
 
 
 def _mut(line, outcome):
@@ -640,33 +648,96 @@ def _mut(line, outcome):
         mutate.Mutation("m.py", line, 0, "Compare", "<", "<="), outcome)
 
 
+def _allow(monkeypatch, harness, *results):
+    monkeypatch.setattr(harness, "parse_mutation_allowlist",
+                        lambda text: {r.mutation.label: "equivalent" for r in results})
+
+
+def test_gate_sends_the_real_paths_to_the_sweep(monkeypatch):
+    harness = _load_harness()
+    calls = _fake_sweep(monkeypatch, results=(_mut(1, "killed"),))
+    harness.gate_mutate()
+    assert calls == [(ROOT / "audit_core", ROOT / "tests",
+                      ROOT / ".mutate-state.json")]
+
+
 def test_gate_fails_naming_unexplained_survivors_and_counts(monkeypatch):
     harness = _load_harness()
-    _fake_sweep(monkeypatch, harness, results=(
-        _mut(1, "killed"), _mut(2, "survived"), _mut(3, "timeout"),
-        _mut(4, "error")))
+    _fake_sweep(monkeypatch, results=(_mut(1, "killed"), _mut(2, "survived")))
     res = harness.gate_mutate()
     assert res.name == "mutate" and res.status == harness.FAIL
     assert "m.py:2:0" in res.detail and "m.py:1:0" not in res.detail
-    for frag in ("4 mutants", "1 killed", "1 survived", "1 timeout",
-                 "1 error", "1 unexplained"):
+    for frag in ("2 mutants", "1 killed", "1 survived", "0 timeout",
+                 "0 error", "1 unexplained"):
         assert frag in res.summary
 
 
 def test_gate_passes_when_every_survivor_is_allowlisted(monkeypatch):
     harness = _load_harness()
     surv = _mut(2, "survived")
-    _fake_sweep(monkeypatch, harness, results=(_mut(1, "killed"), surv))
-    monkeypatch.setattr(harness, "parse_mutation_allowlist",
-                        lambda text: {surv.mutation.label: "equivalent"})
+    _fake_sweep(monkeypatch, results=(_mut(1, "killed"), surv))
+    _allow(monkeypatch, harness, surv)
     res = harness.gate_mutate()
     assert res.status == harness.PASS and "0 unexplained" in res.summary
 
 
+def test_gate_fails_on_a_stale_allowlist_entry(monkeypatch):
+    harness = _load_harness()
+    gone = _mut(9, "survived")
+    _fake_sweep(monkeypatch, results=(_mut(1, "killed"),))
+    _allow(monkeypatch, harness, gone)
+    res = harness.gate_mutate()
+    assert res.status == harness.FAIL
+    assert gone.mutation.label in res.detail and "stale" in res.detail
+
+
+def test_gate_fails_on_zero_mutants(monkeypatch):
+    harness = _load_harness()
+    _fake_sweep(monkeypatch, results=())
+    res = harness.gate_mutate()
+    assert res.status == harness.FAIL and "zero mutants" in res.detail
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "error"])
+def test_gate_fails_while_timeout_or_error_mutants_remain(monkeypatch, outcome):
+    harness = _load_harness()
+    _fake_sweep(monkeypatch, results=(_mut(1, "killed"), _mut(2, outcome)))
+    res = harness.gate_mutate()
+    assert res.status == harness.FAIL
+    assert f"1 {outcome}" in res.summary and "unverified" in res.detail
+
+
+def test_bad_allowlist_fails_without_running_the_sweep(monkeypatch):
+    harness = _load_harness()
+    calls = _fake_sweep(monkeypatch, results=(_mut(1, "killed"),))
+    monkeypatch.setattr(harness.pathlib.Path, "read_text",
+                        lambda self, *a, **k: "m.py:1:0 Compare[0] <-><=\n")
+    res = harness.gate_mutate()
+    assert res.status == harness.FAIL and "no reason" in res.detail
+    assert calls == []
+
+
 def test_gate_surfaces_the_canary_abort_message_as_fail(monkeypatch):
     harness = _load_harness()
-    _fake_sweep(monkeypatch, harness,
-                exc=RuntimeError("mutation canary survived (rc=0)"))
+    _fake_sweep(monkeypatch, exc=RuntimeError("mutation canary survived (rc=0)"))
     res = harness.gate_mutate()
     assert res.status == harness.FAIL
     assert "mutation canary survived (rc=0)" in res.detail
+
+
+def test_gate_does_not_swallow_other_exceptions_into_a_pass(monkeypatch):
+    harness = _load_harness()
+    _fake_sweep(monkeypatch, exc=OSError("disk gone"))
+    with pytest.raises(OSError, match="disk gone"):
+        harness.gate_mutate()
+    # main() turns the raise into a FAIL row, never a PASS
+    monkeypatch.setattr(harness, "GATES", {"mutate": harness.gate_mutate})
+    assert harness.main(["--only", "mutate", "--json"]) != 0
+
+
+def test_allowlist_refuses_duplicates_and_keeps_later_hashes_in_reason():
+    harness = _load_harness()
+    ok = harness.parse_mutation_allowlist("a b  # why # more\n")
+    assert ok == {"a b": "why # more"}
+    with pytest.raises(ValueError, match="duplicate"):
+        harness.parse_mutation_allowlist("a b # x\na b # y\n")
