@@ -251,6 +251,20 @@ def _suite_args(test_paths: list[str]) -> list[str]:
             for p in test_paths if pathlib.Path(p).is_dir()]
 
 
+def _node_id(rest: str) -> str:
+    """The node id from a `-rf` summary line's text after FAILED/ERROR.
+
+    The line is `<id> - <message>`. Either part may contain " - ". An id
+    is parametrized (and so may contain " - " inside its brackets) only if
+    a `[` precedes the FIRST " - "; otherwise the first " - " ends the id and
+    any brackets belong to the message.
+    """
+    head = rest.split(" - ", 1)[0]
+    if "[" in head and "] - " in rest:
+        return rest[:rest.index("] - ") + 1].strip()
+    return head.strip()
+
+
 def _baseline_failures(tree: pathlib.Path, tests: pathlib.Path) -> list[str]:
     """Node ids that already fail on the UNMUTATED copy (e.g. a test that
     needs `.git`, which the copy omits). Left in, they make every whole-suite
@@ -272,13 +286,7 @@ def _baseline_failures(tree: pathlib.Path, tests: pathlib.Path) -> list[str]:
     ids = []
     for line in proc.stdout.splitlines():
         if line.startswith(("FAILED ", "ERROR ")):
-            rest = line.split(" ", 1)[1]
-            if "[" in rest.split("::")[-1] and "] - " in rest:
-                # parametrized id: it may itself contain " - "
-                ids.append(rest[:rest.index("] - ") + 1].strip())
-            else:
-                # a failure message may contain " - ", an id rarely does
-                ids.append(rest.split(" - ", 1)[0].strip())
+            ids.append(_node_id(line.split(" ", 1)[1]))
     return ids
 
 
@@ -445,6 +453,10 @@ def _canary(tree: pathlib.Path, package: pathlib.Path,
     to notice, and require the package to resolve inside the copy.
     """
     init = tree / package.name / "__init__.py"
+    if not init.is_file():
+        raise RuntimeError(
+            f"cannot plant the mutation canary: {package.name!r} has no "
+            f"__init__.py. Aborting rather than sweeping without the check.")
     init.write_text(init.read_text()
                     + "\nraise ImportError('mutate canary')\n")
     rc, timed_out, _ = _pytest_run(tree, [str(tree / tests_rel)], timeout,
@@ -531,6 +543,10 @@ def run_sweep(package: pathlib.Path, tests_dir: pathlib.Path,
               f"state file was written; discarding {len(state)} stale "
               f"verdict(s) and starting over", file=sys.stderr, flush=True)
         state = {}
+        # Persist the discard BEFORE the new key: otherwise a run that dies
+        # before its first verdict leaves the stale verdicts on disk under a
+        # key that now matches them, and the next run trusts every one.
+        save_state(state_path, state)
     retry = [k for k, v in state.items() if v not in FINAL_OUTCOMES]
     if retry:
         print(f"  NOTE retrying {len(retry)} timeout/error verdict(s) from "

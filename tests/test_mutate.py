@@ -520,3 +520,69 @@ def test_a_stray_pythonpath_cannot_hide_the_mutated_copy(tmp_path, monkeypatch):
     results = mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60, jobs=1)
     assert any(r.outcome == "killed" and "Gt->GtE" in r.mutation.label
                for r in results)
+
+
+def test_a_discarded_state_is_persisted_before_the_new_key(tmp_path):
+    """Stale state + changed tests + a run that aborts before any verdict
+    must not leave the stale verdicts on disk under a matching key."""
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    state = tmp_path / "s.json"
+    first = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    stale = next(r for r in first if "Lt->LtE" in r.mutation.label)
+    assert stale.outcome == "survived"
+    # Tests change (as in Task 15) and the next run aborts at the canary,
+    # before it can write a single verdict.
+    (tests / "test_m.py").write_text(
+        f"import sys\nsys.path.insert(0, {str(repo)!r})\n" + WEAK_AND_STRONG
+        + "def test_under_at_the_boundary():\n    assert under(10) is False\n")
+    with pytest.raises(RuntimeError, match="canary survived"):
+        mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    assert mutate.load_state(state) == {}, "stale verdicts left on disk"
+    # Fix the tests; a fresh run must re-measure, not trust the old survivor.
+    (tests / "test_m.py").write_text(
+        WEAK_AND_STRONG
+        + "def test_under_at_the_boundary():\n    assert under(10) is False\n")
+    again = mutate.run_sweep(pkg, tests, state, timeout=60, jobs=1)
+    lt = next(r for r in again if "Lt->LtE" in r.mutation.label)
+    assert lt.outcome == "killed"
+
+
+def test_node_id_parsing_handles_both_hostile_shapes():
+    # plain id; the MESSAGE holds brackets and " - "
+    assert mutate._node_id(
+        "tests/t.py::test_x - assert d[0] - 1 == 2") == "tests/t.py::test_x"
+    assert mutate._node_id(
+        "tests/t.py::test_x - AssertionError: a[1] - b") == "tests/t.py::test_x"
+    # parametrized id whose PARAMETER holds " - "
+    assert mutate._node_id(
+        "tests/t.py::test_p[a - b] - assert 1 == 2") == "tests/t.py::test_p[a - b]"
+    assert mutate._node_id("tests/t.py::test_p[a] - boom") == "tests/t.py::test_p[a]"
+    assert mutate._node_id("tests/t.py::test_p") == "tests/t.py::test_p"
+
+
+def test_baseline_failures_are_deselected_for_hostile_node_ids(tmp_path):
+    """End to end: real failing tests with awkward ids and messages are
+    recognised as baseline and deselected, so they cannot make every
+    confirmation fail."""
+    tests = tmp_path / "repo" / "tests"
+    tests.mkdir(parents=True)
+    (tests / "test_h.py").write_text(
+        "import pytest\n"
+        "def test_plain():\n"
+        "    d = [3]\n"
+        "    assert d[0] - 1 == 5\n"
+        "@pytest.mark.parametrize('v', ['a - b'])\n"
+        "def test_param(v):\n"
+        "    assert v == 'z'\n")
+    tree = (tmp_path / "repo").resolve()
+    ids = mutate._baseline_failures(tree, tree / "tests")
+    assert len(ids) == 2
+    rc, _, _ = mutate._pytest_run(tree, [str(tree / "tests")], 60, tuple(ids))
+    assert rc == 5  # everything deselected: nothing left to fail
+
+
+def test_a_package_without_init_gets_a_legible_canary_error(tmp_path):
+    repo, pkg, tests = _fixture_repo(tmp_path, TWO_FUNCS, WEAK_AND_STRONG)
+    (pkg / "__init__.py").unlink()
+    with pytest.raises(RuntimeError, match="no __init__.py"):
+        mutate.run_sweep(pkg, tests, tmp_path / "s.json", timeout=60, jobs=1)
