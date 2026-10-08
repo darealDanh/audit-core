@@ -302,8 +302,11 @@ both sides of the ratio."
 
 **Files:**
 - Create: `scripts/coverage_allowlist.py`
-- Create: `scripts/coverage-allowlist.txt`
 - Test: `tests/test_coverage_allowlist.py`
+
+**Do NOT create `scripts/coverage-allowlist.txt` here.** Task 3 generates it
+from a real probe run. Creating a stub now means Task 3 either overwrites it
+or appends to it, and both silently change what the gate permits.
 
 **Why a hash.** An entry keyed only by `qualify.py:180` points at a different statement the moment anyone inserts a line above it, so the gate would permit the wrong thing and still report green. Each entry carries the first 8 hex of the SHA-1 of the *stripped* source line. Three outcomes, not two: permitted, regressed, **stale**.
 
@@ -825,6 +828,19 @@ from audit_core import qualify
 HEADER = ",".join(qualify.EXPECTED_HEADER)
 
 
+# EXPECTED_HEADER is TEN columns, verified against audit_core/qualify.py:30:
+#   vendor, model, rce_cves, slop_pct, max_cvss,
+#   first_pub, last_pub, top_source, top_ref_hosts, sample_cves
+# A short row does not raise - csv.DictReader pads with None and every later
+# column reads the wrong field - so rows here are always full width.
+def _row(vendor="acme", model="widget", rce_cves="3", slop_pct="10.0",
+         max_cvss="9.8", first_pub="2024-01-01", last_pub="2025-01-01",
+         top_source="nvd", top_ref_hosts="example.com", sample_cves="CVE-2024-1"):
+    return ",".join([vendor, model, rce_cves, slop_pct, max_cvss,
+                     first_pub, last_pub, top_source, top_ref_hosts,
+                     sample_cves])
+
+
 def _csv(tmp_path, body, name="scores.csv"):
     path = tmp_path / name
     path.write_text(f"{HEADER}\n{body}")
@@ -842,7 +858,8 @@ def test_load_scores_reports_an_undecodable_header(tmp_path):
 def test_load_scores_reports_an_undecodable_row(tmp_path):
     """qualify.py:133-134 - same handler, the row loop."""
     path = tmp_path / "scores.csv"
-    path.write_bytes(HEADER.encode() + b"\n" + b"acme,x,\xff\xfe,1,2\n")
+    path.write_bytes(HEADER.encode() + b"\n" + b"acme,x,1,0.0,9.8,\xff\xfe,"
+                     b"2025-01-01,nvd,example.com,CVE-2024-1\n")
     with pytest.raises(qualify.QualifyError, match="cannot read"):
         qualify.load_scores(path)
 
@@ -860,14 +877,14 @@ def test_a_negative_rce_count_is_skipped_not_trusted(tmp_path):
     """qualify.py:106. The existing test used a Unicode minus, so int()
     rejected the value before this branch could run and the branch has never
     executed. An ASCII '-1' is the input the finding actually named."""
-    path = _csv(tmp_path, "acme,widget,-1,0.0,2024-01-01,2025-01-01\n")
+    path = _csv(tmp_path, _row(rce_cves="-1") + "\n")
     scores = qualify.load_scores(path)
     assert ("acme", "widget") not in scores
 
 
 def test_zero_rce_cves_is_a_no_go_naming_the_cause(tmp_path):
     """qualify.py:180 - a GO/NO-GO verdict branch with no test."""
-    path = _csv(tmp_path, "acme,widget,0,0.0,2024-01-01,2025-01-01\n")
+    path = _csv(tmp_path, _row(rce_cves="0") + "\n")
     scores = qualify.load_scores(path)
     result = qualify.filter_proven_bad(scores.get(("acme", "widget")))
     assert result.passed is False
@@ -1205,42 +1222,57 @@ import pytest
 from audit_core import goldens
 
 
+import json
+
+# Verified against audit_core/goldens.py: the loader is load_reference
+# (SINGULAR), and _REQUIRED is five keys, not four:
+#   ("id", "title", "locations", "root_cause_key", "severity")
+# Omitting root_cause_key makes the empty-locations test fail on the WRONG
+# guard, which would look like a pass for the wrong reason.
+def _ref(**over):
+    base = {"id": "REF-1", "title": "t", "locations": ["a.c:1"],
+            "root_cause_key": "cmdi", "severity": "HIGH"}
+    base.update(over)
+    return base
+
+
 def test_reference_load_reports_unreadable_json(tmp_path):
     path = tmp_path / "refs.json"
     path.write_text("{not json")
     with pytest.raises(goldens.GoldenError, match="cannot read"):
-        goldens.load_references(path)
+        goldens.load_reference(path)
 
 
 def test_reference_load_requires_a_list(tmp_path):
     path = tmp_path / "refs.json"
     path.write_text('{"id": "REF-1"}')
     with pytest.raises(goldens.GoldenError, match="expected a list"):
-        goldens.load_references(path)
+        goldens.load_reference(path)
 
 
 def test_reference_load_names_the_index_of_the_bad_entry(tmp_path):
     path = tmp_path / "refs.json"
-    path.write_text('[{"id": "REF-1", "locations": ["a.c:1"], "severity": "HIGH",'
-                    ' "title": "t"}, {"id": "REF-2"}]')
+    path.write_text(json.dumps([_ref(), {"id": "REF-2"}]))
     with pytest.raises(goldens.GoldenError) as excinfo:
-        goldens.load_references(path)
+        goldens.load_reference(path)
     assert "[1]" in str(excinfo.value)
+    assert "missing" in str(excinfo.value)
 
 
 def test_reference_load_refuses_empty_locations(tmp_path):
+    """Every required key present, so this reaches the locations guard and
+    not the missing-key guard above it."""
     path = tmp_path / "refs.json"
-    path.write_text('[{"id": "REF-1", "locations": [], "severity": "HIGH",'
-                    ' "title": "t"}]')
+    path.write_text(json.dumps([_ref(locations=[])]))
     with pytest.raises(goldens.GoldenError, match="must be non-empty"):
-        goldens.load_references(path)
+        goldens.load_reference(path)
 ```
 
 The implementer reads `audit_core/goldens.py` for the exact required-key set and the names of the matches and rejections loaders, and adds the equivalent four tests for each of them (lines 60–63 and 81–82). **`tests/goldens/` is read-only — every fixture goes in `tmp_path`.**
 
 ```python
 # append to tests/test_identity.py
-from audit_core import identity
+from audit_core import db, identity
 
 
 def test_render_with_no_components_tells_the_operator_what_to_do():
@@ -1370,7 +1402,9 @@ def test_an_unreadable_file_is_skipped_not_fatal(tmp_path):
     bad.write_text("strcpy(dst, src);\n")
     bad.chmod(0o000)
     try:
-        result = sweep.run(tmp_path, pattern=r"strcpy", suffixes=(".c",))
+        # sweep.run(root, regex, *, pattern_id="", suffixes=None, max_hits=...)
+        # - `regex` is POSITIONAL, verified against audit_core/sweep.py:110.
+        result = sweep.run(tmp_path, r"strcpy", suffixes=(".c",))
         assert any("good.c" in hit.path for hit in result.hits)
     finally:
         bad.chmod(0o644)
@@ -1450,14 +1484,23 @@ from audit_core import extract
 
 
 def test_a_corrupt_manifest_is_reported_not_swallowed(tmp_path):
+    """extract.py:129-130. The class is ExtractStore(run_dir) and the public
+    accessor is .manifest(); _load() is private and .manifest() calls it."""
     run = tmp_path / "run"
     (run / "extract").mkdir(parents=True)
     (run / "extract" / "manifest.json").write_text("{not json")
     with pytest.raises(extract.ExtractError, match="is not valid JSON"):
-        extract.Extractor(run, tmp_path / "src").load_manifest()
+        extract.ExtractStore(run).manifest()
+
+
+def test_a_vanished_source_root_is_reported(tmp_path):
+    """extract.py:186 - SourceTree.assert_ready, not ExtractStore."""
+    missing = tmp_path / "gone"
+    with pytest.raises(extract.ExtractError, match="source root is gone"):
+        extract.SourceTree(missing).assert_ready()
 ```
 
-The implementer confirms each signature against the module before writing — `patterns.render`, `ceiling.render_linearity`, `extract.Extractor` and its manifest loader, `budget`'s stats entry point and `bench`'s row loop — and adjusts the call, never the assertion. The remaining four (budget 63 and 110, bench 108, extract 186) follow the same shape.
+`patterns.render(items)`, `ceiling.render_linearity(checks)`, `extract.ExtractStore(run_dir).manifest()` and `extract.SourceTree(root).assert_ready()` are verified. `budget`'s stats entry point and `bench`'s row loop are NOT — confirm those two against the module before writing, and adjust the call, never the assertion. The remaining three (budget 63 and 110, bench 108) follow the same shape.
 
 - [ ] **Step 2: Run the tests**
 
@@ -1618,6 +1661,13 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
 
 
 def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
+    # KNOWN LIMITATION: a chained comparison whose operators are identical
+    # (`a < b < c`) yields two Mutations with the same (lineno, col, before),
+    # hence the same label, and the transformer applies only the first. The
+    # second is a duplicate that can never be independently killed. Accepted:
+    # same-operator chains are rare, and de-duplicating by operator INDEX
+    # would complicate the transformer for a case audit_core does not contain.
+    # If a survivor's label is ambiguous, this is why.
     tree = ast.parse(source)
     skip = _docstring_nodes(tree)
     out: list[Mutation] = []
