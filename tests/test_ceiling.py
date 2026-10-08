@@ -103,3 +103,28 @@ def test_linearity_declines_to_judge_a_short_history():
     """ceiling.py:104 - refusing to model is a result, and it has a sentence."""
     out = ceiling.render_linearity([])
     assert out == "  linearity: no epoch long enough to judge the growth model"
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_linearity_judges_an_epoch_of_exactly_min_turns(tmp_path):
+    """ceiling.py:92. `turns < min_turns` skips only epochs SHORTER than the
+    minimum; one with exactly min_turns turns is long enough to judge."""
+    r = budget.analyze(T.parse(session(
+        tmp_path, [10_000 + 1_000 * i for i in range(20)])))
+    assert [c.turns for c in ceiling.linearity(r, min_turns=20)] == [20]
+    assert ceiling.linearity(r, min_turns=21) == []
+
+
+def test_linearity_skips_an_epoch_whose_mean_is_zero_not_divides_by_it():
+    """ceiling.py:92. The deviation divides by the measured mean, so a mean of
+    exactly 0 must be skipped. `<= 0` becoming `< 0` lets it through to a
+    ZeroDivisionError. linearity() reads only `.epochs`."""
+    import types
+    zero = budget.Epoch(index=0, turns=30, floor=0, peak=0, mean=0, total=0,
+                        growth_per_turn=0.0)
+    live = budget.Epoch(index=1, turns=30, floor=100, peak=200, mean=150,
+                        total=4500, growth_per_turn=100 / 29)
+    checks = ceiling.linearity(types.SimpleNamespace(epochs=[zero, live]),
+                               min_turns=20)
+    assert [c.epoch for c in checks] == [1]

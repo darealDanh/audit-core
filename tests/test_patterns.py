@@ -80,3 +80,20 @@ def test_render_with_nothing_registered_says_so_and_says_what_to_do():
     out = patterns.render([])
     assert out.startswith("patterns: none registered.")
     assert "audit.py put --table cba_patterns" in out
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_states_carry_the_name_and_origin_the_pattern_was_registered_with(tmp_path):
+    """patterns.py:52, 53. `x or ""` is a NULL guard; turned into `x and ""`
+    it would erase a set name and origin_finding. A NULL origin_finding must
+    still come back as the empty string."""
+    con = fresh(tmp_path)
+    (state,) = patterns.states(con)
+    assert state.name == "strncpy with strlen of source"
+    assert state.origin_finding == "G1-F1"
+
+    # name is NOT NULL in the schema; origin_finding is the nullable one.
+    db.put(con, "cba_patterns", {"id": "P2", "name": "bare", "regex": "memcpy"})
+    bare = next(s for s in patterns.states(con) if s.id == "P2")
+    assert bare.name == "bare" and bare.origin_finding == ""

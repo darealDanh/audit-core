@@ -127,3 +127,18 @@ def test_an_empty_key_or_text_is_refused(tmp_path):
         annotations.append(p, "  ", "semantics", "x")
     with pytest.raises(annotations.AnnotationError):
         annotations.append(p, "a", "semantics", "   ")
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_a_summary_of_exactly_the_limit_is_not_truncated(tmp_path):
+    """annotations.py:119. `len > SUMMARY_CHARS` cuts only what EXCEEDS the
+    limit; text of exactly SUMMARY_CHARS is kept whole, with no ellipsis, and
+    one character more is cut."""
+    p = journal(tmp_path)
+    annotations.append(p, "exact", "semantics", "y" * annotations.SUMMARY_CHARS)
+    annotations.append(p, "over", "semantics", "y" * (annotations.SUMMARY_CHARS + 1))
+    rows, _ = annotations.index(p)
+    by_key = {r.key: r.summary for r in rows}
+    assert by_key["exact"] == "y" * annotations.SUMMARY_CHARS
+    assert by_key["over"] == "y" * annotations.SUMMARY_CHARS + "…"

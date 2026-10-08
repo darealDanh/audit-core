@@ -189,3 +189,26 @@ def test_signal_names_its_column_and_excerpt_has_no_newlines():
     assert "\n" not in sig.evidence
     assert "[unauthenticated-reach in attacker_position]" in rerate.render((flag,))
     con.close()
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_excerpt_marks_a_cut_only_where_text_was_actually_cut():
+    """rerate.py:107. The trailing `...` means more text follows. When the
+    window reaches exactly the end of the text (`end == len(text)`) nothing
+    follows, so no ellipsis; one character further and there is."""
+    import re
+    from audit_core import rerate
+    reaches_end = "a" * 10 + "NEEDLE" + "b" * 10
+    m = re.search("NEEDLE", reaches_end)
+    out = rerate._excerpt(reaches_end, m)          # width 60: whole text fits
+    assert out == reaches_end
+    # Window end lands exactly on len(text): match.end() + 30 == len(text).
+    exact = "a" * 40 + "NEEDLE" + "b" * 30
+    m = re.search("NEEDLE", exact)
+    assert m.end() + 30 == len(exact)
+    assert not rerate._excerpt(exact, m).endswith("...")
+    # One character past it: the window stops one short of the end.
+    longer = exact + "c"
+    m = re.search("NEEDLE", longer)
+    assert rerate._excerpt(longer, m).endswith("...")

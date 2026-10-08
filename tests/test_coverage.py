@@ -406,3 +406,21 @@ def test_render_gate_says_pass_with_no_detail_lines_when_clean(con):
            {"unit": "a.c", "phase": "audit", "state": "analyzed"})
     g = coverage.gate(coverage.report(con, phase="audit"))
     assert coverage.render_gate(g) == "coverage gate: PASS"
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_the_gate_failure_names_the_phase_or_a_placeholder():
+    """coverage.py:258. The gate's recording hint names the phase it was run
+    for, and falls back to `<phase>` when the report is not phase-scoped.
+    `phase or '<phase>'` turned into `and` would print the placeholder never,
+    or blank the phase."""
+    def report(phase):
+        return coverage.CoverageReport(
+            inventoried=3, analyzed=1, not_audited=0, unrecorded=2,
+            by_reason=(), budget_skips=0, phase=phase)
+    scoped = coverage.gate(report("audit")).failures[0]
+    assert "--phase audit --state analyzed" in scoped
+    assert "<phase>" not in scoped
+    unscoped = coverage.gate(report(None)).failures[0]
+    assert "--phase <phase> --state analyzed" in unscoped

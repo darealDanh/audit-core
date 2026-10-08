@@ -278,3 +278,31 @@ def test_blank_lines_are_skipped(tmp_path):
               "\n   \n",
               B.assistant([{"type": "text", "text": "b"}], cache_read=2000))
     assert [x.context for x in T.parse(p).turns] == [1000, 2000]
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_the_session_id_is_the_first_one_the_file_names(tmp_path):
+    """transcript.py:139. `session_id or rec.get(...)` keeps the first
+    non-empty id: it is read when set, and a later record does not replace it.
+    Records with no id are passed over until one names it."""
+    first = B.line({"type": "user", "message": {"content": "no id yet"}})
+    named = B.assistant([{"type": "text", "text": "a"}])      # sessionId test-session
+    later = B.line({"type": "user", "sessionId": "other",
+                    "message": {"content": "later"}})
+    t = T.parse(write(tmp_path, first, named, later))
+    assert t.session_id == "test-session"
+
+
+def test_a_turn_carries_its_thinking_tokens(tmp_path):
+    """transcript.py:167. `details or {}` guards a missing details object;
+    turned into `and`, a present one is discarded and thinking reads 0."""
+    t = T.parse(write(tmp_path,
+                      B.assistant([{"type": "text", "text": "a"}],
+                                  cache_read=1000, output=50, thinking=37)))
+    assert [x.thinking for x in t.turns] == [37]
+    bare = B.line({"type": "assistant", "sessionId": "s", "message": {
+        "content": [{"type": "text", "text": "b"}],
+        "usage": {"input_tokens": 5, "output_tokens": 9}}})
+    t2 = T.parse(write(tmp_path, bare))
+    assert [x.thinking for x in t2.turns] == [0]

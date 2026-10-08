@@ -233,3 +233,40 @@ def test_a_vanished_source_root_is_reported(tmp_path):
     missing = tmp_path / "gone"
     with pytest.raises(extract.ExtractError, match="source root is gone"):
         extract.SourceTree(missing).assert_ready()
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_content_of_exactly_the_cap_is_kept_whole(tmp_path):
+    """extract.py:141. `len > MAX` truncates only what EXCEEDS the cap; a
+    snapshot of exactly MAX_UNIT_BYTES is stored byte for byte, unmarked."""
+    store = extract.ExtractStore(tmp_path / "run")
+    exact = b"a" * extract.MAX_UNIT_BYTES
+    rec = store.write("G1", "exact.js", exact)
+    assert rec.truncated is False
+    assert (tmp_path / "run" / "extract" / "G1" / "exact.js").read_bytes() == exact
+    over = store.write("G1", "over.js", exact + b"a")
+    assert over.truncated is True
+
+
+def test_the_pre_check_sees_this_units_names_and_only_this_units(tmp_path):
+    """extract.py:222. The batch pre-check builds `taken` from the manifest
+    rows of THIS unit. Two things follow, and each one fails under `!=`:
+
+    - an earlier run's claim in this unit refuses the whole later batch before
+      its first byte is written (not half-written, then refused at the store);
+    - a different source flattening to the same name in ANOTHER unit is not a
+      collision at all."""
+    root = tree(tmp_path, **{"src/osal/tss.c": "nested",
+                             "src/osal_tss.c": "flat", "good.c": "fine"})
+    store = extract.ExtractStore(tmp_path / "run")
+    backend = extract.SourceTree(root)
+    extract.extract_batch(store, backend, "G1", ["src/osal/tss.c"])
+
+    with pytest.raises(extract.ExtractError):
+        extract.extract_batch(store, backend, "G1", ["good.c", "src/osal_tss.c"])
+    assert store.items("G1") == ["src/osal/tss.c"], \
+        "the refused batch must write none of its items"
+
+    extract.extract_batch(store, backend, "G2", ["src/osal_tss.c"])
+    assert store.items("G2") == ["src/osal_tss.c"]

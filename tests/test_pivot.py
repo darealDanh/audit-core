@@ -236,3 +236,32 @@ def test_render_names_the_finding_observation_and_mechanism(tmp_path):
     assert "refuting mechanism: sliding-window flush" in out
     assert "--where id=7" in out
     assert "a lead, not a finding" in out
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_record_stores_the_severity_hint_location_and_rule_it_was_given(tmp_path):
+    """pivot.py:62, 63, 77. `x or ""` keeps x when it is set; turned into
+    `x and ""` it would blank the hint, the location, and (via the strip
+    guard) the rule - and nothing else in the suite looked at those columns."""
+    con = fresh(tmp_path)
+    p = pivot.record(
+        con, finding_id="G1-F1", group_id="G1",
+        mechanism="window flush", enables="attacker-sized length at recv.c:214",
+        rule_applied="HE-1", severity_hint="HIGH", location="src/recv.c:214")
+    obs = db.rows(con, "cba_security_observations",
+                  where={"id": str(p.observation_id)})[0]
+    assert obs["severity_hint"] == "HIGH"
+    assert obs["location"] == "src/recv.c:214"
+    verdict = db.rows(con, "cba_fp_verdicts", where={"finding_id": "G1-F1"})[0]
+    assert verdict["rule_applied"] == "HE-1"
+
+
+def test_record_leaves_the_rule_unset_when_none_was_given(tmp_path):
+    """pivot.py:77, the other half: a blank rule is omitted, not written."""
+    con = fresh(tmp_path)
+    pivot.record(con, finding_id="G1-F1", group_id="G1",
+                 mechanism="window flush", enables="nothing reachable",
+                 rule_applied="   ")
+    verdict = db.rows(con, "cba_fp_verdicts", where={"finding_id": "G1-F1"})[0]
+    assert verdict["rule_applied"] is None

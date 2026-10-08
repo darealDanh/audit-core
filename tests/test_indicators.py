@@ -417,3 +417,24 @@ def test_render_compare_omits_footer_when_everything_is_comparable():
         "a", "b", (indicators.Delta("surfaces", "5", "5", "unchanged"),))
     assert "not comparable" not in out
     assert out.split("\n")[-1].endswith("unchanged")
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_one_absent_side_is_enough_to_make_a_pair_not_comparable():
+    """indicators.py:232. `a absent OR b absent`: either side alone makes the
+    pair uncomparable, even when the absent entry carries a stray value that
+    happens to equal (or differ from) the other side's. Under `and`, such a
+    snapshot would be diffed as if the reading existed."""
+    absent_with_value = {"state": "absent", "value": 7, "note": "no table"}
+    present = {"state": "present", "value": 7}
+    forward = indicators.compare({"indicators": {"coverage": absent_with_value}},
+                                 {"indicators": {"coverage": present}})
+    assert forward[0].moved == "not comparable"
+    backward = indicators.compare({"indicators": {"coverage": present}},
+                                  {"indicators": {"coverage": absent_with_value}})
+    assert backward[0].moved == "not comparable"
+    shifted = indicators.compare(
+        {"indicators": {"coverage": {"state": "absent", "value": 5}}},
+        {"indicators": {"coverage": {"state": "present", "value": 7}}})
+    assert shifted[0].moved == "not comparable"

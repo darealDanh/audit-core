@@ -571,3 +571,125 @@ def test_nogo_footer_names_no_proven_rce_history(tmp_path):
     assert ("  NO-GO. The SKU has no proven RCE history inside the window, "
             "so there is little evidence it is worth auditing.") in out
     assert "strip-mined" not in out.split("NO-GO.")[1]
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def _score(**kw):
+    base = dict(vendor="x", model="y", rce_cves=3, slop_pct=0.0, max_cvss=9.8,
+                first_pub="2024-06-01", last_pub="2025-06-01",
+                top_source="psirt@x.z")
+    base.update(kw)
+    return qualify.Score(**base)
+
+
+def test_exactly_one_rce_cve_is_enough_for_proven_bad():
+    """qualify.py:179. The guard is `rce_cves < 1`. Task 4's test used 0, for
+    which `< 1` and `<= 1` agree, so it could not tell the boundary from one
+    step either side. 1 is the smallest count the filter must ACCEPT; under
+    `<= 1` it would be refused."""
+    r = qualify.filter_proven_bad(_score(rce_cves=1))
+    assert r.passed is True
+    assert r.reason.startswith("1 RCE CVE(s)")
+    zero = qualify.filter_proven_bad(_score(rce_cves=0))
+    assert zero.passed is False
+    assert zero.reason == "no RCE CVEs on record"
+
+
+def test_one_missing_date_is_refused_and_named_not_just_both():
+    """qualify.py:185. `not first or not last`: with `and`, a span with only
+    one end missing would fall through to the overlap test, where "" sorts
+    before every date and PASSES. Each end alone must fail closed, and the
+    reason must name which end is missing."""
+    no_first = qualify.filter_proven_bad(_score(first_pub=""))
+    assert no_first.passed is False
+    assert no_first.reason == ("CVE span (missing)..2025-06-01 does not "
+                               "reach 2024-01-01..2025-12-31")
+    no_last = qualify.filter_proven_bad(_score(last_pub=""))
+    assert no_last.passed is False
+    assert no_last.reason == ("CVE span 2024-06-01..(missing) does not "
+                              "reach 2024-01-01..2025-12-31")
+    neither = qualify.filter_proven_bad(_score(first_pub="", last_pub=""))
+    assert neither.reason == ("CVE span (missing)..(missing) does not "
+                              "reach 2024-01-01..2025-12-31")
+
+
+def test_the_window_edges_are_inclusive_on_both_sides():
+    """qualify.py:187. A span that starts ON the window's last day, or ends
+    ON its first day, touches the window and overlaps it."""
+    starts_on_end = qualify.filter_proven_bad(_score(
+        first_pub=qualify.WINDOW_END, last_pub="2026-03-01"))
+    assert starts_on_end.passed is True
+    ends_on_start = qualify.filter_proven_bad(_score(
+        first_pub="2023-01-01", last_pub=qualify.WINDOW_START))
+    assert ends_on_start.passed is True
+    # One day past either edge is outside it.
+    assert qualify.filter_proven_bad(_score(
+        first_pub="2026-01-01", last_pub="2026-03-01")).passed is False
+    assert qualify.filter_proven_bad(_score(
+        first_pub="2023-01-01", last_pub="2023-12-31")).passed is False
+
+
+def test_low_slop_reason_names_the_top_source_or_says_unknown():
+    """qualify.py:211."""
+    known = qualify.filter_low_slop(_score(top_source="psirt@x.z"))
+    assert known.reason == "3 CVEs at 0% VulDB, top source psirt@x.z"
+    unknown = qualify.filter_low_slop(_score(top_source=""))
+    assert unknown.reason == "3 CVEs at 0% VulDB, top source unknown"
+
+
+def test_max_cvss_bounds_zero_and_ten_are_kept(tmp_path):
+    """qualify.py:116. `0 <= max_cvss <= 10` is inclusive on both ends; a
+    CVSS of exactly 0.0 or 10.0 is a legal score, not a malformed one."""
+    rows = "\n".join([_row(model="zero", max_cvss="0"),
+                      _row(model="ten", max_cvss="10"),
+                      _row(model="over", max_cvss="10.01"),
+                      _row(model="under", max_cvss="-0.01")]) + "\n"
+    scores = qualify.load_scores(_csv(tmp_path, rows))
+    assert scores[("acme", "zero")].max_cvss == 0.0
+    assert scores[("acme", "ten")].max_cvss == 10.0
+    assert scores[("acme", "over")].max_cvss is None
+    assert scores[("acme", "under")].max_cvss is None
+
+
+def test_an_empty_file_is_reported_as_having_no_header(tmp_path):
+    """qualify.py:90. An empty file has no header at all, which is not the
+    same as a wrong one; and a wrong one must list what it found."""
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    with pytest.raises(qualify.QualifyError) as exc:
+        qualify.load_scores(empty)
+    assert "  found:    (no header)" in str(exc.value)
+
+    wrong = tmp_path / "wrong.csv"
+    wrong.write_text("alpha,beta\n")
+    with pytest.raises(qualify.QualifyError) as exc:
+        qualify.load_scores(wrong)
+    assert "  found:    alpha, beta" in str(exc.value)
+    assert "(no header)" not in str(exc.value)
+
+
+def test_render_flags_a_missing_score_only_when_it_is_missing(tmp_path):
+    """qualify.py:321. The parenthesised line is the render's own note; the
+    filters' reasons say something similar without parentheses, so only the
+    exact line tells the two cases apart."""
+    missing = qualify.qualify({}, "acme", "widget", True, GOOD_EVIDENCE)
+    assert "  (not in the scored target set)" in qualify.render(missing)
+    scores = _scores_for(tmp_path)
+    present = qualify.qualify(scores, "acme", "widget", True, GOOD_EVIDENCE)
+    assert present.go
+    assert "(not in the scored target set)" not in qualify.render(present)
+
+
+def test_nogo_footer_names_unsupported_only_when_supported_failed(tmp_path):
+    """qualify.py:350. The third footer sentence belongs to the `supported`
+    filter alone."""
+    scores = _scores_for(tmp_path)
+    unsupported = qualify.qualify(scores, "acme", "widget", False, "")
+    assert [f.name for f in unsupported.filters if not f.passed] == ["supported"]
+    out = qualify.render(unsupported)
+    assert "The SKU is not shown to be supported" in out
+    assert "strip-mined" not in out.split("NO-GO.")[1]
+    other = qualify.qualify(_scores_for(tmp_path, rce_cves="0"), "acme",
+                            "widget", True, GOOD_EVIDENCE)
+    assert "not shown to be supported" not in qualify.render(other)

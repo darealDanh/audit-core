@@ -293,3 +293,36 @@ def test_compose_insert_without_optional_columns_stores_null(con):
     row = db.rows(con, "cba_chains", where={"id": "C1"})[0]
     assert row["blocking_unknowns"] is None
     assert row["pre_auth"] is None
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_same_group_findings_are_not_proposed_even_when_they_share_enough(con):
+    """chains.py:162. test_two_findings_in_the_same_group_are_not_proposed
+    passes for a degenerate reason: its pair shares ONE token, under the
+    threshold, so it would be empty with or without the group rule. Here the
+    same-group pair shares three named things - the exact fixture that IS
+    proposed across groups - so only the group rule can keep it out."""
+    impact = ("leaks the session_token minted by klap_handshake2 out of the "
+              "cookie_jar to an unauthenticated caller")
+    position = ("holder of a session_token from klap_handshake2, present in "
+                "the cookie_jar")
+    finding(con, "G1-F1", "G1", impact=impact)
+    finding(con, "G1-F2", "G1", attacker_position=position)
+    assert chains._significant(impact) & chains._significant(position)
+    assert len(chains._significant(impact) & chains._significant(position)) \
+        >= chains.MIN_SHARED_TOKENS
+    assert chains.propose(con).candidates == ()
+    # The identical pair, one group apart, IS proposed.
+    finding(con, "G2-F1", "G2", attacker_position=position)
+    assert [(c.enabler, c.consumer) for c in chains.propose(con).candidates] \
+        == [("G1-F1", "G2-F1")]
+
+
+def test_a_finding_is_not_its_own_enabler(con):
+    """chains.py:162. One finding whose impact repeats its own precondition
+    would otherwise chain to itself."""
+    text_ = ("leaks the session_token minted by klap_handshake2 out of the "
+             "cookie_jar to an unauthenticated caller")
+    finding(con, "G1-F1", "G1", impact=text_, attacker_position=text_)
+    assert chains.propose(con).candidates == ()

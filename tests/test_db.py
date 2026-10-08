@@ -342,3 +342,40 @@ def test_duplicates_ranks_a_non_numeric_confidence_as_zero(con):
     assert pair.keep == "G2-F1" and pair.drop == "G1-F1"
     assert db._conf({"confidence": "high"}) == 0
     assert db._conf({"confidence": None}) == 0
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_identity_evidence_of_exactly_the_minimum_length_is_accepted():
+    """db.py:157. `len < MIN` accepts exactly MIN characters; `<=` would turn
+    the floor into 'more than 20'. 19 is refused, 20 is not."""
+    path = "src/a.c"
+    twenty = "offset 0x40: Wi-FiMAC"[:db.MIN_EVIDENCE_CHARS]
+    assert len(twenty) == db.MIN_EVIDENCE_CHARS
+    db.check_identity_evidence(path, twenty)
+    with pytest.raises(db.DbError, match="19 characters"):
+        db.check_identity_evidence(path, twenty[:-1])
+
+
+def test_replace_does_not_bind_a_stored_null_over_the_columns_default(con):
+    """db.py:419. The merge keeps a stored value for a column the caller did
+    not name, but a stored NULL is left out so the column's DEFAULT applies on
+    re-insert. With `and` turned into `or`, the NULL is carried over and bound,
+    and the default is lost."""
+    db.put(con, "cba_findings", dict(FINDING))
+    con.execute("UPDATE cba_findings SET verified = NULL WHERE id = 'G1-F1'")
+    assert db.rows(con, "cba_findings", columns=("verified",))[0][0] is None
+    db.put(con, "cba_findings", dict(FINDING) | {"severity": "LOW"},
+           replace=True)
+    (row,) = db.rows(con, "cba_findings", columns=("severity", "verified"))
+    assert row["severity"] == "LOW"
+    assert row["verified"] == "source-only"
+
+
+def test_duplicates_tie_on_confidence_keeps_the_earlier_finding(con):
+    """db.py:570. Equal confidence is a tie, and a tie resolves to the earlier
+    id (rows are ordered by id), not to whichever is listed second."""
+    db.put(con, "cba_findings", dict(FINDING))
+    db.put(con, "cba_findings", dict(FINDING) | {"id": "G2-F3", "group_id": "G2"})
+    (pair,) = db.duplicates(con)
+    assert (pair.keep, pair.drop) == ("G1-F1", "G2-F3")

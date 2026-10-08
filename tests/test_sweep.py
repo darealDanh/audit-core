@@ -289,3 +289,26 @@ def test_a_symlinked_file_is_not_followed(tmp_path):
     result = sweep.run(root, "needle")
     assert [h.path for h in result.hits] == ["a.c"]
     assert result.files_scanned == 1
+
+
+# --- Stage 3c Task 15: boundaries the first mutation sweep found unpinned ----
+
+def test_a_file_of_exactly_the_size_cap_is_scanned_not_skipped(tmp_path):
+    """sweep.py:94. `size > MAX` skips only what EXCEEDS the cap; a file of
+    exactly MAX_FILE_BYTES is scanned. The existing oversized test sits one
+    byte over, which `>=` would also skip - it cannot see this edge."""
+    body = "needle " + "x" * (sweep.MAX_FILE_BYTES - len("needle "))
+    assert len(body) == sweep.MAX_FILE_BYTES
+    root = tree(tmp_path / "src", **{"edge.js": body})
+    r = sweep.run(root, "needle")
+    assert [h.path for h in r.hits] == ["edge.js"]
+    assert r.files_skipped_large == 0
+
+
+def test_render_headline_names_the_pattern_or_says_unrecorded(tmp_path):
+    """sweep.py:171."""
+    root = tree(tmp_path / "src", **{"a.c": "needle\n"})
+    named = sweep.render(sweep.run(root, "needle", pattern_id="P7"))
+    assert named.splitlines()[0] == "sweep P7: 1 hit(s) in 1 file(s)"
+    anon = sweep.render(sweep.run(root, "needle"))
+    assert anon.splitlines()[0] == "sweep (unrecorded): 1 hit(s) in 1 file(s)"
