@@ -65,9 +65,9 @@ def test_boolop_swap_is_applied():
 
 
 def test_constant_operators_cover_bool_int_str():
-    muts = mutate.enumerate_mutations("A = True\nB = 5\nC = 'x'\n", "m.py")
+    muts = mutate.enumerate_mutations("A = True\nB = 5\nC = 'x y'\n", "m.py")
     got = {(m.before, m.after) for m in muts if m.operator == "constant"}
-    assert got == {("True", "False"), ("5", "6"), ("'x'", "''")}
+    assert got == {("True", "False"), ("5", "6"), ("'x y'", "''")}
 
 
 def test_empty_string_is_not_mutated():
@@ -94,9 +94,9 @@ def test_no_docstring_kind_is_mutated():
 
 
 def test_non_docstring_string_is_still_mutated():
-    muts = mutate.enumerate_mutations('def f():\n    x = "keep"\n    return x\n',
+    muts = mutate.enumerate_mutations('def f():\n    x = "keep me"\n    return x\n',
                                       "m.py")
-    assert any(m.before == "'keep'" for m in muts)
+    assert any(m.before == "'keep me'" for m in muts)
 
 
 SAMPLE = '''"""Doc."""
@@ -134,3 +134,9 @@ def test_nested_boolops_sharing_a_position_each_apply():
     assert len(outs) == 2
     assert all(o != mutate.apply_mutation(source, mutate.Mutation(
         "m.py", 1, 0, "none", "", "")) for o in outs)
+
+
+def test_only_prose_like_strings_are_mutated():
+    prose = mutate.enumerate_mutations('M = "not a valid state"\n', "m.py")
+    assert any(m.operator == "constant" and m.after == "''" for m in prose)
+    assert mutate.enumerate_mutations('K = "struct"\n', "m.py") == ()

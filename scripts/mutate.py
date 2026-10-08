@@ -60,6 +60,10 @@ def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
     # second is a duplicate that can never be independently killed. Accepted:
     # same-operator chains are rare, and de-duplicating by operator INDEX
     # would complicate the transformer for a case audit_core does not contain.
+    # The same applies to a nested Compare that shares both its operator and
+    # its start position with its parent (`(a < b) < c`): the transformer can
+    # hit the wrong one. The fix is operator-index tracking; not done because
+    # audit_core does not contain the shape.
     # If a survivor's label is ambiguous, this is why.
     tree = ast.parse(source)
     skip = _docstring_nodes(tree)
@@ -87,7 +91,14 @@ def enumerate_mutations(source: str, module: str) -> tuple[Mutation, ...]:
             elif isinstance(value, int):
                 out.append(Mutation(module, node.lineno, node.col_offset,
                                     "constant", repr(value), repr(value + 1)))
-            elif isinstance(value, str) and value:
+            elif isinstance(value, str) and " " in value:
+                # Only prose-like strings (containing a space) are mutated.
+                # Short space-free tokens - dict keys, enum values, file
+                # names, format specifiers - break code loudly when blanked,
+                # so the mutant comes back killed/error and says nothing about
+                # test quality. Human-facing messages are what tests assert
+                # on, so mutating them is the highest-signal string mutation.
+                # A space is a cheap, explainable proxy for prose.
                 out.append(Mutation(module, node.lineno, node.col_offset,
                                     "constant", repr(value), "''"))
     return tuple(out)
