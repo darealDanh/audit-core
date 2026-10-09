@@ -23,6 +23,7 @@ harness-*.json
 # Per-plan workspaces under .superpowers/sdd/<plan>/; git history is the
 # durable record, these are working notes.
 .superpowers/
+.worktrees/
 
 # Mutation sweep resume state (scripts/mutate.py checkpoints here)
 .mutate-state.json*
