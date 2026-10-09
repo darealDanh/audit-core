@@ -6,8 +6,8 @@ Image id: {image_id}
 
 ## Assignment
 
-Validate and enrich the firmware inventory already recorded by `audit.py
-triage`. The script recorded regular files, ELF facts, and services that have a
+Validate and enrich the firmware inventory already recorded by the triage
+recorder. The script recorded regular files, ELF facts, and services that have a
 statically visible boot-start line. Read from the carved rootfs and write all
 structured results to `{run_dir}/audit.db`.
 
