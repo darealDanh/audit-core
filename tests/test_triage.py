@@ -39,7 +39,7 @@ def carved_tree(tmp_path):
 def test_run_inventories_regular_files_and_elf_facts(con, tmp_path):
     root = carved_tree(tmp_path)
     summary = triage.run(con, root)
-    assert summary == triage.TriageSummary(4, 1, 0)
+    assert summary == triage.TriageSummary(4, 1, 1)
     rows = [dict(row) for row in db.rows(
         con, "cba_inventory", columns=("unit", "kind", "size"))]
     assert {(r["unit"], r["kind"]) for r in rows} == {
@@ -119,3 +119,44 @@ def test_allow_no_elf_records_nonempty_tree(con, tmp_path):
     (root / "README").write_text("RTOS image listing\n")
     assert triage.run(con, root, allow_no_elf=True) == triage.TriageSummary(1, 0, 0)
     assert db.rows(con, "cba_inventory", columns=("unit",))[0][0] == "README"
+
+
+def service_tree(tmp_path):
+    root = tmp_path / "service-root"
+    for directory in ("bin", "sbin", "usr/bin", "usr/sbin", "etc/init.d", "etc/rc.d"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    for executable in ("bin/core", "sbin/getty", "usr/bin/beta", "usr/sbin/alpha"):
+        (root / executable).write_bytes(minimal_elf())
+    (root / "etc/init.d/S20alpha").write_text(
+        "#!/bin/sh\n# /usr/sbin/commented must not count\n/usr/sbin/alpha -d\n")
+    (root / "etc/inittab").write_text("ttyS0::respawn:/sbin/getty -L ttyS0 115200\n")
+    (root / "etc/rc.d/S30beta").write_text("#!/bin/sh\n/usr/bin/beta --start\n")
+    (root / "etc/rc.local").write_text(
+        "start guessed-daemon\n/usr/sbin/alpha --duplicate\n/../../outside\n")
+    return root
+
+
+def test_run_records_boot_services_with_exact_evidence(con, tmp_path):
+    root = service_tree(tmp_path)
+    db.put(con, "cba_images", {
+        "id": "acme|r1|target", "vendor": "acme", "model": "r1",
+        "version": "1", "role": "target", "path": "/fw.bin", "sha256": "ab"})
+    summary = triage.run(con, root, image_id="acme|r1|target")
+    assert summary.service_count == 3
+    services = {row["name"]: dict(row) for row in db.rows(con, "cba_services")}
+    assert set(services) == {"alpha", "beta", "getty"}
+    assert services["alpha"]["start_source"] == "etc/init.d/S20alpha"
+    assert services["alpha"]["exec_path"] == "usr/sbin/alpha"
+    assert services["alpha"]["evidence"] == "/usr/sbin/alpha -d"
+    assert services["alpha"]["image_id"] == "acme|r1|target"
+    assert services["alpha"]["ports"] is None
+    assert services["alpha"]["ports_evidence"] is None
+    assert services["getty"]["evidence"] == "ttyS0::respawn:/sbin/getty -L ttyS0 115200"
+
+
+def test_duplicate_service_keeps_first_sorted_source(con, tmp_path):
+    root = service_tree(tmp_path)
+    triage.run(con, root)
+    alpha = dict(db.rows(con, "cba_services", where={"name": "alpha"})[0])
+    assert alpha["start_source"] == "etc/init.d/S20alpha"
+    assert alpha["evidence"] == "/usr/sbin/alpha -d"

@@ -5,6 +5,7 @@ import dataclasses
 import hashlib
 import os
 import pathlib
+import re
 import sqlite3
 import stat
 
@@ -63,6 +64,53 @@ def _kind(path: pathlib.Path, relative: str,
     return "file"
 
 
+_ABSOLUTE_EXEC = re.compile(r"(?<![A-Za-z0-9_.-])(/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)")
+
+
+def _boot_sources(root: pathlib.Path) -> list[pathlib.Path]:
+    candidates: list[pathlib.Path] = []
+    for directory in (root / "etc/init.d", root / "etc/rc.d"):
+        if directory.is_dir():
+            candidates.extend(
+                path for path in directory.iterdir()
+                if path.is_file() and not path.is_symlink())
+    for path in (root / "etc/inittab", root / "etc/rc.local"):
+        if path.is_file() and not path.is_symlink():
+            candidates.append(path)
+    return sorted(candidates, key=lambda path: path.relative_to(root).as_posix())
+
+
+def _services(root: pathlib.Path) -> list[dict[str, str]]:
+    root_resolved = root.resolve()
+    found: dict[str, dict[str, str]] = {}
+    for source in _boot_sources(root):
+        try:
+            lines = source.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            evidence = raw_line.strip()
+            if not evidence or evidence.startswith("#"):
+                continue
+            match = _ABSOLUTE_EXEC.search(evidence)
+            if match is None:
+                continue
+            claimed = match.group(1)
+            executable = (root_resolved / claimed.lstrip("/")).resolve()
+            if not executable.is_relative_to(root_resolved) or not executable.is_file():
+                continue
+            name = executable.name
+            if name in found:
+                continue
+            found[name] = {
+                "name": name,
+                "start_source": source.relative_to(root).as_posix(),
+                "exec_path": executable.relative_to(root_resolved).as_posix(),
+                "evidence": evidence,
+            }
+    return list(found.values())
+
+
 def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         image_id: str | None = None,
         allow_no_elf: bool = False) -> TriageSummary:
@@ -119,4 +167,9 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             row["runpath"] = facts.runpath
         db.put(con, "cba_binfacts", row, replace=True)
         elf_count += 1
-    return TriageSummary(inventory_count, elf_count, 0)
+    services = _services(root_path)
+    for service in services:
+        if image_id is not None:
+            service["image_id"] = image_id
+        db.put(con, "cba_services", service, replace=True)
+    return TriageSummary(inventory_count, elf_count, len(services))
