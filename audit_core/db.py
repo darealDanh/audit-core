@@ -24,11 +24,14 @@ VERDICTS = ("TRUE_POSITIVE", "FALSE_POSITIVE", "DUPLICATE", "NEEDS_VERIFICATION"
 COVERAGE_STATES = ("analyzed", "not_audited")
 NOT_AUDITED_REASONS = ("budget", "out-of-scope", "generated", "vendored",
                        "third-party", "unreachable", "binary-only")
-INVENTORY_KINDS = ("file", "function", "endpoint", "binary")
+INVENTORY_KINDS = ("file", "function", "endpoint", "binary", "script", "config")
 CHECKPOINT_REASONS = ("phase-exit", "ceiling", "manual")
 COMPONENT_KINDS = ("source-tree", "binary", "library", "firmware-image",
                    "service", "config")
 CHAIN_COMPLETENESS = ("complete", "partial", "blocked")
+IMAGE_ROLES = ("target", "diff-reference")
+TRISTATE = ("yes", "no", "unknown")
+RELRO_STATES = ("full", "partial", "none", "unknown")
 
 # Columns added to tables that already existed when an earlier stage shipped.
 # `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
@@ -208,6 +211,24 @@ def _validate_chain(row: dict[str, str]) -> None:
         raise DbError(f"finding_ids repeats an id: {', '.join(ids)}")
 
 
+def _validate_binfacts(row: dict[str, str]) -> None:
+    for column in ("nx", "pie", "canary", "stripped", "static"):
+        value = row.get(column)
+        if value is not None and value not in TRISTATE:
+            raise DbError(f"{column}={value!r} is not one of {', '.join(TRISTATE)}")
+    relro = row.get("relro")
+    if relro is not None and relro not in RELRO_STATES:
+        raise DbError(f"relro={relro!r} is not one of {', '.join(RELRO_STATES)}")
+
+
+def _validate_service(row: dict[str, str]) -> None:
+    ports = str(row.get("ports", "") or "").strip()
+    evidence = str(row.get("ports_evidence", "") or "").strip()
+    if ports and not evidence:
+        raise DbError("ports requires ports_evidence naming how the listening "
+                      "port was established")
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -273,6 +294,22 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "completeness", "blocking_unknowns", "created_at"),
         required=("id", "finding_ids", "attacker_position", "completeness"),
         validate=_validate_chain),
+    "cba_images": TableSpec(
+        columns=("id", "vendor", "model", "version", "role", "path", "sha256",
+                 "size", "source", "acquired_at"),
+        required=("id", "vendor", "model", "version", "role", "path", "sha256"),
+        validate=one_of("role", IMAGE_ROLES)),
+    "cba_binfacts": TableSpec(
+        columns=("path", "image_id", "machine", "bits", "endian", "elf_type",
+                 "interp", "needed", "runpath", "nx", "pie", "relro", "canary",
+                 "stripped", "static", "sha256", "recorded_at"),
+        required=("path", "machine", "bits", "endian", "elf_type"),
+        validate=_validate_binfacts),
+    "cba_services": TableSpec(
+        columns=("name", "image_id", "start_source", "exec_path", "evidence",
+                 "ports", "ports_evidence", "recorded_at"),
+        required=("name", "start_source", "evidence"),
+        validate=_validate_service),
 }
 
 

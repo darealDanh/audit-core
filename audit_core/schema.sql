@@ -128,3 +128,47 @@ CREATE TABLE IF NOT EXISTS cba_chains (
     completeness TEXT NOT NULL,
     blocking_unknowns TEXT,
     created_at TEXT DEFAULT (datetime('now')));
+
+-- Stage 4b additions. These are new tables, so the idempotent schema
+-- application adds them to existing runs without a column migration.
+
+CREATE TABLE IF NOT EXISTS cba_images (
+    id TEXT PRIMARY KEY,
+    vendor TEXT NOT NULL,
+    model TEXT NOT NULL,
+    version TEXT NOT NULL,
+    role TEXT NOT NULL,
+    path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size INTEGER,
+    source TEXT,
+    acquired_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_binfacts (
+    path TEXT PRIMARY KEY,
+    image_id TEXT,
+    machine TEXT NOT NULL,
+    bits INTEGER NOT NULL,
+    endian TEXT NOT NULL,
+    elf_type TEXT NOT NULL,
+    interp TEXT,
+    needed TEXT,
+    runpath TEXT,
+    nx TEXT,
+    pie TEXT,
+    relro TEXT,
+    canary TEXT,
+    stripped TEXT,
+    static TEXT,
+    sha256 TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_services (
+    name TEXT PRIMARY KEY,
+    image_id TEXT,
+    start_source TEXT NOT NULL,
+    exec_path TEXT,
+    evidence TEXT NOT NULL,
+    ports TEXT,
+    ports_evidence TEXT,
+    recorded_at TEXT DEFAULT (datetime('now')));

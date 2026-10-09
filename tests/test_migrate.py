@@ -135,25 +135,20 @@ def test_connect_succeeds_once_the_missing_columns_are_migrated(tmp_path):
     db.connect(run / "audit.db").close()
 
 
-def test_migrate_closes_every_column_gap_the_connect_gate_would_reject(tmp_path):
-    """Review Focus 2: the gate must never reject a column migrate() cannot
-    repair. MIGRATIONS and TABLE_SPECS are built independently, and nothing
-    but this test keeps them in lockstep -- add a TABLE_SPECS column with no
-    MIGRATIONS entry, and connect() rejects every pre-Stage-3 database with
-    a remedy (`audit.py init --timestamp <ts>`) that runs clean, exits 0,
-    and repairs nothing; the user's only escape would be hand-editing
-    SQLite.
+def test_apply_schema_closes_every_gap_the_connect_gate_would_reject(tmp_path):
+    """The remedy printed by connect() must add both tables and columns.
 
-    Every table TABLE_SPECS declares is present in FULL_PRE_STAGE3_SQL, so
-    connect()'s table check cannot be what makes this pass or fail -- only
-    the column check, and only migrate(), are under test here.
+    New tables come from schema.sql; columns added to previously shipped
+    tables come from MIGRATIONS. Applying only either half leaves a real old
+    run unusable once both kinds of change exist.
     """
     old = tmp_path / "old.db"
     con = sqlite3.connect(old)
     con.executescript(FULL_PRE_STAGE3_SQL)
     con.commit()
-    db.migrate(con)
     con.close()
+
+    workspace.apply_schema(old)
 
     db.connect(old).close()
 

@@ -100,19 +100,21 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
         try:
             con.executescript(workspace_mod.BASELINE_PATH.read_text())
             con.commit()
-            db_mod.migrate(con)
         except Exception as exc:                       # noqa: BLE001
-            problems.append(f"the pre-Stage-3 baseline does not migrate: {exc}")
+            problems.append(f"the pre-Stage-3 baseline cannot be created: {exc}")
         finally:
             con.close()
+        try:
+            workspace_mod.apply_schema(old_db)
+        except Exception as exc:                       # noqa: BLE001
+            problems.append(f"the pre-Stage-3 baseline does not upgrade: {exc}")
         try:
             db_mod.connect(old_db).close()
         except db_mod.DbError as exc:
             problems.append(
                 f"a migrated pre-Stage-3 database is still rejected by "
-                f"connect(): {exc} -- add the missing column(s) to "
-                f"db.MIGRATIONS; adding them to schema.sql alone repairs "
-                f"nothing on a database that already exists")
+                f"connect(): {exc} -- add new tables to schema.sql and new "
+                f"columns on shipped tables to db.MIGRATIONS")
 
     if problems:
         print(f"selftest: {len(problems)} inconsistenc(ies)", file=sys.stderr)
@@ -123,8 +125,8 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     print(f"  verbs  {len(HANDLERS)} declared, all dispatchable")
     print(f"  tables {len(tables)} in schema.sql, "
           f"{len(db_mod.TABLE_SPECS)} under contract, columns agree")
-    print(f"  migrations {len(db_mod.MIGRATIONS)} applied to the pre-Stage-3 "
-          f"baseline, result accepted by connect()")
+    print(f"  migrations {len(db_mod.MIGRATIONS)} plus current schema applied "
+          f"to the pre-Stage-3 baseline, result accepted by connect()")
     return 0
 
 
