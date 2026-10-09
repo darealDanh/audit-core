@@ -75,11 +75,19 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         if not found:
             raise TriageError(f"image_id {image_id!r} is not recorded in cba_images")
 
+    files = _regular_files(root_path)
+    if not files:
+        raise TriageError(f"{root_path} contains no regular files")
+    discovered = [(path, elf.read(path)) for path in files]
+    discovered_elfs = sum(facts is not None for _, facts in discovered)
+    if discovered_elfs == 0 and not allow_no_elf:
+        raise TriageError(f"{root_path} contains zero ELF binaries; pass "
+                          "--allow-no-elf only for a confirmed non-ELF image")
+
     inventory_count = 0
     elf_count = 0
-    for path in _regular_files(root_path):
+    for path, facts in discovered:
         relative = path.relative_to(root_path).as_posix()
-        facts = elf.read(path)
         db.put(con, "cba_inventory", {
             "unit": relative,
             "kind": _kind(path, relative, facts),

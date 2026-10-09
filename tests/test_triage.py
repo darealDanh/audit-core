@@ -88,3 +88,34 @@ def test_run_attaches_valid_image_id_to_binfacts(con, tmp_path):
     triage.run(con, root, image_id="acme|r1|target")
     assert db.rows(con, "cba_binfacts", columns=("image_id",))[0][0] == (
         "acme|r1|target")
+
+
+def assert_triage_tables_empty(con):
+    for table in ("cba_inventory", "cba_binfacts", "cba_services"):
+        assert db.rows(con, table) == []
+
+
+@pytest.mark.parametrize("allow_no_elf", [False, True])
+def test_run_refuses_empty_tree_before_any_write(con, tmp_path, allow_no_elf):
+    root = tmp_path / "empty-root"
+    root.mkdir()
+    with pytest.raises(triage.TriageError, match="no regular files"):
+        triage.run(con, root, allow_no_elf=allow_no_elf)
+    assert_triage_tables_empty(con)
+
+
+def test_run_refuses_zero_elf_tree_without_override_before_any_write(con, tmp_path):
+    root = tmp_path / "rootfs"
+    (root / "etc").mkdir(parents=True)
+    (root / "etc" / "config").write_text("setting=yes\n")
+    with pytest.raises(triage.TriageError, match="zero ELF"):
+        triage.run(con, root)
+    assert_triage_tables_empty(con)
+
+
+def test_allow_no_elf_records_nonempty_tree(con, tmp_path):
+    root = tmp_path / "rootfs"
+    root.mkdir()
+    (root / "README").write_text("RTOS image listing\n")
+    assert triage.run(con, root, allow_no_elf=True) == triage.TriageSummary(1, 0, 0)
+    assert db.rows(con, "cba_inventory", columns=("unit",))[0][0] == "README"
