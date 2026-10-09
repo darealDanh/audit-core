@@ -36,6 +36,8 @@ from audit_core import indicators as indicators_mod  # noqa: E402
 from audit_core import rerate as rerate_mod  # noqa: E402
 from audit_core import qualify as qualify_mod  # noqa: E402
 from audit_core import readings as readings_mod  # noqa: E402
+from audit_core import acquire as acquire_mod  # noqa: E402
+from audit_core import triage as triage_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -285,6 +287,49 @@ def cmd_qualify(args: argparse.Namespace) -> int:
     else:
         print(qualify_mod.render(q))
     return 0 if q.go else 1
+
+
+def cmd_acquire(args: argparse.Namespace) -> int:
+    con = _open_db(str(pathlib.Path(args.run).expanduser() / "audit.db"))
+    if con is None:
+        return 1
+    try:
+        result = acquire_mod.record(
+            con, vendor=args.vendor, model=args.model, version=args.version,
+            role=args.role, path=pathlib.Path(args.file).expanduser(),
+            source=args.source, replace=args.replace)
+    except (acquire_mod.AcquireError, db_mod.DbError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(result), indent=2))
+    else:
+        print(f"acquire recorded {result.id}: {result.size} bytes, "
+              f"sha256 {result.sha256}")
+    return 0
+
+
+def cmd_triage(args: argparse.Namespace) -> int:
+    con = _open_db(str(pathlib.Path(args.run).expanduser() / "audit.db"))
+    if con is None:
+        return 1
+    try:
+        result = triage_mod.run(
+            con, pathlib.Path(args.root).expanduser(), image_id=args.image_id,
+            allow_no_elf=args.allow_no_elf)
+    except (triage_mod.TriageError, db_mod.DbError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(result), indent=2))
+    else:
+        print(f"triage recorded {result.inventory_count} file(s), "
+              f"{result.elf_count} ELF(s), {result.service_count} service(s)")
+    return 0
 
 
 def cmd_indicators(args: argparse.Namespace) -> int:
@@ -897,6 +942,8 @@ HANDLERS = {
     "indicators": cmd_indicators,
     "rerate": cmd_rerate,
     "qualify": cmd_qualify,
+    "acquire": cmd_acquire,
+    "triage": cmd_triage,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -954,6 +1001,25 @@ def build_parser() -> argparse.ArgumentParser:
                          "--supported yes the gate demands it and answers "
                          "NO-GO without it")
     ql.add_argument("--json", action="store_true")
+    acq = sub.add_parser(
+        "acquire", help="record provenance for a local firmware image")
+    acq.add_argument("--run", required=True, metavar="RUN_DIR")
+    acq.add_argument("--vendor", required=True)
+    acq.add_argument("--model", required=True)
+    acq.add_argument("--version", required=True)
+    acq.add_argument("--role", required=True, choices=db_mod.IMAGE_ROLES)
+    acq.add_argument("--file", required=True, metavar="IMAGE")
+    acq.add_argument("--source", required=True,
+                     help="where the local image came from")
+    acq.add_argument("--replace", action="store_true")
+    acq.add_argument("--json", action="store_true")
+    trg = sub.add_parser(
+        "triage", help="inventory an already-carved firmware rootfs")
+    trg.add_argument("--run", required=True, metavar="RUN_DIR")
+    trg.add_argument("--root", required=True, metavar="CARVED_ROOTFS")
+    trg.add_argument("--image-id", default=None)
+    trg.add_argument("--allow-no-elf", action="store_true")
+    trg.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
