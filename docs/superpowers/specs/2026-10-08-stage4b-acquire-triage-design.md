@@ -1,6 +1,6 @@
 # Stage 4b — `acquire` and `triage`, the slice that owns a firmware run
 
-**Status:** design approved 2026-10-08, not yet planned.
+**Status:** implemented on `stage4b/acquire-triage` 2026-10-12; whole-branch review pending.
 **Derives from:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md)
 §4 (the `firmware-audit` phase table, rows `acquire` and `triage`), §3.4 (state
 model), §3.3 (core boundary) and §5 (the economics contract);

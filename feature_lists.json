@@ -1,9 +1,9 @@
 {
   "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
   "project": "codebase-audit",
-  "generated": "2026-10-07",
+  "generated": "2026-10-12",
   "schema_version": 1,
-  "head": "3aaebb5",
+  "head": "c3f1171",
   "status_enum": [
     "shipped",
     "held",
@@ -71,11 +71,18 @@
       "summary": "Two instruments, no audit behaviour change. A sys.monitoring coverage gate with an allowlist (115 unexecuted of 2,392 statements to 0) and an opt-in mutation harness (1068 mutants, 66.3% killed) that finds tests which execute a line while asserting nothing about it. Added tests and tooling only; claims no movement in recall or precision."
     },
     {
+      "id": "stage4b",
+      "name": "acquire and triage - firmware provenance and inventory",
+      "status": "shipped",
+      "gate": "none - no audit run; unit, corpus consistency, and existing read-only benchmark checks",
+      "summary": "The second vertical slice of firmware-audit. Records two firmware-image roles, inventories an already-carved rootfs, reads bounded ELF facts, discovers evidenced boot services, and ships the triage agent brief. It does not fetch, carve, diff, infer open ports, or create the separate firmware-audit skill tree."
+    },
+    {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices because eleven phases is not one plan: the first slice (qualify) shipped as stage4a; the remaining ten firmware-audit phases follow in later slices. The asus golden exists to guard against overfitting to tplink."
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices because eleven phases is not one plan: qualify shipped as stage4a and acquire plus triage shipped as stage4b; the remaining eight phases follow in later slices. The asus golden exists to guard against overfitting to tplink."
     },
     {
       "id": "stage5",
@@ -744,6 +751,77 @@
         "docs/superpowers/specs/2026-10-08-stage3c-core-hardening-design.md"
       ],
       "notes": "AST mutation over temp copies of the tree, finding tests that execute a line while asserting nothing that depends on it. Opt-in: in GATES, in neither DEFAULT nor ALL_EXTRA, because ci.yml runs --all across three Python versions and the sweep takes about an hour. Run with make mutate."
+    },
+    {
+      "id": "firmware-elf-reader",
+      "name": "Bounded, three-state ELF fact reader",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4b",
+      "modules": [
+        "audit_core/elf.py"
+      ],
+      "tests": [
+        "tests/test_elf.py",
+        "tests/test_triage_corpus.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
+      ],
+      "notes": "Pure stdlib ELF reader for architecture, linkage, dependencies and mitigations. Malformed offsets and partial tables return None or unknown facts rather than aborting a rootfs walk."
+    },
+    {
+      "id": "firmware-acquire",
+      "name": "Firmware image provenance recorder",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage4b",
+      "verbs": [
+        "acquire"
+      ],
+      "modules": [
+        "audit_core/acquire.py",
+        "audit_core/db.py",
+        "audit_core/schema.sql"
+      ],
+      "tests": [
+        "tests/test_acquire.py",
+        "tests/test_cli_stage4b.py",
+        "tests/test_firmware_schema.py"
+      ],
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
+      ],
+      "notes": "Hashes and records a local target or diff-reference image. It never fetches, copies, carves, or alters firmware. Duplicate roles fail closed unless replace is explicit."
+    },
+    {
+      "id": "firmware-triage",
+      "name": "Carved-rootfs inventory and evidenced boot services",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage4b",
+      "verbs": [
+        "triage",
+        "brief"
+      ],
+      "modules": [
+        "audit_core/triage.py",
+        "audit_core/elf.py",
+        "audit_core/db.py",
+        "audit_core/schema.sql"
+      ],
+      "tests": [
+        "tests/test_triage.py",
+        "tests/test_triage_corpus.py",
+        "tests/test_triage_brief.py",
+        "tests/test_cli_stage4b.py",
+        "tests/test_firmware_schema.py"
+      ],
+      "docs": [
+        "references/briefs/triage-brief.md",
+        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
+      ],
+      "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks are excluded; ports remain agent-asserted and require evidence."
     }
   ],
   "open_items": [
@@ -810,8 +888,11 @@
     {
       "id": "main-unpushed",
       "severity": "medium",
-      "summary": "main is 84 commits ahead of origin/main and has never been pushed; origin is unreachable from this machine.",
-      "note": "All three completed stages exist only in this working copy. git pull fails with an access-rights error."
+      "summary": "main had not been pushed and origin was unreachable from the development machine.",
+      "note": "Rechecked 2026-10-12: git rev-list --left-right --count origin/main...main reports 0 0.",
+      "destination": "repository synchronization",
+      "status": "closed",
+      "closed_in": "stage3c"
     },
     {
       "id": "severity-agreement-not-scored",
@@ -958,6 +1039,16 @@
       ],
       "note": "Seven hollow tests were caught during Stage 3c and several were in the instruments themselves. Found by the Stage 3c whole-branch review; widening the gates was judged a stage of work, so it is recorded rather than done.",
       "destination": "a later hardening stage"
+    },
+    {
+      "id": "binfacts-path-key-collision",
+      "severity": "high",
+      "summary": "cba_binfacts and cba_services use root-relative path or service name as their primary key, so triaging two carved images into one run can overwrite rows from the first image.",
+      "docs": [
+        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
+      ],
+      "note": "Stage 4b records image_id but deliberately keeps the existing simple keys because it triages one tree. The first slice that puts target and diff-reference trees in one database must migrate these keys before doing so.",
+      "destination": "stage4c diff"
     }
   ]
 }

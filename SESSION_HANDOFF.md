@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-08 · **Branch:** `stage3c/core-hardening` (forked after Stage 4a merged at `3eb2a93`), working tree clean ·
-**Tests:** 813 · **Gates:** 8/8 green
+**Written:** 2026-10-12 · **Branch:** `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 complete and whole-branch review pending ·
+**Tests:** 878 · **Gates:** 8/8 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,41 +59,40 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage3c/core-hardening`, 41 commits, ready for whole-branch review and merge.
-  Stages 0-3, 3b and 4a are merged to `main`. Stage 3c changed no audit behaviour and ran no audit.
-- **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 41) and has never been pushed.**
-  `git pull` fails with an access-rights error; origin is unreachable from
-  this machine. Everything exists only in this working copy — **take that
-  seriously before any destructive git operation.**
-- **Backups** of the Stage 3 SDD ledger and its deferred-minors list were
-  copied to `/tmp/stage3-ledger-backup.md` and `/tmp/stage3-deferred-backup.md`.
-  `/tmp` does not survive a reboot; if they still exist and you want them,
-  move them somewhere durable.
+- **Branch:** `stage4b/acquire-triage`, shipping the `acquire` and `triage`
+  firmware phases. Tasks 1-8 are complete; final whole-branch review remains.
+- **`main` matches `origin/main`.** The former unpushed-main warning is closed:
+  `git rev-list --left-right --count origin/main...main` reports `0 0`.
+- **Stage 4b is firmware-audit behavior on the shared spine, not a separate
+  skill tree.** The repository still ships the `codebase-audit` skill. The
+  monorepo/submodule decision remains open and blocks the later restructure.
+- **Known data-model limit:** `cba_binfacts.path` and `cba_services.name` are
+  simple primary keys. A later slice must migrate them before triaging target
+  and diff-reference trees into the same database.
 
 ### Verify the state yourself
 
 ```bash
-cd ~/Documents/Offsec/Tools/codebase-audit
+cd ~/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4b-acquire-triage
 make all          # all eight gates
 ```
 
 Expected:
 
 ```
-PASS  tests      813 passed in 63.24s (0:01:03)
-PASS  selftest   verbs  23 declared, all dispatchable / tables 15 in schema.sql, 14 under contract, columns agree / migrations 4 applied to the pre-Stage-3 baseline, result accepted by connect()
+PASS  tests      878 passed
+PASS  selftest   verbs  25 declared, all dispatchable / tables 18 in schema.sql, 17 under contract, columns agree / migrations 4 plus current schema applied to the pre-Stage-3 baseline, result accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 150 LF
-PASS  manifest   38 features, 9 stages, 19 open items, all paths and verbs resolve
-PASS  install    92 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 2392 statements, 0 allowed
+PASS  eol        6 CRLF files, 163 LF
+PASS  manifest   41 features, 10 stages, 20 open items, all paths and verbs resolve
+PASS  install    96 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 2783 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed
 ```
 
-The real output also prints a per-gate duration after each name; the `tests`
-time (here 63.24s) varies with load, so the block omits the durations.
+The real output also prints a per-gate duration; the block omits variable times.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
@@ -119,16 +118,29 @@ the deferral.
 
 ## 4. What to do next
 
-Stage 3b (measurement hardening) and Stage 4a (`qualify`) are merged to `main`, and
-Stage 3c (coverage gate, mutation harness) is done on `stage3c/core-hardening`; the leading indicators, severity agreement,
-coverage in `bench`, `rerate` and the four parked defects are no longer options.
-What remains:
+Stages 0 through 3c and Stage 4a are merged to `main`. Stage 4b adds two more
+firmware phases on `stage4b/acquire-triage`. What remains:
 
-### Merge and push
+### Finish and integrate Stage 4b
 
-Merge `stage3c/core-hardening` to `main`. `main` was 124 commits ahead of origin before Stage 3c (from
-`git rev-list --count origin/main..main` when written) and has never been
-pushed; pushing needs a reachable origin.
+Complete Task 8, run all eight gates, perform the whole-branch review, and then
+integrate the branch. Stage 4b adds:
+
+- `audit.py acquire`: record local target/diff-reference image provenance;
+- `audit.py triage`: inventory an already-carved rootfs, parse bounded ELF
+  facts, and record boot services with exact source-line evidence;
+- `cba_images`, `cba_binfacts`, and `cba_services`;
+- the triage dispatch brief and a read-only GL.iNet corpus consistency test.
+
+It deliberately does not fetch, carve, diff, infer open ports, inspect the
+kernel/bootloader, or create the separate `firmware-audit` skill tree.
+
+### Design Stage 4c (`diff`)
+
+The target/diff-reference image pair now exists as data. Before two carved
+trees can safely share one database, migrate `cba_binfacts.path` and
+`cba_services.name` away from simple primary keys so the second image cannot
+overwrite the first image's rows.
 
 ### Decide the remaining prose-string mutation survivors
 
@@ -163,26 +175,21 @@ running the gate — that is the point of them; do not "fix" them.
 
 ### What exists of Stage 4
 
-Stage 4 is built as vertical slices. The first, **`audit.py qualify`**
-(`audit_core/qualify.py`, Stage 4a), is a GO/NO-GO gate that scores a
-`vendor|model` against `_intel/target-scores.csv` and refuses a target that is
-strip-mined, short of RCE CVEs, or not evidenced as still supported. It runs
-at zero audit cost (`draytek/vigor3910` GO, `tenda/ac18` NO-GO). The remaining
-ten `firmware-audit` phases do not exist yet. Stage 4a ran no benchmark and
-did not change §3.
+Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b ships
+`acquire` and `triage`. All three run at zero audit cost. The remaining eight
+firmware phases do not exist yet, nor does the separate firmware skill tree.
 
-### Plan Stage 4
+### Stage 4 milestone work
 
-`firmware-audit` plus the monorepo restructure, spec §4 and §3.1. The gate
-requires **two** targets: tplink >= 12/19 at <= $45 *and* the asus golden
-passing, to guard against overfitting. The asus golden does not exist yet, so
-building it is the real first task.
+The milestone gate requires **two** targets: tplink >= 12/19 at <= $45 *and*
+the asus golden passing, to guard against overfitting. The asus golden does not
+exist yet. Spec §10 remains undecided and blocks the monorepo/submodule
+restructure, not the next firmware phases.
 
 Stage 3b measured severity: `severity 5/9 agree`, 4 under-rated, `weighted
 recall 0.382` against `recall 9/19`. Stage 4's target is a **recall** problem,
 but a finding made and filed LOW is not a finding found, so watch both.
 
-Spec §10 is still undecided and blocks the restructure, not the firmware phases.
 
 ---
 

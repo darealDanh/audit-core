@@ -9,7 +9,10 @@ For *how to pick the work back up*, read
 
 ## 1. The thing being built
 
-This repository ships **one skill, made of two different kinds of material**:
+This repository currently ships **one skill, made of two different kinds of
+material**. Its shared core now also contains the first three vertical phases
+of the future `firmware-audit` skill (`qualify`, `acquire`, and `triage`); the
+separate firmware skill tree does not exist yet.
 
 | Material | What it is | Who executes it |
 |---|---|---|
@@ -48,7 +51,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 23 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 25 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -125,7 +128,7 @@ its own.
 One SQLite database per run, at `reports/audit-<timestamp>/audit.db`, created
 by `audit.py init`.
 
-**Fourteen tables under contract**, all prefixed `cba_`:
+**Seventeen tables under contract**, all prefixed `cba_`:
 
 | Group | Tables |
 |---|---|
@@ -136,9 +139,10 @@ by `audit.py init`.
 | Sweep | `cba_patterns`, `cba_pattern_hits` |
 | Control | `cba_checkpoints` |
 | Stage 3 | `cba_components`, `cba_chains` |
+| Firmware | `cba_images`, `cba_binfacts`, `cba_services` |
 
-> `selftest` reports **15** tables in `schema.sql` against **14** under
-> contract. The fifteenth is `sqlite_sequence`, which SQLite creates by itself
+> `selftest` reports **18** tables in `schema.sql` against **17** under
+> contract. The eighteenth is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
 **Access is validated and bounded.** `audit_core/db.py` is the only writer.
@@ -177,6 +181,9 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 | `indicators.py` | - | The four deterministic leading indicators and their dated snapshots. |
 | `rerate.py` | - | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
 | `qualify.py` | - | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
+| `elf.py` | - | Pure, bounded ELF facts for architecture, linkage, dependencies, and three-state mitigations. |
+| `acquire.py` | - | Hash and record local target or diff-reference firmware image provenance; never fetch or carve. |
+| `triage.py` | - | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -190,7 +197,7 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 45 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-three verbs
+### The twenty-five verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -198,8 +205,23 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
-qualify                                             firmware target gate
+qualify  acquire  triage                              firmware phases
 ```
+
+### Stage 4b's firmware boundary
+
+Stage 4b adds firmware behavior to the shared core without pretending that the
+separate `firmware-audit` skill exists. `acquire` records a local image and its
+SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
+writes file, ELF, and evidenced boot-service rows; it does not infer open ports,
+diff images, or inspect the kernel and bootloader. Its agent half ships as
+`references/briefs/triage-brief.md`.
+
+The two-image data model is intentionally incomplete: `cba_binfacts.path` and
+`cba_services.name` are simple primary keys. A later slice that triages both a
+target and diff-reference into one run must migrate those keys before it can do
+so safely. Stage 4b records `image_id` now so that migration has provenance to
+preserve.
 
 ### Stage 3's five quality mechanisms
 
@@ -263,7 +285,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (807 tests). |
+| `tests` | yes | The pytest suite (878 tests at the end of Stage 4b). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |

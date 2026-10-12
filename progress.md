@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-08 · **HEAD:** branch `stage3c/core-hardening` (41 commits ahead of `main`, which is at `3eb2a93`, Stage 4a merged), working tree clean · **Tests:** 813 ·
+**Last updated:** 2026-10-12 · **HEAD:** branch `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 complete and whole-branch review pending · **Tests:** 878 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,8 +21,9 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0, 1, 2, 3 and 3b are merged to `main`; Stage 4a is complete on branch
-`stage4a/qualify`, awaiting merge.** Stage 4a (`qualify`) is the first slice of Stage 4; the rest of Stages 4 and 5 have not been started.
+**Stages 0 through 3c and Stage 4a are merged to `main`. Stage 4b is shipped on
+`stage4b/acquire-triage`, with its whole-branch review pending.** Stage 4 is
+being built as vertical slices. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -33,7 +34,8 @@ benchmark-gated before it ships.
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
-| 4 | `firmware-audit` + monorepo (remaining ten phases) | — | — | not started |
+| 4b | `acquire` + `triage` firmware provenance and inventory | see branch | branch `stage4b/acquire-triage` | **shipped on branch; whole-branch review pending** — 8/8 gates, no audit run |
+| 4 | `firmware-audit` + monorepo (remaining eight phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -225,7 +227,29 @@ vendor host); `db.check_identity_evidence` alone was measured accepting
 `"<vendor> <model> is supported"`. On real data `draytek/vigor3910` is GO (49
 RCE CVEs at 0% VulDB) and `tenda/ac18` is NO-GO on `low-slop` (51 CVEs at 67%
 VulDB). Verbs 22 to 23; tests 574 to 621. No audit and no benchmark was run;
-the remaining ten phases follow in later slices.
+the remaining phases follow in later slices.
+
+### Stage 4b - `acquire` and `triage`
+
+The second firmware slice owns the first firmware run data. `audit.py acquire`
+records a local image's vendor, model, version, role, SHA-256, size, source, and
+path; it never fetches or carves. `audit.py triage` walks an already-carved
+rootfs without following symlinks, writes the file inventory and bounded ELF
+facts, and records boot-start services only when it can retain the exact source
+line as evidence. Empty trees and unacknowledged zero-ELF trees refuse before
+the first write.
+
+Three new tables (`cba_images`, `cba_binfacts`, `cba_services`) take the schema
+to 18 tables, 17 under contract. The CLI has 25 verbs. The script and agent
+halves ship together through `references/briefs/triage-brief.md`. A read-only
+GL.iNet corpus check verifies that ELF rows have inventory rows, confident
+architectures agree, and resolved service executables stay inside the root.
+
+This is firmware-audit behavior built on the shared core, not a separate
+`firmware-audit` skill tree. It does not fetch, carve, diff, infer ports, or
+inspect the kernel or bootloader. The next slice that puts two carved images in
+one database must migrate the simple `cba_binfacts.path` and
+`cba_services.name` primary keys before doing so.
 
 ---
 
@@ -260,9 +284,9 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **`main` was 124 commits ahead of `origin/main` before Stage 3c (this branch adds 41) and has never been pushed.**
-   `git pull` fails with an access-rights error; origin is unreachable from
-   this machine. All completed stages exist only in this working copy.
+7. **[closed 2026-10-12] `main` had not been pushed.** It now matches
+   `origin/main` (`git rev-list --left-right --count origin/main...main` is
+   `0 0`). Stage 4b remains only on its local feature branch until integration.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -316,7 +340,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 813 tests |
+| `tests` | The pytest suite — 878 tests collected at the end of Stage 4b |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -387,10 +411,8 @@ This is the spec's own path, not a deviation. §6.1, acknowledged limitations:
 > leading indicators** are used instead: coverage percentage, surfaces opened,
 > sweep hit counts, `not_audited` row count.
 
-**Those leading indicators have never been built.** Until they exist, deferring
-the gate is blind rather than merely deferred — which makes building them the
-first task, not a nice-to-have. They read an existing `audit.db` and cost
-nothing per run.
+Those leading indicators were built in Stage 3b. A useful comparison still
+needs the next audit run, so the first snapshot remains a one-point baseline.
 
 ## 8. Next steps, in the order they make sense
 
@@ -398,16 +420,18 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Push `main` to `origin` `main`** once origin is
-   reachable. `main` was 124 commits ahead of `origin/main` before Stage 3c (as of writing, from
-   `git rev-list --count origin/main..main`); this branch adds its own on top.
-2. **Take a second indicator snapshot** after the next audit run. The first
+1. **Finish Stage 4b:** make all eight gates green, complete the whole-branch
+   review, then integrate `stage4b/acquire-triage` into `main`.
+2. **Design Stage 4c (`diff`)** around the target/diff-reference pair. Before
+   two rootfs trees share one database, migrate the path/name keys recorded in
+   Stage 4b's open item.
+3. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.
-3. **Decide what to do with `rerate`'s report** once a benchmark run exists to
+4. **Decide what to do with `rerate`'s report** once a benchmark run exists to
    test it against. It is advisory and stores nothing; mutating severity is
    deliberately not done.
-4. **Plan Stage 4** — `firmware-audit` plus the monorepo restructure. Gate:
-   tplink >= 12/19 at <= $45, *and* the asus golden must pass, which means
-   building a second golden set first. Spec §10 (monorepo vs submodule) needs
-   deciding at the same time.
+5. **Build the asus golden and settle the restructure** before the Stage 4
+   milestone gate. The gate remains tplink >= 12/19 at <= $45, *and* the asus
+   golden must pass. Spec §10 (monorepo vs submodule) still needs a decision
+   before the separate firmware skill tree or Stage 5 alignment.
