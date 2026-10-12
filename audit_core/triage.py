@@ -152,11 +152,15 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
     root_path = pathlib.Path(root)
     if not root_path.is_dir():
         raise TriageError(f"{root_path} is not a carved rootfs directory")
+    effective_image_id = db.FIRMWARE_IMAGE_UNSCOPED
+    mirror_inventory = True
     if image_id is not None:
         found = db.rows(con, "cba_images", where={"id": image_id},
-                        columns=("id",), limit=1)
+                        columns=("id", "role"), limit=1)
         if not found:
             raise TriageError(f"image_id {image_id!r} is not recorded in cba_images")
+        effective_image_id = image_id
+        mirror_inventory = found[0]["role"] == "target"
 
     files = _regular_files(root_path)
     if not files:
@@ -167,20 +171,34 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         raise TriageError(f"{root_path} contains zero ELF binaries; pass "
                           "--allow-no-elf only for a confirmed non-ELF image")
 
-    inventory_count = 0
-    elf_count = 0
+    # Finish filesystem reads before the first write, so a failed hash cannot
+    # leave an incomplete manifest. ELF facts reuse the one digest per file.
+    prepared = []
     for path, facts in discovered:
         relative = path.relative_to(root_path).as_posix()
-        db.put(con, "cba_inventory", {
-            "unit": relative,
+        prepared.append((facts, {
+            "image_id": effective_image_id,
+            "path": relative,
             "kind": _kind(path, relative, facts),
             "size": str(path.stat().st_size),
-        }, replace=True)
-        inventory_count += 1
+            "sha256": _sha256(path),
+        }))
+    services = _services(root_path, files)
+
+    elf_count = 0
+    for facts, manifest in prepared:
+        db.put(con, "cba_firmware_files", manifest, replace=True)
+        if mirror_inventory:
+            db.put(con, "cba_inventory", {
+                "unit": manifest["path"],
+                "kind": manifest["kind"],
+                "size": manifest["size"],
+            }, replace=True)
         if facts is None:
             continue
         row = {
-            "path": relative,
+            "image_id": effective_image_id,
+            "path": manifest["path"],
             "machine": facts.machine,
             "bits": str(facts.bits),
             "endian": facts.endian,
@@ -192,19 +210,15 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             "canary": facts.canary,
             "stripped": facts.stripped,
             "static": facts.static,
-            "sha256": _sha256(path),
+            "sha256": manifest["sha256"],
         }
-        row["image_id"] = (image_id if image_id is not None
-                           else db.FIRMWARE_IMAGE_UNSCOPED)
         if facts.interp is not None:
             row["interp"] = facts.interp
         if facts.runpath is not None:
             row["runpath"] = facts.runpath
         db.put(con, "cba_binfacts", row, replace=True)
         elf_count += 1
-    services = _services(root_path, files)
     for service in services:
-        service["image_id"] = (image_id if image_id is not None
-                               else db.FIRMWARE_IMAGE_UNSCOPED)
+        service["image_id"] = effective_image_id
         db.put(con, "cba_services", service, replace=True)
-    return TriageSummary(inventory_count, elf_count, len(services))
+    return TriageSummary(len(files), elf_count, len(services))

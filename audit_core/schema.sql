@@ -174,3 +174,14 @@ CREATE TABLE IF NOT EXISTS cba_services (
     ports_evidence TEXT,
     recorded_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (image_id, name));
+
+-- Stage 4c regular-file manifests are the image comparison source; generic
+-- inventory remains the target coverage denominator.
+CREATE TABLE IF NOT EXISTS cba_firmware_files (
+    image_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, path));

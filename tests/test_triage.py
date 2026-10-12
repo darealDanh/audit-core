@@ -64,6 +64,93 @@ def test_run_is_idempotent(con, tmp_path):
     assert triage.run(con, root) == triage.run(con, root)
     assert len(db.rows(con, "cba_inventory")) == 4
     assert len(db.rows(con, "cba_binfacts")) == 1
+    assert len(db.rows(con, "cba_services")) == 1
+    assert len(db.rows(con, "cba_firmware_files")) == 4
+
+
+def test_manifest_records_exact_regular_file_identity(con, tmp_path):
+    root = carved_tree(tmp_path)
+    (root / "linked-directory").symlink_to(root / "usr", target_is_directory=True)
+    triage.run(con, root)
+    rows = {row["path"]: (row["image_id"], row["kind"], row["size"], row["sha256"])
+            for row in db.rows(con, "cba_firmware_files")}
+    assert rows == {
+        "bin/httpd": ("legacy-unscoped", "binary", 64,
+                      "51224867e5fb13d0c6052397c9f4959c7"
+                      "c87bb8bc7d750c91429728a18b507d9"),
+        "etc/httpd.conf": ("legacy-unscoped", "config", 8,
+                           "8ac56ba2b165fcd437ca405ef420a36cc"
+                           "bda0f41ce603a07db42752ff00335a2"),
+        "etc/init.d/S50httpd": ("legacy-unscoped", "script", 21,
+                                "db21b439bed93b3f035f8cb41ef06cd7"
+                                "c68dfe9cfe306b67173199f295993c3f"),
+        "usr/share/banner": ("legacy-unscoped", "file", 6,
+                             "5891b5b522d5df086d0ff0b110fbd9d21"
+                             "bb4fc7163af34d08286a2e846f6be03"),
+    }
+
+
+def test_target_and_reference_keep_facts_without_changing_inventory(con, tmp_path):
+    target_parent = tmp_path / "target"
+    reference_parent = tmp_path / "reference"
+    target_parent.mkdir()
+    reference_parent.mkdir()
+    target = carved_tree(target_parent)
+    reference = carved_tree(reference_parent)
+    (reference / "bin/httpd").write_bytes(minimal_elf() + b"reference")
+    (reference / "usr/share/reference-only").write_text("reference-only\n")
+    for image_id, role in (("target", "target"), ("reference", "diff-reference")):
+        db.put(con, "cba_images", {
+            "id": image_id, "vendor": "acme", "model": "r1", "version": "1",
+            "role": role, "path": f"/{image_id}.bin", "sha256": image_id})
+    assert triage.run(con, target, image_id="target") == triage.TriageSummary(4, 1, 1)
+    # Include timestamps and every optional field in the byte-for-byte snapshot.
+    inventory = tuple(tuple(row) for row in con.execute(
+        "SELECT * FROM cba_inventory ORDER BY unit"))
+    assert triage.run(con, reference, image_id="reference") == triage.TriageSummary(5, 1, 1)
+    assert tuple(tuple(row) for row in con.execute(
+        "SELECT * FROM cba_inventory ORDER BY unit")) == inventory
+    for table, key, value in (("cba_firmware_files", "path", "bin/httpd"),
+                              ("cba_binfacts", "path", "bin/httpd"),
+                              ("cba_services", "name", "httpd")):
+        rows = db.rows(con, table, where={key: value})
+        assert {row["image_id"] for row in rows} == {"target", "reference"}
+    assert triage.run(con, reference, image_id="reference") == triage.TriageSummary(5, 1, 1)
+    assert len(db.rows(con, "cba_firmware_files")) == 9
+    assert len(db.rows(con, "cba_binfacts")) == 2
+    assert len(db.rows(con, "cba_services")) == 2
+
+
+def test_each_regular_file_is_hashed_once_and_elf_digest_is_reused(con, tmp_path, monkeypatch):
+    root = carved_tree(tmp_path)
+    hashed = []
+    original = triage._sha256
+
+    def record_hash(path):
+        hashed.append(path.relative_to(root).as_posix())
+        return original(path)
+
+    monkeypatch.setattr(triage, "_sha256", record_hash)
+    triage.run(con, root)
+    assert sorted(hashed) == ["bin/httpd", "etc/httpd.conf", "etc/init.d/S50httpd",
+                              "usr/share/banner"]
+    manifest = db.rows(con, "cba_firmware_files", where={"path": "bin/httpd"})[0]
+    assert db.rows(con, "cba_binfacts")[0]["sha256"] == manifest["sha256"]
+
+
+def test_hash_failure_leaves_all_triage_tables_empty(con, tmp_path, monkeypatch):
+    root = carved_tree(tmp_path)
+    original = triage._sha256
+
+    def fail_last_hash(path):
+        if path.relative_to(root).as_posix() == "usr/share/banner":
+            raise OSError("file vanished while hashing")
+        return original(path)
+
+    monkeypatch.setattr(triage, "_sha256", fail_last_hash)
+    with pytest.raises(OSError, match="vanished while hashing"):
+        triage.run(con, root)
+    assert_triage_tables_empty(con)
 
 
 @pytest.mark.parametrize("root_kind", ["missing", "file"])
@@ -94,7 +181,8 @@ def test_run_attaches_valid_image_id_to_binfacts(con, tmp_path):
 
 
 def assert_triage_tables_empty(con):
-    for table in ("cba_inventory", "cba_binfacts", "cba_services"):
+    for table in ("cba_inventory", "cba_binfacts", "cba_services",
+                  "cba_firmware_files"):
         assert db.rows(con, table) == []
 
 

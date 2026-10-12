@@ -323,6 +323,10 @@ TABLE_SPECS: dict[str, TableSpec] = {
         required=("image_id", "name", "start_source", "evidence"),
         primary_key=("image_id", "name"),
         validate=_validate_service),
+    "cba_firmware_files": TableSpec(
+        columns=("image_id", "path", "kind", "size", "sha256", "recorded_at"),
+        required=("image_id", "path", "kind", "size", "sha256"),
+        primary_key=("image_id", "path")),
 }
 
 

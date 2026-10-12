@@ -16,11 +16,12 @@ def con(tmp_path):
 def test_schema_and_contract_expose_all_firmware_tables(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20261009-000000")
     result = workspace.apply_schema(run / "audit.db")
-    assert len(result.tables) == 18
-    assert len(db.TABLE_SPECS) == 17
+    assert len(result.tables) == 19
+    assert len(db.TABLE_SPECS) == 18
     con = sqlite3.connect(run / "audit.db")
     try:
-        for table in ("cba_images", "cba_binfacts", "cba_services"):
+        for table in ("cba_images", "cba_binfacts", "cba_services",
+                      "cba_firmware_files"):
             schema_columns = tuple(
                 row[1] for row in con.execute(f"PRAGMA table_info({table})"))
             assert schema_columns == db.TABLE_SPECS[table].columns
@@ -35,6 +36,20 @@ def test_every_table_primary_key_matches_its_contract(con):
         assert tuple(name for _, name in sorted(keyed)) == spec.primary_key, table
     assert db.primary_key(con, "cba_binfacts") == ("image_id", "path")
     assert db.primary_key(con, "cba_services") == ("image_id", "name")
+    assert db.primary_key(con, "cba_firmware_files") == ("image_id", "path")
+
+
+def test_manifest_requires_scope_and_file_identity(con):
+    row = {"image_id": "target", "path": "etc/config", "kind": "config",
+           "size": "3", "sha256": "ba7816bf8f01cfea414140de5dae2223"
+           "b00361a396177a9cb410ff61f20015ad"}
+    for column in row:
+        with pytest.raises(db.DbError, match=column):
+            db.put(con, "cba_firmware_files",
+                   {key: value for key, value in row.items() if key != column})
+    db.put(con, "cba_firmware_files", row)
+    db.put(con, "cba_firmware_files", row | {"image_id": "reference"})
+    assert len(db.rows(con, "cba_firmware_files")) == 2
 
 
 def test_image_roles_are_validated(con):

@@ -17,9 +17,14 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
         assert summary.inventory_count > 0
         assert summary.elf_count > 0
         inventory = {row[0] for row in con.execute("SELECT unit FROM cba_inventory")}
-        binfacts = con.execute("SELECT path, machine FROM cba_binfacts").fetchall()
+        manifest = {(row[0], row[1]) for row in con.execute(
+            "SELECT image_id, path FROM cba_firmware_files")}
+        assert len(manifest) == summary.inventory_count
+        binfacts = con.execute(
+            "SELECT path, machine, image_id FROM cba_binfacts").fetchall()
         assert len(binfacts) == summary.elf_count
         assert all(row[0] in inventory for row in binfacts)
+        assert all((row[2], row[0]) in manifest for row in binfacts)
         machines = {row[1] for row in binfacts if row[1].isdigit() is False}
         assert len(machines) == 1, machines
         bash = con.execute(
@@ -31,10 +36,11 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
         service_names = {
             row[0] for row in con.execute("SELECT name FROM cba_services")}
         assert "passwd" not in service_names
-        for service in con.execute("SELECT exec_path FROM cba_services"):
+        for service in con.execute("SELECT exec_path, image_id FROM cba_services"):
             if service[0]:
                 executable = (CORPUS / service[0]).resolve()
                 assert executable.is_relative_to(CORPUS.resolve())
                 assert executable.is_file()
+                assert (service[1], executable.relative_to(CORPUS.resolve()).as_posix()) in manifest
     finally:
         con.close()

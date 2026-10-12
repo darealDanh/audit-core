@@ -217,7 +217,10 @@ def stage4b_database(path):
 
 def test_connect_rejects_stage4b_keys_with_current_columns(tmp_path):
     path = tmp_path / "stage4b.db"
-    stage4b_database(path).close()
+    con = stage4b_database(path)
+    # Add current tables without migrating the stale firmware primary keys.
+    con.executescript(workspace.SCHEMA_PATH.read_text())
+    con.close()
     with pytest.raises(db.DbError) as exc:
         db.connect(path)
     assert "primary key" in str(exc.value)
