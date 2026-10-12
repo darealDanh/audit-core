@@ -33,7 +33,8 @@ def test_selftest_fails_when_a_spec_column_is_not_in_the_schema(tmp_path):
     original = db.TABLE_SPECS["cba_findings"]
     db.TABLE_SPECS["cba_findings"] = db.TableSpec(
         columns=original.columns + ("imaginary_column",),
-        required=original.required, validate=original.validate)
+        required=original.required, primary_key=original.primary_key,
+        validate=original.validate)
     try:
         assert audit.cmd_selftest(None) == 1
     finally:

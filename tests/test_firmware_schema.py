@@ -28,6 +28,15 @@ def test_schema_and_contract_expose_all_firmware_tables(tmp_path):
         con.close()
 
 
+def test_every_table_primary_key_matches_its_contract(con):
+    for table, spec in db.TABLE_SPECS.items():
+        keyed = [(row[5], row[1]) for row in con.execute(
+            f"PRAGMA table_info({table})") if row[5]]
+        assert tuple(name for _, name in sorted(keyed)) == spec.primary_key, table
+    assert db.primary_key(con, "cba_binfacts") == ("image_id", "path")
+    assert db.primary_key(con, "cba_services") == ("image_id", "name")
+
+
 def test_image_roles_are_validated(con):
     base = {"id": "acme|r1|target", "vendor": "acme", "model": "r1",
             "version": "1.0", "path": "/images/r1.bin", "sha256": "ab"}
@@ -38,7 +47,7 @@ def test_image_roles_are_validated(con):
 
 
 def test_binfact_states_are_validated(con):
-    row = {"path": "bin/httpd", "machine": "mips", "bits": "32",
+    row = {"image_id": "legacy-unscoped", "path": "bin/httpd", "machine": "mips", "bits": "32",
            "endian": "big", "elf_type": "EXEC", "nx": "yes",
            "pie": "no", "relro": "partial", "canary": "unknown",
            "stripped": "yes", "static": "no"}
@@ -50,7 +59,7 @@ def test_binfact_states_are_validated(con):
 
 
 def test_service_ports_need_evidence(con):
-    row = {"name": "httpd", "start_source": "etc/init.d/S50httpd",
+    row = {"image_id": "legacy-unscoped", "name": "httpd", "start_source": "etc/init.d/S50httpd",
            "evidence": "/usr/sbin/httpd -f /etc/httpd.conf"}
     db.put(con, "cba_services", row)
     with pytest.raises(db.DbError, match="ports_evidence"):
@@ -58,14 +67,14 @@ def test_service_ports_need_evidence(con):
 
 
 def test_service_replace_validates_the_effective_merged_row(con):
-    row = {"name": "httpd", "start_source": "etc/init.d/S50httpd",
+    row = {"image_id": "legacy-unscoped", "name": "httpd", "start_source": "etc/init.d/S50httpd",
            "evidence": "/usr/sbin/httpd", "ports": "80/tcp",
            "ports_evidence": "etc/httpd.conf:1 listen 80"}
     db.put(con, "cba_services", row)
 
     with pytest.raises(db.DbError, match="ports_evidence"):
         db.put(con, "cba_services", {
-            "name": "httpd", "start_source": "etc/init.d/S50httpd",
+            "image_id": "legacy-unscoped", "name": "httpd", "start_source": "etc/init.d/S50httpd",
             "evidence": "/usr/sbin/httpd", "ports_evidence": "",
         }, replace=True)
 

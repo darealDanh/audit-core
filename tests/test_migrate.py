@@ -196,3 +196,89 @@ def test_the_frozen_baseline_is_not_a_second_copy_of_the_schema():
                 f"selftest cross-check can no longer prove migrate() adds it")
     finally:
         con.close()
+
+
+def stage4b_database(path):
+    con = sqlite3.connect(path)
+    con.executescript((workspace.SCHEMA_PATH.parent / "baseline-stage4b.sql").read_text())
+    con.execute("INSERT INTO cba_binfacts "
+                "(path, image_id, machine, bits, endian, elf_type, needed, recorded_at) "
+                "VALUES ('bin/httpd', 'acme|r1|1.0', 'mips', 32, 'big', 'EXEC', "
+                "'libc.so.0', '2026-10-01 01:02:03')")
+    con.execute("INSERT INTO cba_services "
+                "(name, image_id, start_source, exec_path, evidence, ports, "
+                "ports_evidence, recorded_at) VALUES "
+                "('httpd', NULL, 'etc/init.d/S50httpd', '/bin/httpd', "
+                "'exec /bin/httpd', '80/tcp', 'httpd.conf:1 listen 80', "
+                "'2026-10-02 04:05:06')")
+    con.commit()
+    return con
+
+
+def test_connect_rejects_stage4b_keys_with_current_columns(tmp_path):
+    path = tmp_path / "stage4b.db"
+    stage4b_database(path).close()
+    with pytest.raises(db.DbError) as exc:
+        db.connect(path)
+    assert "primary key" in str(exc.value)
+    assert "cba_binfacts" in str(exc.value)
+    assert "cba_services" in str(exc.value)
+    assert "audit.py init" in str(exc.value)
+    assert "--timestamp" in str(exc.value)
+
+
+def test_stage4b_migration_preserves_every_value_and_is_idempotent(tmp_path):
+    con = stage4b_database(tmp_path / "stage4b.db")
+    try:
+        original_binary = con.execute("SELECT * FROM cba_binfacts").fetchone()
+        original_service = con.execute("SELECT * FROM cba_services").fetchone()
+        binary_columns = db.table_columns(con, "cba_binfacts")
+        service_columns = db.table_columns(con, "cba_services")
+        assert db.migrate(con) == ["cba_binfacts.primary_key", "cba_services.primary_key"]
+        assert db.primary_key(con, "cba_binfacts") == ("image_id", "path")
+        assert db.primary_key(con, "cba_services") == ("image_id", "name")
+        binary = con.execute("SELECT " + ", ".join(binary_columns) + " FROM cba_binfacts").fetchone()
+        service = con.execute("SELECT " + ", ".join(service_columns) + " FROM cba_services").fetchone()
+        assert binary == original_binary
+        expected_service = list(original_service)
+        expected_service[service_columns.index("image_id")] = "legacy-unscoped"
+        assert service == tuple(expected_service)
+        assert db.migrate(con) == []
+    finally:
+        con.close()
+
+
+def test_stage4b_second_rebuild_failure_rolls_back_both_tables(tmp_path, monkeypatch):
+    con = stage4b_database(tmp_path / "stage4b.db")
+    original = {table: con.execute(f"SELECT * FROM {table}").fetchall()
+                for table in ("cba_binfacts", "cba_services")}
+    rebuild = getattr(db, "_rebuild_firmware_table", None)
+
+    def fail_services(connection, table):
+        if table == "cba_services":
+            raise RuntimeError("forced second rebuild failure")
+        assert rebuild is not None
+        rebuild(connection, table)
+
+    monkeypatch.setattr(db, "_rebuild_firmware_table", fail_services, raising=False)
+    try:
+        with pytest.raises(RuntimeError, match="forced second rebuild failure"):
+            db.migrate(con)
+        assert db.primary_key(con, "cba_binfacts") == ("path",)
+        assert db.primary_key(con, "cba_services") == ("name",)
+        for table, rows in original.items():
+            assert con.execute(f"SELECT * FROM {table}").fetchall() == rows
+        assert not con.execute("SELECT name FROM sqlite_master "
+                               "WHERE name LIKE '%stage4c%'").fetchall()
+    finally:
+        con.close()
+
+
+def test_selftest_checks_stage4b_migration_and_primary_key_contract(monkeypatch, capsys):
+    import audit
+    from dataclasses import replace
+
+    monkeypatch.setitem(db.TABLE_SPECS, "cba_services",
+                        replace(db.TABLE_SPECS["cba_services"], primary_key=("name",)))
+    assert audit.cmd_selftest(None) == 1
+    assert "primary key" in capsys.readouterr().err

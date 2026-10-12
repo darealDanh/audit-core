@@ -32,6 +32,7 @@ CHAIN_COMPLETENESS = ("complete", "partial", "blocked")
 IMAGE_ROLES = ("target", "diff-reference")
 TRISTATE = ("yes", "no", "unknown")
 RELRO_STATES = ("full", "partial", "none", "unknown")
+FIRMWARE_IMAGE_UNSCOPED = "legacy-unscoped"
 
 # Columns added to tables that already existed when an earlier stage shipped.
 # `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
@@ -61,6 +62,7 @@ Validator = Callable[[dict[str, str]], None]
 class TableSpec:
     columns: tuple[str, ...]
     required: tuple[str, ...]
+    primary_key: tuple[str, ...]
     validate: Validator | None = None
 
 
@@ -234,20 +236,20 @@ TABLE_SPECS: dict[str, TableSpec] = {
         columns=("id", "type", "source_path", "source_language",
                  "source_file_count", "ida_binary", "ida_port", "ida_arch",
                  "confirmed_at"),
-        required=("id", "type")),
+        required=("id", "type"), primary_key=("id",)),
     "cba_feature_groups": TableSpec(
         columns=("id", "name", "description", "key_paths", "status", "created_at"),
-        required=("id", "name")),
+        required=("id", "name"), primary_key=("id",)),
     "cba_attack_surface": TableSpec(
         columns=("id", "group_id", "endpoint", "method", "auth_required",
                  "description"),
-        required=("group_id", "endpoint")),
+        required=("group_id", "endpoint"), primary_key=("id",)),
     "cba_security_observations": TableSpec(
         columns=("id", "group_id", "observation", "severity_hint", "location"),
-        required=("group_id", "observation")),
+        required=("group_id", "observation"), primary_key=("id",)),
     "cba_known_findings": TableSpec(
         columns=("id", "title", "location", "source", "patched_in", "severity", "raw"),
-        required=("id", "title")),
+        required=("id", "title"), primary_key=("id",)),
     "cba_findings": TableSpec(
         columns=("id", "group_id", "title", "severity", "confidence", "cwe",
                  "location", "root_cause", "impact", "attacker_position",
@@ -255,60 +257,71 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "remediation", "artifact_path", "created_at"),
         required=("id", "group_id", "title", "severity", "confidence",
                   "location", "root_cause", "impact"),
+        primary_key=("id",),
         validate=one_of("severity", SEVERITIES)),
     "cba_fp_verdicts": TableSpec(
         columns=("finding_id", "verdict", "reason", "final_severity", "final_id",
                  "merged_into", "rule_applied", "refuting_mechanism",
                  "enabled_observation", "reviewed_at"),
         required=("finding_id", "verdict"),
+        primary_key=("finding_id",),
         validate=_validate_verdict),
     "cba_inventory": TableSpec(
         columns=("unit", "kind", "group_id", "size", "added_at"),
         required=("unit", "kind"),
+        primary_key=("unit",),
         validate=one_of("kind", INVENTORY_KINDS)),
     "cba_coverage": TableSpec(
         columns=("unit", "phase", "state", "reason", "recorded_at"),
         required=("unit", "phase", "state"),
+        primary_key=("unit", "phase"),
         validate=_validate_coverage),
     "cba_patterns": TableSpec(
         columns=("id", "name", "regex", "origin_finding", "language", "notes",
                  "swept_at", "hit_count", "created_at"),
         required=("id", "name", "regex"),
+        primary_key=("id",),
         validate=_validate_pattern),
     "cba_pattern_hits": TableSpec(
         columns=("id", "pattern_id", "path", "line", "excerpt", "triaged",
                  "swept_at"),
-        required=("pattern_id", "path", "line")),
+        required=("pattern_id", "path", "line"), primary_key=("id",)),
     "cba_checkpoints": TableSpec(
         columns=("id", "phase", "reason", "turns", "projected_context",
                  "resume_note", "recorded_at"),
         required=("phase", "reason"),
+        primary_key=("id",),
         validate=one_of("reason", CHECKPOINT_REASONS)),
     "cba_components": TableSpec(
         columns=("path", "kind", "asserted_identity", "identity_evidence",
                  "confidence", "version", "recorded_at"),
         required=("path", "kind", "asserted_identity", "identity_evidence"),
+        primary_key=("path",),
         validate=_validate_component),
     "cba_chains": TableSpec(
         columns=("id", "finding_ids", "attacker_position", "pre_auth",
                  "completeness", "blocking_unknowns", "created_at"),
         required=("id", "finding_ids", "attacker_position", "completeness"),
+        primary_key=("id",),
         validate=_validate_chain),
     "cba_images": TableSpec(
         columns=("id", "vendor", "model", "version", "role", "path", "sha256",
                  "size", "source", "acquired_at"),
         required=("id", "vendor", "model", "version", "role", "path", "sha256"),
+        primary_key=("id",),
         validate=one_of("role", IMAGE_ROLES)),
     "cba_binfacts": TableSpec(
-        columns=("path", "image_id", "machine", "bits", "endian", "elf_type",
+        columns=("image_id", "path", "machine", "bits", "endian", "elf_type",
                  "interp", "needed", "runpath", "nx", "pie", "relro", "canary",
                  "stripped", "static", "sha256", "recorded_at"),
-        required=("path", "machine", "bits", "endian", "elf_type"),
+        required=("image_id", "path", "machine", "bits", "endian", "elf_type"),
+        primary_key=("image_id", "path"),
         validate=_validate_binfacts),
     "cba_services": TableSpec(
-        columns=("name", "image_id", "start_source", "exec_path", "evidence",
+        columns=("image_id", "name", "start_source", "exec_path", "evidence",
                  "ports", "ports_evidence", "recorded_at"),
-        required=("name", "start_source", "evidence"),
+        required=("image_id", "name", "start_source", "evidence"),
+        primary_key=("image_id", "name"),
         validate=_validate_service),
 }
 
@@ -324,8 +337,31 @@ def table_columns(con: sqlite3.Connection, table: str) -> tuple[str, ...]:
     return tuple(r[1] for r in con.execute(f"PRAGMA table_info({table})"))
 
 
+def _rebuild_firmware_table(con: sqlite3.Connection, table: str) -> None:
+    """Copy a Stage 4b table into the current schema inside migrate's transaction.
+
+    Reuse the shipped DDL rather than maintaining a second current definition.
+    Column names come from the registered table contract; values, including
+    the legacy scope, are bound. Explicit column lists preserve timestamps and
+    every optional fact even though the current declaration changes order.
+    """
+    _spec(table)
+    private = f"_stage4c_{table}"
+    con.execute(f"ALTER TABLE {table} RENAME TO {private}")
+    schema = (pathlib.Path(__file__).resolve().parent / "schema.sql").read_text()
+    declaration = next(statement for statement in schema.split(";")
+                       if f"CREATE TABLE IF NOT EXISTS {table} (" in statement)
+    con.execute(declaration)
+    columns = table_columns(con, table)
+    selected = ", ".join("COALESCE(image_id, ?)" if c == "image_id" else c
+                         for c in columns)
+    con.execute(f"INSERT INTO {table} ({', '.join(columns)}) "
+                f"SELECT {selected} FROM {private}", (FIRMWARE_IMAGE_UNSCOPED,))
+    con.execute(f"DROP TABLE {private}")
+
+
 def migrate(con: sqlite3.Connection) -> list[str]:
-    """Add every MIGRATIONS column the database lacks. Returns what it added.
+    """Add missing columns and rebuild Stage 4b firmware keys atomically.
 
     Idempotent, and safe against a database that has none of the tables yet:
     a table that is not there is skipped rather than reported, because that
@@ -333,16 +369,25 @@ def migrate(con: sqlite3.Connection) -> list[str]:
     """
     present = {r[0] for r in con.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    additions = [(table, column, decl) for table, column, decl in MIGRATIONS
+                 if table in present and column not in table_columns(con, table)]
+    rebuilds = [table for table, old_key in (
+        ("cba_binfacts", ("path",)), ("cba_services", ("name",)))
+        if table in present and primary_key(con, table) == old_key]
+    if not additions and not rebuilds:
+        return []
     applied: list[str] = []
-    for table, column, decl in MIGRATIONS:
-        if table not in present:
-            continue
-        if column in table_columns(con, table):
-            continue
-        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-        applied.append(f"{table}.{column}")
-    if applied:
-        con.commit()
+    with con:
+        # DDL alone does not start sqlite3's implicit transaction. An explicit
+        # BEGIN makes both renames/creates/copies/drops rollback together.
+        if not con.in_transaction:
+            con.execute("BEGIN")
+        for table, column, decl in additions:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+            applied.append(f"{table}.{column}")
+        for table in rebuilds:
+            _rebuild_firmware_table(con, table)
+            applied.append(f"{table}.primary_key")
     return applied
 
 
@@ -376,6 +421,7 @@ def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.
         raise DbError(f"{path} is not a readable SQLite database: {exc}") from exc
     missing_tables = sorted(set(TABLE_SPECS) - present)
     missing_columns: list[str] = []
+    stale_keys: list[str] = []
     if not missing_tables:
         # Only when every table is there: naming a column of a table that
         # does not exist is noise on top of the real problem.
@@ -383,19 +429,24 @@ def connect(db_path: str | pathlib.Path, *, read_only: bool = False) -> sqlite3.
             have = set(table_columns(con, table))
             missing_columns.extend(
                 f"{table}.{c}" for c in spec.columns if c not in have)
-    if missing_tables or missing_columns:
+            actual_key = primary_key(con, table)
+            if actual_key != spec.primary_key:
+                stale_keys.append(f"{table} primary key {actual_key!r} "
+                                  f"(expected {spec.primary_key!r})")
+    if missing_tables or missing_columns or stale_keys:
         con.close()
-        noun = "table(s)" if missing_tables else "column(s)"
-        names = ", ".join(missing_tables or missing_columns)
+        noun = ("table(s)" if missing_tables else "column(s)" if missing_columns
+                else "current primary key(s)")
+        names = ", ".join(missing_tables or missing_columns or stale_keys)
         raise DbError(
             f"{path} is missing {noun}: {names}. This run "
             f"directory predates the current schema. Re-apply it in place "
             f"with `audit.py init --root <project> --timestamp <ts>`, where "
             f"<ts> is the timestamp already in the run directory name - "
             f"every statement in schema.sql is CREATE TABLE IF NOT EXISTS "
-            f"and every column added since is applied by an idempotent "
-            f"ALTER TABLE, so this adds what is missing and destroys no "
-            f"rows. Without --timestamp, `init` creates a new run directory "
+            f"and migrations add missing columns and rebuild legacy firmware "
+            f"keys transactionally, preserving rows. Without --timestamp, "
+            f"`init` creates a new run directory "
             f"instead.")
     return con
 

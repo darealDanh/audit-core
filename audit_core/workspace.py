@@ -22,6 +22,8 @@ SCHEMA_PATH = pathlib.Path(__file__).resolve().parent / "schema.sql"
 # existing run directory. Read the file's own header before touching it.
 BASELINE_PATH = (pathlib.Path(__file__).resolve().parent
                  / "baseline-pre-stage3.sql")
+BASELINE_STAGE4B_PATH = (pathlib.Path(__file__).resolve().parent
+                         / "baseline-stage4b.sql")
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +33,7 @@ class SchemaResult:
 
 
 def apply_schema(db_path: str | pathlib.Path) -> SchemaResult:
-    """Apply schema.sql, then add any columns an older database lacks.
+    """Apply schema.sql, then migrate older columns and firmware primary keys.
 
     Both halves are idempotent and neither destroys a row. The second half
     is what makes `audit.py init --timestamp <existing-ts>` a real in-place

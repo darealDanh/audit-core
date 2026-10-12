@@ -145,8 +145,8 @@ CREATE TABLE IF NOT EXISTS cba_images (
     acquired_at TEXT DEFAULT (datetime('now')));
 
 CREATE TABLE IF NOT EXISTS cba_binfacts (
-    path TEXT PRIMARY KEY,
-    image_id TEXT,
+    image_id TEXT NOT NULL,
+    path TEXT NOT NULL,
     machine TEXT NOT NULL,
     bits INTEGER NOT NULL,
     endian TEXT NOT NULL,
@@ -161,14 +161,16 @@ CREATE TABLE IF NOT EXISTS cba_binfacts (
     stripped TEXT,
     static TEXT,
     sha256 TEXT,
-    recorded_at TEXT DEFAULT (datetime('now')));
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, path));
 
 CREATE TABLE IF NOT EXISTS cba_services (
-    name TEXT PRIMARY KEY,
-    image_id TEXT,
+    image_id TEXT NOT NULL,
+    name TEXT NOT NULL,
     start_source TEXT NOT NULL,
     exec_path TEXT,
     evidence TEXT NOT NULL,
     ports TEXT,
     ports_evidence TEXT,
-    recorded_at TEXT DEFAULT (datetime('now')));
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, name));

@@ -194,8 +194,8 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             "static": facts.static,
             "sha256": _sha256(path),
         }
-        if image_id is not None:
-            row["image_id"] = image_id
+        row["image_id"] = (image_id if image_id is not None
+                           else db.FIRMWARE_IMAGE_UNSCOPED)
         if facts.interp is not None:
             row["interp"] = facts.interp
         if facts.runpath is not None:
@@ -204,7 +204,7 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         elf_count += 1
     services = _services(root_path, files)
     for service in services:
-        if image_id is not None:
-            service["image_id"] = image_id
+        service["image_id"] = (image_id if image_id is not None
+                               else db.FIRMWARE_IMAGE_UNSCOPED)
         db.put(con, "cba_services", service, replace=True)
     return TriageSummary(inventory_count, elf_count, len(services))

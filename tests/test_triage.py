@@ -54,6 +54,9 @@ def test_run_inventories_regular_files_and_elf_facts(con, tmp_path):
     assert facts["machine"] == "x86-64"
     assert facts["sha256"] == hashlib.sha256(minimal_elf()).hexdigest()
     assert facts["needed"] == ""
+    assert facts["image_id"] == "legacy-unscoped"
+    service = dict(db.rows(con, "cba_services")[0])
+    assert service["image_id"] == "legacy-unscoped"
 
 
 def test_run_is_idempotent(con, tmp_path):

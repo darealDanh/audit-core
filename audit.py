@@ -84,6 +84,10 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
                 for column in sorted(c for c in spec.required if c not in actual):
                     problems.append(f"{table}.{column} is required by "
                                     f"TABLE_SPECS but does not exist")
+                key = db_mod.primary_key(con, table)
+                if key != spec.primary_key:
+                    problems.append(f"{table} primary key is {spec.primary_key!r} "
+                                    f"in TABLE_SPECS but schema.sql builds {key!r}")
         finally:
             con.close()
 
@@ -96,27 +100,63 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     #    it, and the remedy connect() prints is the thing that cannot help.
     #    Rows holding real, unbacked-up findings become unreachable through
     #    every verb but `bench`.
-    with tempfile.TemporaryDirectory() as tmp:
-        old_db = pathlib.Path(tmp) / "pre-stage3.db"
-        con = sqlite3.connect(old_db)
-        try:
-            con.executescript(workspace_mod.BASELINE_PATH.read_text())
-            con.commit()
-        except Exception as exc:                       # noqa: BLE001
-            problems.append(f"the pre-Stage-3 baseline cannot be created: {exc}")
-        finally:
-            con.close()
-        try:
-            workspace_mod.apply_schema(old_db)
-        except Exception as exc:                       # noqa: BLE001
-            problems.append(f"the pre-Stage-3 baseline does not upgrade: {exc}")
-        try:
-            db_mod.connect(old_db).close()
-        except db_mod.DbError as exc:
-            problems.append(
-                f"a migrated pre-Stage-3 database is still rejected by "
-                f"connect(): {exc} -- add new tables to schema.sql and new "
-                f"columns on shipped tables to db.MIGRATIONS")
+    for label, baseline in (
+            ("pre-Stage-3", workspace_mod.BASELINE_PATH),
+            ("Stage-4b", workspace_mod.BASELINE_STAGE4B_PATH)):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_db = pathlib.Path(tmp) / "baseline.db"
+            con = sqlite3.connect(old_db)
+            try:
+                con.executescript(baseline.read_text())
+                if label == "Stage-4b":
+                    con.execute("INSERT INTO cba_binfacts "
+                                "(path, image_id, machine, bits, endian, elf_type, "
+                                "needed, recorded_at) VALUES ('bin/httpd', 'selftest-image', "
+                                "'mips', 32, 'big', 'EXEC', 'libc.so.0', "
+                                "'2026-10-01 01:02:03')")
+                    con.execute("INSERT INTO cba_services "
+                                "(name, image_id, start_source, evidence, recorded_at) "
+                                "VALUES ('httpd', NULL, 'etc/init.d/S50httpd', "
+                                "'exec /bin/httpd', '2026-10-02 04:05:06')")
+                con.commit()
+            except Exception as exc:                   # noqa: BLE001
+                problems.append(f"the {label} baseline cannot be created: {exc}")
+            finally:
+                con.close()
+            try:
+                workspace_mod.apply_schema(old_db)
+                if label == "Stage-4b":
+                    con = sqlite3.connect(old_db)
+                    try:
+                        for table, key in (("cba_binfacts", ("image_id", "path")),
+                                           ("cba_services", ("image_id", "name"))):
+                            if db_mod.primary_key(con, table) != key:
+                                problems.append(f"the {label} migration leaves "
+                                                f"{table} with a stale primary key")
+                        binary = con.execute(
+                            "SELECT image_id, path, machine, bits, endian, elf_type, "
+                            "needed, recorded_at FROM cba_binfacts").fetchall()
+                        if binary != [("selftest-image", "bin/httpd", "mips", 32,
+                                       "big", "EXEC", "libc.so.0", "2026-10-01 01:02:03")]:
+                            problems.append(f"the {label} migration lost legacy binary evidence")
+                        services = con.execute(
+                            "SELECT image_id, name, start_source, evidence, recorded_at "
+                            "FROM cba_services").fetchall()
+                        if services != [("legacy-unscoped", "httpd", "etc/init.d/S50httpd",
+                                         "exec /bin/httpd", "2026-10-02 04:05:06")]:
+                            problems.append(f"the {label} migration lost legacy service evidence")
+                    finally:
+                        con.close()
+            except Exception as exc:                   # noqa: BLE001
+                problems.append(f"the {label} baseline does not upgrade: {exc}")
+            try:
+                db_mod.connect(old_db).close()
+            except db_mod.DbError as exc:
+                problems.append(
+                    f"a migrated {label} database is still rejected by "
+                    f"connect(): {exc} -- add new tables to schema.sql and new "
+                    f"columns on shipped tables to db.MIGRATIONS; migrate "
+                    f"changed primary keys in db.migrate")
 
     if problems:
         print(f"selftest: {len(problems)} inconsistenc(ies)", file=sys.stderr)
@@ -126,9 +166,10 @@ def cmd_selftest(_args: argparse.Namespace) -> int:
     print(f"audit_core {audit_core.__version__} ok")
     print(f"  verbs  {len(HANDLERS)} declared, all dispatchable")
     print(f"  tables {len(tables)} in schema.sql, "
-          f"{len(db_mod.TABLE_SPECS)} under contract, columns agree")
+          f"{len(db_mod.TABLE_SPECS)} under contract, columns and primary keys agree")
     print(f"  migrations {len(db_mod.MIGRATIONS)} plus current schema applied "
-          f"to the pre-Stage-3 baseline, result accepted by connect()")
+          f"to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, "
+          f"results accepted by connect()")
     return 0
 
 
