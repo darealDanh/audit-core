@@ -22,6 +22,15 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
         assert all(row[0] in inventory for row in binfacts)
         machines = {row[1] for row in binfacts if row[1].isdigit() is False}
         assert len(machines) == 1, machines
+        bash = con.execute(
+            "SELECT needed FROM cba_binfacts WHERE path = 'bin/bash'").fetchone()
+        if (CORPUS / "bin/bash").is_file():
+            assert bash is not None
+            assert {"libncursesw.so.6", "libgcc_s.so.1", "libc.so"} <= set(
+                bash[0].split(","))
+        service_names = {
+            row[0] for row in con.execute("SELECT name FROM cba_services")}
+        assert "passwd" not in service_names
         for service in con.execute("SELECT exec_path FROM cba_services"):
             if service[0]:
                 executable = (CORPUS / service[0]).resolve()

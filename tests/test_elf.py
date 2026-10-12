@@ -93,6 +93,43 @@ def rich_elf(*, elf_type=3, interp=True, stack_exec=False, relro=True,
     return bytes(blob)
 
 
+def sectionless_dynamic_elf():
+    base = 0x400000
+    interp_off = 0x200
+    dynstr_off = 0x220
+    dynamic_off = 0x260
+    interp = b"/lib/ld-musl.so.1\0"
+    dynstr = b"\0libfirst.so\0libsecond.so\0/opt/lib\0"
+    second = dynstr.index(b"libsecond.so")
+    runpath = dynstr.index(b"/opt/lib")
+    dynamic = b"".join((
+        struct.pack("<qQ", 1, 1),
+        struct.pack("<qQ", 1, second),
+        struct.pack("<qQ", 5, base + dynstr_off),
+        struct.pack("<qQ", 10, len(dynstr)),
+        struct.pack("<qQ", 29, runpath),
+        struct.pack("<qQ", 0, 0),
+    ))
+    size = dynamic_off + len(dynamic)
+    ident = b"\x7fELF" + bytes((2, 1, 1)) + b"\0" * 9
+    header = struct.pack("<16sHHIQQQIHHHHHH", ident, 3, 62, 1, 0, 64,
+                         0, 0, 64, 56, 3, 64, 0, 0)
+    load = struct.pack("<IIQQQQQQ", 1, 5, 0, base, base, size, size, 0x1000)
+    interp_header = struct.pack("<IIQQQQQQ", 3, 4, interp_off,
+                                base + interp_off, base + interp_off,
+                                len(interp), len(interp), 1)
+    dynamic_header = struct.pack("<IIQQQQQQ", 2, 4, dynamic_off,
+                                 base + dynamic_off, base + dynamic_off,
+                                 len(dynamic), len(dynamic), 8)
+    blob = bytearray(size)
+    blob[:64] = header
+    blob[64:64 + 168] = load + interp_header + dynamic_header
+    blob[interp_off:interp_off + len(interp)] = interp
+    blob[dynstr_off:dynstr_off + len(dynstr)] = dynstr
+    blob[dynamic_off:dynamic_off + len(dynamic)] = dynamic
+    return bytes(blob)
+
+
 @pytest.mark.parametrize("bits,endian,machine,name", [
     (32, "big", 8, "mips"), (32, "little", 8, "mips"),
     (32, "little", 40, "arm"), (64, "little", 183, "aarch64"),
@@ -168,7 +205,8 @@ def test_truncated_program_table_yields_unknown_mitigations(tmp_path):
     struct.pack_into("<H", blob, 56, 4)   # but four entries do not fit
     path.write_bytes(blob)
     facts = elf.read(path)
-    assert (facts.nx, facts.pie, facts.relro) == ("unknown", "no", "unknown")
+    assert (facts.nx, facts.pie, facts.relro) == (
+        "unknown", "unknown", "unknown")
 
 
 def test_private_string_reader_rejects_bad_offsets_and_unterminated_data():
@@ -241,3 +279,78 @@ def test_partial_final_dynamic_entry_does_not_raise(tmp_path):
 
     assert facts.needed == ("libc.so.6",)
     assert facts.runpath is None
+
+
+def test_invalid_interpreter_payload_makes_pie_unknown(tmp_path):
+    blob = bytearray(rich_elf())
+    struct.pack_into("<Q", blob, 64 + 8, len(blob) + 1)
+    path = tmp_path / "bad-interp"
+    path.write_bytes(blob)
+
+    assert elf.read(path).pie == "unknown"
+
+
+def test_partial_symbol_entry_makes_canary_unknown(tmp_path):
+    blob = bytearray(rich_elf(canary=False))
+    shoff = struct.unpack_from("<Q", blob, 40)[0]
+    struct.pack_into("<Q", blob, shoff + 5 * 64 + 32, 1)
+    path = tmp_path / "partial-symtab"
+    path.write_bytes(blob)
+
+    assert elf.read(path).canary == "unknown"
+
+
+def test_reads_dependencies_without_a_section_table(tmp_path):
+    path = tmp_path / "sectionless"
+    path.write_bytes(sectionless_dynamic_elf())
+
+    facts = elf.read(path)
+
+    assert facts.needed == ("libfirst.so", "libsecond.so")
+    assert facts.runpath == "/opt/lib"
+
+
+def test_sectionless_dynamic_table_without_null_is_incomplete(tmp_path):
+    blob = bytearray(sectionless_dynamic_elf())
+    dynamic_off = 0x260
+    struct.pack_into("<qQ", blob, dynamic_off + 5 * 16, 1, 1)
+    path = tmp_path / "unterminated-dynamic"
+    path.write_bytes(blob)
+
+    facts = elf.read(path)
+
+    assert facts.needed == ("libfirst.so", "libsecond.so", "libfirst.so")
+
+
+def test_unmapped_sectionless_string_table_is_not_read(tmp_path):
+    blob = bytearray(sectionless_dynamic_elf())
+    dynamic_off = 0x260
+    struct.pack_into("<qQ", blob, dynamic_off + 2 * 16, 5, 0xFFFFFFFF)
+    path = tmp_path / "unmapped-dynstr"
+    path.write_bytes(blob)
+
+    assert elf.read(path).needed == ()
+
+
+@pytest.mark.parametrize("tag", [1, 29])
+def test_invalid_dynamic_string_offset_makes_relro_unknown(tmp_path, tag):
+    blob = bytearray(rich_elf())
+    dynamic_off = 0x200 + len(b"/lib/ld-musl.so.1\0") + len(
+        b"\0libc.so.6\0/opt/lib\0")
+    entry = 0 if tag == 1 else 1
+    struct.pack_into("<qQ", blob, dynamic_off + entry * 16, tag, 999999)
+    path = tmp_path / f"bad-dynamic-string-{tag}"
+    path.write_bytes(blob)
+
+    assert elf.read(path).relro == "unknown"
+
+
+def test_invalid_symbol_name_offset_makes_canary_unknown(tmp_path):
+    blob = bytearray(rich_elf(canary=False))
+    shoff = struct.unpack_from("<Q", blob, 40)[0]
+    symtab_off = struct.unpack_from("<Q", blob, shoff + 5 * 64 + 24)[0]
+    struct.pack_into("<I", blob, symtab_off, 999999)
+    path = tmp_path / "bad-symbol-name"
+    path.write_bytes(blob)
+
+    assert elf.read(path).canary == "unknown"

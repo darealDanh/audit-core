@@ -6,6 +6,7 @@ import hashlib
 import os
 import pathlib
 import re
+import shlex
 import sqlite3
 import stat
 
@@ -67,23 +68,58 @@ def _kind(path: pathlib.Path, relative: str,
 _ABSOLUTE_EXEC = re.compile(r"(?<![A-Za-z0-9_.-])(/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)")
 
 
-def _boot_sources(root: pathlib.Path) -> list[pathlib.Path]:
-    candidates: list[pathlib.Path] = []
-    for directory in (root / "etc/init.d", root / "etc/rc.d"):
-        if directory.is_dir():
-            candidates.extend(
-                path for path in directory.iterdir()
-                if path.is_file() and not path.is_symlink())
-    for path in (root / "etc/inittab", root / "etc/rc.local"):
-        if path.is_file() and not path.is_symlink():
+def _boot_sources(root: pathlib.Path,
+                  regular_files: list[pathlib.Path] | None = None
+                  ) -> list[pathlib.Path]:
+    files = regular_files if regular_files is not None else _regular_files(root)
+    candidates = []
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        if (relative in ("etc/inittab", "etc/rc.local") or
+                relative.startswith("etc/init.d/") or
+                relative.startswith("etc/rc.d/")):
             candidates.append(path)
     return sorted(candidates, key=lambda path: path.relative_to(root).as_posix())
 
 
-def _services(root: pathlib.Path) -> list[dict[str, str]]:
+_INITTAB_ACTIONS = {"askfirst", "once", "respawn", "sysinit", "wait"}
+_STOP_WORDS = {"--stop", "-K", "kill", "killall", "stop"}
+
+
+def _startup_command(evidence: str, relative_source: str) -> str | None:
+    command = evidence
+    if relative_source == "etc/inittab":
+        fields = evidence.split(":", 3)
+        if len(fields) != 4 or fields[2] not in _INITTAB_ACTIONS:
+            return None
+        command = fields[3]
+    try:
+        tokens = shlex.split(command, comments=True, posix=True)
+    except ValueError:
+        return None
+    if not tokens or any(token in _STOP_WORDS for token in tokens):
+        return None
+    if tokens[0] in ("exec", "nohup"):
+        tokens = tokens[1:]
+    elif tokens[:2] == ["procd_set_param", "command"]:
+        tokens = tokens[2:]
+    elif tokens[0] == "start-stop-daemon":
+        if not ({"--start", "-S"} & set(tokens)):
+            return None
+        for option in ("--exec", "-x"):
+            if option in tokens and tokens.index(option) + 1 < len(tokens):
+                return tokens[tokens.index(option) + 1]
+        return None
+    return tokens[0] if tokens and tokens[0].startswith("/") else None
+
+
+def _services(root: pathlib.Path,
+              regular_files: list[pathlib.Path] | None = None
+              ) -> list[dict[str, str]]:
     root_resolved = root.resolve()
     found: dict[str, dict[str, str]] = {}
-    for source in _boot_sources(root):
+    for source in _boot_sources(root, regular_files):
+        relative_source = source.relative_to(root).as_posix()
         try:
             lines = source.read_text(errors="replace").splitlines()
         except OSError:
@@ -92,10 +128,9 @@ def _services(root: pathlib.Path) -> list[dict[str, str]]:
             evidence = raw_line.strip()
             if not evidence or evidence.startswith("#"):
                 continue
-            match = _ABSOLUTE_EXEC.search(evidence)
-            if match is None:
+            claimed = _startup_command(evidence, relative_source)
+            if claimed is None or _ABSOLUTE_EXEC.fullmatch(claimed) is None:
                 continue
-            claimed = match.group(1)
             executable = (root_resolved / claimed.lstrip("/")).resolve()
             if not executable.is_relative_to(root_resolved) or not executable.is_file():
                 continue
@@ -104,7 +139,7 @@ def _services(root: pathlib.Path) -> list[dict[str, str]]:
                 continue
             found[name] = {
                 "name": name,
-                "start_source": source.relative_to(root).as_posix(),
+                "start_source": relative_source,
                 "exec_path": executable.relative_to(root_resolved).as_posix(),
                 "evidence": evidence,
             }
@@ -167,7 +202,7 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             row["runpath"] = facts.runpath
         db.put(con, "cba_binfacts", row, replace=True)
         elf_count += 1
-    services = _services(root_path)
+    services = _services(root_path, files)
     for service in services:
         if image_id is not None:
             service["image_id"] = image_id

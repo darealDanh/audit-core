@@ -46,6 +46,34 @@ def _cstring(blob: bytes, offset: int) -> str | None:
     return blob[offset:end].decode("utf-8", errors="replace")
 
 
+def _dynamic_entries(blob: bytes, offset: int, size: int, step: int,
+                     entry_fmt: str) -> tuple[list[tuple[int, int]], bool]:
+    entry_size = struct.calcsize(entry_fmt)
+    if (step < entry_size or size // step > MAX_HEADERS or
+            _range(blob, offset, size) is None):
+        return [], False
+    entries = []
+    end = offset + size
+    for current in range(offset, end, step):
+        if current + entry_size > end:
+            return entries, False
+        raw = blob[current:current + entry_size]
+        tag, value = struct.unpack(entry_fmt, raw)
+        if tag == 0:
+            return entries, True
+        entries.append((tag, value))
+    return entries, False
+
+
+def _mapped_blob(blob: bytes, address: int, size: int,
+                 loads: list[tuple[int, int, int]]) -> bytes | None:
+    for file_offset, virtual_address, file_size in loads:
+        delta = address - virtual_address
+        if 0 <= delta <= file_size and size <= file_size - delta:
+            return _range(blob, file_offset + delta, size)
+    return None
+
+
 def read(path: str | pathlib.Path) -> ElfFacts | None:
     """Return facts for a structurally recognisable ELF; never raise on data."""
     try:
@@ -76,9 +104,12 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
                   (phentsize >= expected_ph and phnum <= MAX_HEADERS and
                    _range(blob, phoff, phentsize * phnum) is not None))
     interp = None
+    interp_seen = False
+    interp_valid = True
     has_dynamic = False
     stack_flags = None
     has_relro = False
+    program_headers: list[tuple[int, int, int, int, int]] = []
     if program_ok:
         for index in range(phnum):
             raw = blob[phoff + index * phentsize:
@@ -88,10 +119,15 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
                 p_type, p_offset, _vaddr, _paddr, p_filesz, _memsz, p_flags, _align = fields
             else:
                 p_type, p_flags, p_offset, _vaddr, _paddr, p_filesz, _memsz, _align = fields
+            program_headers.append((p_type, p_offset, _vaddr, p_filesz, p_flags))
             if p_type == 3:  # PT_INTERP
-                payload = _range(blob, p_offset, min(p_filesz, 4096))
-                if payload:
+                interp_seen = True
+                payload = (_range(blob, p_offset, p_filesz)
+                           if 0 < p_filesz <= 4096 else None)
+                if payload and b"\0" in payload and payload[0] != 0:
                     interp = payload.split(b"\0", 1)[0].decode("utf-8", errors="replace")
+                else:
+                    interp_valid = False
             elif p_type == 2:  # PT_DYNAMIC
                 has_dynamic = True
             elif p_type == 0x6474E551:  # PT_GNU_STACK
@@ -129,6 +165,7 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
     needed: list[str] = []
     runpath = None
     bind_now = False
+    dynamic_complete = not has_dynamic
     dynamic = named.get(".dynamic") if section_ok else None
     if dynamic is not None:
         _, _, dyn_off, dyn_size, link, dyn_entsize = dynamic
@@ -137,24 +174,50 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
         entry_fmt = order + ("iI" if bits == 32 else "qQ")
         entry_size = struct.calcsize(entry_fmt)
         step = dyn_entsize or entry_size
-        section_end = dyn_off + dyn_size
-        if strings_blob is not None and step >= entry_size and dyn_size // step <= MAX_HEADERS:
-            for offset in range(dyn_off, dyn_off + dyn_size, step):
-                raw = (None if offset + entry_size > section_end
-                       else _range(blob, offset, entry_size))
-                if raw is None:
-                    break
-                tag, value = struct.unpack(entry_fmt, raw)
-                if tag == 0:
-                    break
-                if tag == 1:
-                    name = _cstring(strings_blob, value)
-                    if name is not None:
-                        needed.append(name)
-                elif tag in (15, 29):
-                    runpath = _cstring(strings_blob, value)
-                elif tag == 24:
-                    bind_now = True
+        entries, entries_complete = _dynamic_entries(
+            blob, dyn_off, dyn_size, step, entry_fmt)
+        dynamic_complete = entries_complete and strings_blob is not None
+    elif program_ok and has_dynamic:
+        entry_fmt = order + ("iI" if bits == 32 else "qQ")
+        entry_size = struct.calcsize(entry_fmt)
+        dynamic_header = next(
+            (header for header in program_headers if header[0] == 2), None)
+        entries = []
+        entries_complete = False
+        strings_blob = None
+        if dynamic_header is not None:
+            _, dyn_off, _dyn_vaddr, dyn_size, _dyn_flags = dynamic_header
+            entries, entries_complete = _dynamic_entries(
+                blob, dyn_off, dyn_size, entry_size, entry_fmt)
+            string_address = next(
+                (value for tag, value in entries if tag == 5), None)
+            string_size = next(
+                (value for tag, value in entries if tag == 10), None)
+            loads = [(offset, vaddr, size)
+                     for kind, offset, vaddr, size, _flags in program_headers
+                     if kind == 1]
+            if string_address is not None and string_size is not None:
+                strings_blob = _mapped_blob(
+                    blob, string_address, string_size, loads)
+        dynamic_complete = entries_complete and strings_blob is not None
+    else:
+        entries = []
+        strings_blob = None
+
+    if strings_blob is not None:
+        for tag, value in entries:
+            if tag == 1:
+                name = _cstring(strings_blob, value)
+                if name is None:
+                    dynamic_complete = False
+                else:
+                    needed.append(name)
+            elif tag in (15, 29):
+                runpath = _cstring(strings_blob, value)
+                if runpath is None:
+                    dynamic_complete = False
+            elif tag == 24:
+                bind_now = True
 
     symtab = named.get(".symtab") if section_ok else None
     stripped = "yes" if section_ok and symtab is None else ("no" if symtab else UNKNOWN)
@@ -165,27 +228,34 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
         strings_blob = (_range(blob, strings[2], strings[3]) if strings else None)
         entry_size = 16 if bits == 32 else 24
         step = sym_entsize or entry_size
-        if strings_blob is not None and step >= entry_size and sym_size // step <= MAX_HEADERS:
+        table_blob = _range(blob, sym_off, sym_size)
+        if (strings_blob is not None and table_blob is not None and
+                step >= entry_size and sym_size % step == 0 and
+                sym_size // step <= MAX_HEADERS):
             canary = "no"
             for offset in range(sym_off, sym_off + sym_size, step):
-                raw = _range(blob, offset, 4)
-                if raw is None:
+                raw = blob[offset:offset + entry_size]
+                name_offset = struct.unpack_from(order + "I", raw)[0]
+                name = _cstring(strings_blob, name_offset)
+                if name is None:
                     canary = UNKNOWN
                     break
-                name_offset = struct.unpack(order + "I", raw)[0]
-                if _cstring(strings_blob, name_offset) == "__stack_chk_fail":
+                if name == "__stack_chk_fail":
                     canary = "yes"
                     break
 
     elf_type = ELF_TYPES.get(type_no, str(type_no))
     if program_ok:
         nx = UNKNOWN if stack_flags is None else ("no" if stack_flags & 1 else "yes")
-        static = "yes" if interp is None and not has_dynamic else "no"
-        relro = ("full" if has_relro and bind_now else
+        static = (UNKNOWN if interp_seen and not interp_valid else
+                  "yes" if interp is None and not has_dynamic else "no")
+        relro = (UNKNOWN if has_relro and has_dynamic and not dynamic_complete else
+                 "full" if has_relro and bind_now else
                  "partial" if has_relro else "none")
     else:
         nx = static = relro = UNKNOWN
-    pie = "yes" if elf_type == "DYN" and interp is not None else "no"
+    pie = (UNKNOWN if not program_ok or (interp_seen and not interp_valid) else
+           "yes" if elf_type == "DYN" and interp is not None else "no")
     return ElfFacts(
         machine=MACHINES.get(machine_no, str(machine_no)), bits=bits,
         endian=endian, elf_type=elf_type, interp=interp,

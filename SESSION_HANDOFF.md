@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-12 · **Branch:** `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 complete and whole-branch review pending ·
-**Tests:** 878 · **Gates:** 8/8 green
+**Written:** 2026-10-12 · **Branch:** `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 and whole-branch review complete ·
+**Tests:** 890 · **Gates:** 8/8 green
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -60,7 +60,7 @@ These are not style preferences. Each one has a specific, known cost.
 ## 2. State you are inheriting
 
 - **Branch:** `stage4b/acquire-triage`, shipping the `acquire` and `triage`
-  firmware phases. Tasks 1-8 are complete; final whole-branch review remains.
+  firmware phases. Tasks 1-8 and the final whole-branch review are complete.
 - **`main` matches `origin/main`.** The former unpushed-main warning is closed:
   `git rev-list --left-right --count origin/main...main` reports `0 0`.
 - **Stage 4b is firmware-audit behavior on the shared spine, not a separate
@@ -80,13 +80,13 @@ make all          # all eight gates
 Expected:
 
 ```
-PASS  tests      878 passed
+PASS  tests      890 passed
 PASS  selftest   verbs  25 declared, all dispatchable / tables 18 in schema.sql, 17 under contract, columns agree / migrations 4 plus current schema applied to the pre-Stage-3 baseline, result accepted by connect()
 PASS  lint       skill lint: clean
 PASS  eol        6 CRLF files, 163 LF
 PASS  manifest   41 features, 10 stages, 20 open items, all paths and verbs resolve
 PASS  install    96 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 2783 statements, 0 allowed
+PASS  coverage   0 unexecuted / 2872 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed

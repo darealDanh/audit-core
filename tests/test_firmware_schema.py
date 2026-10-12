@@ -57,6 +57,19 @@ def test_service_ports_need_evidence(con):
         db.put(con, "cba_services", row | {"name": "telnetd", "ports": "23/tcp"})
 
 
+def test_service_replace_validates_the_effective_merged_row(con):
+    row = {"name": "httpd", "start_source": "etc/init.d/S50httpd",
+           "evidence": "/usr/sbin/httpd", "ports": "80/tcp",
+           "ports_evidence": "etc/httpd.conf:1 listen 80"}
+    db.put(con, "cba_services", row)
+
+    with pytest.raises(db.DbError, match="ports_evidence"):
+        db.put(con, "cba_services", {
+            "name": "httpd", "start_source": "etc/init.d/S50httpd",
+            "evidence": "/usr/sbin/httpd", "ports_evidence": "",
+        }, replace=True)
+
+
 def test_inventory_accepts_firmware_file_kinds(con):
     db.put(con, "cba_inventory", {"unit": "etc/config", "kind": "config"})
     db.put(con, "cba_inventory", {"unit": "etc/init.d/S01", "kind": "script"})

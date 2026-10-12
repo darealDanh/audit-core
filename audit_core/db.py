@@ -465,9 +465,9 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
     because every one of them has just been checked against the spec's own
     tuple of names. Values are always bound parameters.
 
-    Validation runs on what the caller wrote, not on the merged result: the
-    stored half was validated when it was written, and a rule that reported
-    a failure in a column the caller never named would be unreadable.
+    Validation runs on both what the caller wrote and the effective merged
+    result. The first check prevents a new claim from borrowing stale evidence;
+    the second prevents an explicit clear from invalidating a retained claim.
     """
     spec = _spec(table)
     unknown = sorted(set(row) - set(spec.columns))
@@ -480,6 +480,8 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
     if spec.validate is not None:
         spec.validate(row)
     values = _merge_with_stored(con, table, spec, row) if replace else row
+    if spec.validate is not None and values is not row:
+        spec.validate(values)
     cols = sorted(values)
     verb = "INSERT OR REPLACE" if replace else "INSERT"
     sql = (f"{verb} INTO {table} ({', '.join(cols)}) "

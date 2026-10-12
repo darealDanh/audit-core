@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-12 · **HEAD:** branch `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 complete and whole-branch review pending · **Tests:** 878 ·
+**Last updated:** 2026-10-12 · **HEAD:** branch `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 and whole-branch review complete · **Tests:** 890 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -22,7 +22,7 @@ every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stage 4a are merged to `main`. Stage 4b is shipped on
-`stage4b/acquire-triage`, with its whole-branch review pending.** Stage 4 is
+`stage4b/acquire-triage` and has completed whole-branch review.** Stage 4 is
 being built as vertical slices. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -34,7 +34,7 @@ being built as vertical slices. Stage 5 has not started.
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
-| 4b | `acquire` + `triage` firmware provenance and inventory | see branch | branch `stage4b/acquire-triage` | **shipped on branch; whole-branch review pending** — 8/8 gates, no audit run |
+| 4b | `acquire` + `triage` firmware provenance and inventory | see branch | branch `stage4b/acquire-triage` | **shipped and reviewed on branch** — 8/8 gates, no audit run |
 | 4 | `firmware-audit` + monorepo (remaining eight phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -340,7 +340,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 878 tests collected at the end of Stage 4b |
+| `tests` | The pytest suite — 890 tests at the end of Stage 4b review |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |

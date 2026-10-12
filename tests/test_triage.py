@@ -205,3 +205,51 @@ def test_service_scan_skips_source_that_cannot_be_read(tmp_path, monkeypatch):
     monkeypatch.setattr(type(source), "read_text", fail_read)
     alpha = next(row for row in triage._services(root) if row["name"] == "alpha")
     assert alpha["start_source"] == "etc/rc.local"
+
+
+def test_service_scan_rejects_non_startup_path_references(tmp_path):
+    root = tmp_path / "root"
+    for directory in ("bin", "etc/init.d"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    (root / "bin/core").write_bytes(minimal_elf())
+    (root / "etc/passwd").write_text("root:x:0:0\n")
+    (root / "etc/service.conf").write_text("enabled=1\n")
+    (root / "etc/init.d/S10noise").write_text(
+        "CONF=/etc/service.conf\n"
+        "procd_add_jail_mount /etc/passwd\n"
+        "echo /bin/core\n"
+        "cat /etc/service.conf\n"
+        "true # /bin/core\n"
+        ". /bin/core\n"
+        "/bin/core --stop\n")
+
+    assert triage._services(root) == []
+
+
+def test_service_scan_does_not_follow_symlinked_boot_directory(tmp_path):
+    root = tmp_path / "root"
+    (root / "bin").mkdir(parents=True)
+    (root / "etc").mkdir()
+    (root / "bin/core").write_bytes(minimal_elf())
+    outside = tmp_path / "outside-init"
+    outside.mkdir()
+    (outside / "S10core").write_text("/bin/core\n")
+    (root / "etc/init.d").symlink_to(outside, target_is_directory=True)
+
+    assert triage._services(root) == []
+
+
+def test_service_scan_handles_start_stop_daemon_conservatively(tmp_path):
+    root = tmp_path / "root"
+    (root / "bin").mkdir(parents=True)
+    (root / "etc/init.d").mkdir(parents=True)
+    (root / "bin/core").write_bytes(minimal_elf())
+    (root / "etc/init.d/S10core").write_text(
+        "start-stop-daemon --exec /bin/core\n"
+        "start-stop-daemon --start\n"
+        "start-stop-daemon -S -x /bin/core\n")
+
+    services = triage._services(root)
+
+    assert [service["name"] for service in services] == ["core"]
+    assert services[0]["evidence"] == "start-stop-daemon -S -x /bin/core"
