@@ -3,7 +3,7 @@
   "project": "codebase-audit",
   "generated": "2026-10-12",
   "schema_version": 1,
-  "head": "c3f1171",
+  "head": "6bbb0e0",
   "status_enum": [
     "shipped",
     "held",

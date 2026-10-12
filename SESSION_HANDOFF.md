@@ -1,6 +1,6 @@
 # Session handoff
 
-**Written:** 2026-10-12 · **Branch:** `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 and whole-branch review complete ·
+**Written:** 2026-10-12 · **Branch:** `main` at `6bbb0e0`; Stage 4b merged locally, 13 commits ahead of `origin/main` ·
 **Tests:** 890 · **Gates:** 8/8 green
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -59,10 +59,10 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4b/acquire-triage`, shipping the `acquire` and `triage`
-  firmware phases. Tasks 1-8 and the final whole-branch review are complete.
-- **`main` matches `origin/main`.** The former unpushed-main warning is closed:
-  `git rev-list --left-right --count origin/main...main` reports `0 0`.
+- **Branch:** `main` at `6bbb0e0`. Stage 4b's `acquire` and `triage` firmware
+  phases are merged; the feature worktree and local branch have been removed.
+- **`main` is local-only at this point.** It is 13 commits ahead of
+  `origin/main`; Stage 4b has not been pushed.
 - **Stage 4b is firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
@@ -73,7 +73,7 @@ These are not style preferences. Each one has a specific, known cost.
 ### Verify the state yourself
 
 ```bash
-cd ~/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4b-acquire-triage
+cd ~/Documents/Offsec/Tools/codebase-audit
 make all          # all eight gates
 ```
 
@@ -83,7 +83,7 @@ Expected:
 PASS  tests      890 passed
 PASS  selftest   verbs  25 declared, all dispatchable / tables 18 in schema.sql, 17 under contract, columns agree / migrations 4 plus current schema applied to the pre-Stage-3 baseline, result accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 163 LF
+PASS  eol        6 CRLF files, 164 LF
 PASS  manifest   41 features, 10 stages, 20 open items, all paths and verbs resolve
 PASS  install    96 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  coverage   0 unexecuted / 2872 statements, 0 allowed
@@ -118,22 +118,11 @@ the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stage 4a are merged to `main`. Stage 4b adds two more
-firmware phases on `stage4b/acquire-triage`. What remains:
-
-### Finish and integrate Stage 4b
-
-Complete Task 8, run all eight gates, perform the whole-branch review, and then
-integrate the branch. Stage 4b adds:
-
-- `audit.py acquire`: record local target/diff-reference image provenance;
-- `audit.py triage`: inventory an already-carved rootfs, parse bounded ELF
-  facts, and record boot services with exact source-line evidence;
-- `cba_images`, `cba_binfacts`, and `cba_services`;
-- the triage dispatch brief and a read-only GL.iNet corpus consistency test.
-
-It deliberately does not fetch, carve, diff, infer open ports, inspect the
-kernel/bootloader, or create the separate `firmware-audit` skill tree.
+Stages 0 through 3c and Stages 4a-4b are merged to local `main`. Stage 4b adds
+`acquire`, `triage`, the three firmware tables, the triage dispatch brief, and
+the read-only GL.iNet corpus consistency test. It deliberately does not fetch,
+carve, diff, infer ports, inspect the kernel/bootloader, or create the separate
+`firmware-audit` skill tree. What remains:
 
 ### Design Stage 4c (`diff`)
 
@@ -175,7 +164,7 @@ running the gate — that is the point of them; do not "fix" them.
 
 ### What exists of Stage 4
 
-Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b ships
+Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`. All three run at zero audit cost. The remaining eight
 firmware phases do not exist yet, nor does the separate firmware skill tree.
 

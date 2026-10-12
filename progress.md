@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-12 · **HEAD:** branch `stage4b/acquire-triage`, based on `main` at `969ad1e`; Task 8 and whole-branch review complete · **Tests:** 890 ·
+**Last updated:** 2026-10-12 · **HEAD:** `main` at `6bbb0e0`; Stage 4b merged locally, 13 commits ahead of `origin/main` · **Tests:** 890 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,9 +21,8 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stage 4a are merged to `main`. Stage 4b is shipped on
-`stage4b/acquire-triage` and has completed whole-branch review.** Stage 4 is
-being built as vertical slices. Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4b are merged to `main`.** Stage 4 is being
+built as vertical slices. Stage 4c (`diff`) is next; Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -34,7 +33,7 @@ being built as vertical slices. Stage 5 has not started.
 | 3b | Measurement hardening and parked defects | 20 | see branch | **merged** — gate none, no audit run |
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
-| 4b | `acquire` + `triage` firmware provenance and inventory | see branch | branch `stage4b/acquire-triage` | **shipped and reviewed on branch** — 8/8 gates, no audit run |
+| 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4 | `firmware-audit` + monorepo (remaining eight phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -284,9 +283,10 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **[closed 2026-10-12] `main` had not been pushed.** It now matches
-   `origin/main` (`git rev-list --left-right --count origin/main...main` is
-   `0 0`). Stage 4b remains only on its local feature branch until integration.
+7. **Stage 4b is merged locally but not pushed.** `main` at `6bbb0e0` is 13
+   commits ahead of `origin/main`. The feature worktree and local
+   `stage4b/acquire-triage` branch were removed after the merged tree passed
+   all eight gates.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -420,18 +420,16 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Finish Stage 4b:** make all eight gates green, complete the whole-branch
-   review, then integrate `stage4b/acquire-triage` into `main`.
-2. **Design Stage 4c (`diff`)** around the target/diff-reference pair. Before
+1. **Design Stage 4c (`diff`)** around the target/diff-reference pair. Before
    two rootfs trees share one database, migrate the path/name keys recorded in
    Stage 4b's open item.
-3. **Take a second indicator snapshot** after the next audit run. The first
+2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.
-4. **Decide what to do with `rerate`'s report** once a benchmark run exists to
+3. **Decide what to do with `rerate`'s report** once a benchmark run exists to
    test it against. It is advisory and stores nothing; mutating severity is
    deliberately not done.
-5. **Build the asus golden and settle the restructure** before the Stage 4
+4. **Build the asus golden and settle the restructure** before the Stage 4
    milestone gate. The gate remains tplink >= 12/19 at <= $45, *and* the asus
    golden must pass. Spec §10 (monorepo vs submodule) still needs a decision
    before the separate firmware skill tree or Stage 5 alignment.
