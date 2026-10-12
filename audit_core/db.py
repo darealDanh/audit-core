@@ -235,15 +235,18 @@ def _validate_service(row: dict[str, str]) -> None:
 def _validate_diff(row: dict[str, str]) -> None:
     for column in ("added_count", "removed_count", "modified_count",
                    "unchanged_count"):
-        raw = str(row.get(column, "")).strip()
+        # SQLite ignores ASCII whitespace around numeric values; Python's
+        # default strip also accepts Unicode whitespace retained as TEXT.
+        raw = str(row.get(column, "")).strip(" \t\n\r\v\f")
         if re.fullmatch(r"[+-]?[0-9]+", raw) is None:
             raise DbError(f"{column}={raw!r} is not a non-negative integer")
         try:
             value = int(raw)
         except ValueError:
             raise DbError(f"{column}={raw!r} is not a non-negative integer") from None
-        if value < 0:
-            raise DbError(f"{column}={raw!r} is not a non-negative integer")
+        if not 0 <= value <= 9223372036854775807:
+            raise DbError(f"{column}={raw!r} is outside the SQLite non-negative "
+                          "integer range 0-9223372036854775807")
 
 
 def _validate_diff_entry(row: dict[str, str]) -> None:

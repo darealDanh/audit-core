@@ -83,6 +83,33 @@ def test_diff_summary_accepts_nonnegative_integer_counts(con, value):
     assert db.rows(con, "cba_diffs", columns=("added_count",))[0][0] == int(value)
 
 
+@pytest.mark.parametrize("column", ["added_count", "removed_count",
+                                    "modified_count", "unchanged_count"])
+@pytest.mark.parametrize("value", ["\u00a01\u00a0", "\u20031\u2003", "\x1c1\x1c",
+                                    "9223372036854775808", 9223372036854775808])
+def test_diff_summary_rejects_counts_sqlite_would_store_as_text_or_real(
+        con, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_diffs", DIFF | {column: value})
+    assert con.execute("SELECT COUNT(*) FROM cba_diffs").fetchone()[0] == 0
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("column", ["added_count", "removed_count",
+                                    "modified_count", "unchanged_count"])
+@pytest.mark.parametrize("value,expected", [
+    (0, 0), ("0", 0),
+    (9223372036854775807, 9223372036854775807),
+    ("9223372036854775807", 9223372036854775807),
+    (" \t+9223372036854775807\r\n", 9223372036854775807),
+])
+def test_diff_summary_boundary_counts_persist_as_sqlite_integers(
+        con, column, value, expected):
+    db.put(con, "cba_diffs", DIFF | {column: value})
+    got = con.execute(f"SELECT {column}, typeof({column}) FROM cba_diffs").fetchone()
+    assert tuple(got) == (expected, "integer")
+
+
 DIFF_ENTRIES = (
     {"diff_id": "diff-one", "path": "etc/new", "change": "added",
      "target_kind": "config", "target_size": "0", "target_sha256": "aa"},
