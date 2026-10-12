@@ -92,6 +92,39 @@ def test_put_writes_a_row_that_rows_reads_back(con):
     assert [tuple(r) for r in got] == [("G1-F1", "HIGH", "src/klap.c:120")]
 
 
+def test_put_deferred_commit_keeps_rows_private_until_the_caller_commits(tmp_path):
+    run = workspace.init_run(tmp_path, timestamp="20260105-120000")
+    writer = db.connect(run / "audit.db")
+    reader = db.connect(run / "audit.db")
+    try:
+        db.put(writer, "cba_findings", dict(FINDING), commit=False)
+        assert db.rows(writer, "cba_findings", columns=("id",))[0][0] == "G1-F1"
+        assert db.rows(reader, "cba_findings") == []
+        writer.commit()
+        assert db.rows(reader, "cba_findings", columns=("id",))[0][0] == "G1-F1"
+
+        db.put(writer, "cba_findings", FINDING | {"id": "G1-F2"})
+        assert [r[0] for r in db.rows(reader, "cba_findings", columns=("id",))] == [
+            "G1-F1", "G1-F2"]
+    finally:
+        reader.close()
+        writer.close()
+
+
+def test_put_deferred_replace_and_integrity_errors_leave_rollback_to_caller(con):
+    db.put(con, "cba_findings", FINDING | {"cwe": "CWE-120"})
+    db.put(con, "cba_findings", FINDING | {"severity": "LOW"},
+           replace=True, commit=False)
+    row = db.rows(con, "cba_findings", columns=("severity", "cwe"))[0]
+    assert tuple(row) == ("LOW", "CWE-120")
+    with pytest.raises(db.DbError, match="--replace"):
+        db.put(con, "cba_findings", dict(FINDING), commit=False)
+    assert con.in_transaction
+    con.rollback()
+    row = db.rows(con, "cba_findings", columns=("severity", "cwe"))[0]
+    assert tuple(row) == ("HIGH", "CWE-120")
+
+
 def test_put_rejects_an_unknown_table(con):
     with pytest.raises(db.DbError) as exc:
         db.put(con, "cba_nope", {"id": "x"})

@@ -33,6 +33,7 @@ IMAGE_ROLES = ("target", "diff-reference")
 TRISTATE = ("yes", "no", "unknown")
 RELRO_STATES = ("full", "partial", "none", "unknown")
 FIRMWARE_IMAGE_UNSCOPED = "legacy-unscoped"
+DIFF_CHANGES = ("added", "removed", "modified")
 
 # Columns added to tables that already existed when an earlier stage shipped.
 # `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
@@ -231,6 +232,35 @@ def _validate_service(row: dict[str, str]) -> None:
                       "port was established")
 
 
+def _validate_diff(row: dict[str, str]) -> None:
+    for column in ("added_count", "removed_count", "modified_count",
+                   "unchanged_count"):
+        raw = str(row.get(column, "")).strip()
+        if re.fullmatch(r"[+-]?[0-9]+", raw) is None:
+            raise DbError(f"{column}={raw!r} is not a non-negative integer")
+        try:
+            value = int(raw)
+        except ValueError:
+            raise DbError(f"{column}={raw!r} is not a non-negative integer") from None
+        if value < 0:
+            raise DbError(f"{column}={raw!r} is not a non-negative integer")
+
+
+def _validate_diff_entry(row: dict[str, str]) -> None:
+    change = row.get("change")
+    if change not in DIFF_CHANGES:
+        raise DbError(f"change={change!r} is not one of {', '.join(DIFF_CHANGES)}")
+    sides = (("target",) if change == "added" else
+             ("reference",) if change == "removed" else ("reference", "target"))
+    missing = [f"{side}_{field}" for side in sides
+               for field in ("kind", "size", "sha256")
+               if row.get(f"{side}_{field}") is None
+               or not str(row[f"{side}_{field}"]).strip()]
+    if missing:
+        raise DbError(f"change={change} requires a non-empty value for: "
+                      + ", ".join(missing))
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -327,6 +357,22 @@ TABLE_SPECS: dict[str, TableSpec] = {
         columns=("image_id", "path", "kind", "size", "sha256", "recorded_at"),
         required=("image_id", "path", "kind", "size", "sha256"),
         primary_key=("image_id", "path")),
+    "cba_diffs": TableSpec(
+        columns=("id", "reference_image_id", "target_image_id", "added_count",
+                 "removed_count", "modified_count", "unchanged_count",
+                 "manifest_path", "recorded_at"),
+        required=("id", "reference_image_id", "target_image_id", "added_count",
+                  "removed_count", "modified_count", "unchanged_count",
+                  "manifest_path"),
+        primary_key=("id",),
+        validate=_validate_diff),
+    "cba_diff_entries": TableSpec(
+        columns=("diff_id", "path", "change", "reference_kind", "target_kind",
+                 "reference_size", "target_size", "reference_sha256",
+                 "target_sha256"),
+        required=("diff_id", "path", "change"),
+        primary_key=("diff_id", "path"),
+        validate=_validate_diff_entry),
 }
 
 
@@ -513,7 +559,7 @@ def _merge_with_stored(con: sqlite3.Connection, table: str, spec: TableSpec,
 
 
 def put(con: sqlite3.Connection, table: str, row: dict[str, str],
-        *, replace: bool = False) -> None:
+        *, replace: bool = False, commit: bool = True) -> None:
     """Insert one validated row. With `replace`, merge it over the stored one.
 
     Column names are interpolated into the statement, which is safe only
@@ -523,6 +569,7 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
     Validation runs on both what the caller wrote and the effective merged
     result. The first check prevents a new claim from borrowing stale evidence;
     the second prevents an explicit clear from invalidating a retained claim.
+    With `commit=False`, the caller owns committing or rolling back the write.
     """
     spec = _spec(table)
     unknown = sorted(set(row) - set(spec.columns))
@@ -545,7 +592,8 @@ def put(con: sqlite3.Connection, table: str, row: dict[str, str],
         con.execute(sql, [values[c] for c in cols])
     except sqlite3.IntegrityError as exc:
         raise DbError(f"{table}: {exc}; pass --replace to overwrite") from exc
-    con.commit()
+    if commit:
+        con.commit()
 
 
 def rows(con: sqlite3.Connection, table: str, *,

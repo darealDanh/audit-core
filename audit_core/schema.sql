@@ -185,3 +185,27 @@ CREATE TABLE IF NOT EXISTS cba_firmware_files (
     sha256 TEXT NOT NULL,
     recorded_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (image_id, path));
+
+-- Stage 4c comparisons retain summaries and only changed file entries.
+CREATE TABLE IF NOT EXISTS cba_diffs (
+    id TEXT PRIMARY KEY,
+    reference_image_id TEXT NOT NULL,
+    target_image_id TEXT NOT NULL,
+    added_count INTEGER NOT NULL,
+    removed_count INTEGER NOT NULL,
+    modified_count INTEGER NOT NULL,
+    unchanged_count INTEGER NOT NULL,
+    manifest_path TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')));
+
+CREATE TABLE IF NOT EXISTS cba_diff_entries (
+    diff_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    change TEXT NOT NULL,
+    reference_kind TEXT,
+    target_kind TEXT,
+    reference_size INTEGER,
+    target_size INTEGER,
+    reference_sha256 TEXT,
+    target_sha256 TEXT,
+    PRIMARY KEY (diff_id, path));
