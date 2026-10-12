@@ -169,3 +169,75 @@ def test_truncated_program_table_yields_unknown_mitigations(tmp_path):
     path.write_bytes(blob)
     facts = elf.read(path)
     assert (facts.nx, facts.pie, facts.relro) == ("unknown", "no", "unknown")
+
+
+def test_private_string_reader_rejects_bad_offsets_and_unterminated_data():
+    assert elf._cstring(b"abc\0", -1) is None
+    assert elf._cstring(b"abc\0", 9) is None
+    assert elf._cstring(b"abc", 0) is None
+
+
+def test_missing_file_and_invalid_ident_fields_return_none(tmp_path):
+    assert elf.read(tmp_path / "missing") is None
+    path = tmp_path / "bad-ident"
+    path.write_bytes(b"\x7fELF" + bytes((9, 9, 1)) + b"\0" * 9)
+    assert elf.read(path) is None
+
+
+def test_complete_ident_with_truncated_header_returns_none(tmp_path):
+    path = tmp_path / "short-header"
+    path.write_bytes(b"\x7fELF" + bytes((2, 1, 1)) + b"\0" * 9)
+    assert elf.read(path) is None
+
+
+def test_reads_32_bit_program_header_layout(tmp_path):
+    blob = bytearray(header_only(bits=32, machine=8))
+    struct.pack_into("<I", blob, 28, 52)
+    struct.pack_into("<H", blob, 42, 32)
+    struct.pack_into("<H", blob, 44, 1)
+    blob.extend(struct.pack("<IIIIIIII", 0x6474E551, 0, 0, 0, 0, 0, 6, 16))
+    path = tmp_path / "mips32"
+    path.write_bytes(blob)
+    assert elf.read(path).nx == "yes"
+
+
+def test_bad_section_string_offset_degrades_to_unknown(tmp_path):
+    blob = bytearray(rich_elf())
+    shoff = struct.unpack_from("<Q", blob, 40)[0]
+    struct.pack_into("<Q", blob, shoff + 64 + 24, len(blob) + 100)
+    path = tmp_path / "bad-shstr"
+    path.write_bytes(blob)
+    assert elf.read(path).stripped == "unknown"
+
+
+def test_truncated_dynamic_and_symbol_payloads_do_not_raise(tmp_path):
+    blob = bytearray(rich_elf(canary=False))
+    shoff = struct.unpack_from("<Q", blob, 40)[0]
+    # Inflate .dynamic and .symtab sizes just beyond EOF; both loops must stop.
+    dynamic_off = struct.unpack_from("<Q", blob, shoff + 3 * 64 + 24)[0]
+    dynamic_size = struct.unpack_from("<Q", blob, shoff + 3 * 64 + 32)[0]
+    struct.pack_into("<qQ", blob, dynamic_off + dynamic_size - 16, 1, 999999)
+    struct.pack_into("<Q", blob, shoff + 3 * 64 + 32, len(blob))
+    struct.pack_into("<Q", blob, shoff + 5 * 64 + 32, len(blob))
+    path = tmp_path / "truncated-payloads"
+    path.write_bytes(blob)
+    facts = elf.read(path)
+    assert facts.machine == "x86-64"
+    assert facts.canary == "unknown"
+
+
+def test_partial_final_dynamic_entry_does_not_raise(tmp_path):
+    blob = bytearray(rich_elf())
+    shoff = struct.unpack_from("<Q", blob, 40)[0]
+    dynamic_header = shoff + 3 * 64
+    dynamic_off = struct.unpack_from("<Q", blob, dynamic_header + 24)[0]
+    # One complete DT_NEEDED entry followed by one trailing byte. The reader
+    # must retain the complete fact and stop at the partial entry.
+    struct.pack_into("<Q", blob, dynamic_header + 32, 17)
+    path = tmp_path / "partial-dynamic-entry"
+    path.write_bytes(blob)
+
+    facts = elf.read(path)
+
+    assert facts.needed == ("libc.so.6",)
+    assert facts.runpath is None

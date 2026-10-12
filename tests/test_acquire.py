@@ -71,3 +71,19 @@ def test_replace_changes_image_but_keeps_omitted_source(con, tmp_path):
     assert row["version"] == "2"
     assert row["sha256"] == result.sha256
     assert row["source"] == "vendor.example/advisory"
+
+
+def test_record_turns_a_read_race_into_acquire_error(con, tmp_path, monkeypatch):
+    image = tmp_path / "fw.bin"
+    image.write_bytes(b"x")
+    original = type(image).open
+
+    def fail_open(self, *args, **kwargs):
+        if self == image:
+            raise OSError("vanished")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(image), "open", fail_open)
+    with pytest.raises(acquire.AcquireError, match="vanished"):
+        acquire.record(con, vendor="v", model="m", version="1", role="target",
+                       path=image, source="local")

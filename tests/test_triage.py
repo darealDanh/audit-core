@@ -160,3 +160,48 @@ def test_duplicate_service_keeps_first_sorted_source(con, tmp_path):
     alpha = dict(db.rows(con, "cba_services", where={"name": "alpha"})[0])
     assert alpha["start_source"] == "etc/init.d/S20alpha"
     assert alpha["evidence"] == "/usr/sbin/alpha -d"
+
+
+def test_walk_skips_file_that_vanishes_before_lstat(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    vanished = root / "vanished"
+    vanished.write_text("x")
+    original = type(vanished).lstat
+
+    def fail_lstat(self):
+        if self == vanished:
+            raise OSError("vanished")
+        return original(self)
+
+    monkeypatch.setattr(type(vanished), "lstat", fail_lstat)
+    assert triage._regular_files(root) == []
+
+
+def test_kind_degrades_when_file_cannot_be_opened(tmp_path, monkeypatch):
+    path = tmp_path / "plain"
+    path.write_text("x")
+    original = type(path).open
+
+    def fail_open(self, *args, **kwargs):
+        if self == path:
+            raise OSError("vanished")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(path), "open", fail_open)
+    assert triage._kind(path, "plain", None) == "file"
+
+
+def test_service_scan_skips_source_that_cannot_be_read(tmp_path, monkeypatch):
+    root = service_tree(tmp_path)
+    source = root / "etc/init.d/S20alpha"
+    original = type(source).read_text
+
+    def fail_read(self, *args, **kwargs):
+        if self == source:
+            raise OSError("vanished")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(source), "read_text", fail_read)
+    alpha = next(row for row in triage._services(root) if row["name"] == "alpha")
+    assert alpha["start_source"] == "etc/rc.local"

@@ -66,10 +66,7 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
     raw_header = _range(blob, 0, header_size)
     if raw_header is None:
         return None
-    try:
-        values = struct.unpack(header_fmt, raw_header)
-    except struct.error:
-        return None
+    values = struct.unpack(header_fmt, raw_header)
     (_ident, type_no, machine_no, _version, _entry, phoff, shoff, _flags,
      _ehsize, phentsize, phnum, shentsize, shnum, shstrndx) = values
 
@@ -84,10 +81,8 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
     has_relro = False
     if program_ok:
         for index in range(phnum):
-            raw = _range(blob, phoff + index * phentsize, expected_ph)
-            if raw is None:
-                program_ok = False
-                break
+            raw = blob[phoff + index * phentsize:
+                       phoff + index * phentsize + expected_ph]
             fields = struct.unpack(ph_fmt, raw)
             if bits == 32:
                 p_type, p_offset, _vaddr, _paddr, p_filesz, _memsz, p_flags, _align = fields
@@ -112,10 +107,8 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
                   _range(blob, shoff, shentsize * shnum) is not None)
     if section_ok:
         for index in range(shnum):
-            raw = _range(blob, shoff + index * shentsize, expected_sh)
-            if raw is None:
-                section_ok = False
-                break
+            raw = blob[shoff + index * shentsize:
+                       shoff + index * shentsize + expected_sh]
             fields = struct.unpack(sh_fmt, raw)
             name, kind = fields[0], fields[1]
             offset, size, link, entsize = fields[4], fields[5], fields[6], fields[9]
@@ -144,9 +137,11 @@ def read(path: str | pathlib.Path) -> ElfFacts | None:
         entry_fmt = order + ("iI" if bits == 32 else "qQ")
         entry_size = struct.calcsize(entry_fmt)
         step = dyn_entsize or entry_size
+        section_end = dyn_off + dyn_size
         if strings_blob is not None and step >= entry_size and dyn_size // step <= MAX_HEADERS:
             for offset in range(dyn_off, dyn_off + dyn_size, step):
-                raw = _range(blob, offset, entry_size)
+                raw = (None if offset + entry_size > section_end
+                       else _range(blob, offset, entry_size))
                 if raw is None:
                     break
                 tag, value = struct.unpack(entry_fmt, raw)
