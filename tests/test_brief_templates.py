@@ -13,10 +13,10 @@ RETURN_CONTRACT = "rows=<n> artifact="
 FP_RULES = pathlib.Path(__file__).resolve().parent.parent / "references" / "phase5-fp-check.md"
 
 
-def test_four_templates_exist():
+def test_five_templates_exist():
     names = {p.name for p in TEMPLATES}
     assert names == {"recon-brief.md", "audit-brief.md", "fpcheck-brief.md",
-                     "triage-brief.md"}
+                     "triage-brief.md", "diff-brief.md"}
 
 
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
