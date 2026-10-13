@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-13 · **Implementation HEAD:** `60dd47a` on `stage4c-firmware-diff`; awaiting whole-branch review and integration · **Tests:** 1,169 ·
+**Last updated:** 2026-10-13 · **Implementation HEAD:** `f22fae2` on `stage4c-firmware-diff`; review fixes applied, integration pending · **Tests:** 1,202 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -22,8 +22,9 @@ every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a-4b are merged to `main`.** Stage 4c (`diff`)
-is implemented on `stage4c-firmware-diff`; whole-branch review and integration
-remain. The next feature slice is Stage 4d (`surface`); Stage 5 has not started.
+is implemented on `stage4c-firmware-diff`; the whole-branch review fixes are
+applied and integration remains. The next feature slice is Stage 4d (`surface`);
+Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -35,7 +36,7 @@ remain. The next feature slice is Stage 4d (`surface`); Stage 5 has not started.
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
-| 4c | `diff` — image-scoped firmware comparison and agent brief | 8 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`60dd47a`) — 8/8 gates, whole-branch review/integration pending, no audit run |
+| 4c | `diff` — image-scoped firmware comparison and agent brief | 9 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`f22fae2`) — 8/8 gates, review fixes applied, integration pending, no audit run |
 | 4 | `firmware-audit` + monorepo (remaining seven phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -268,23 +269,27 @@ every changed path in `cba_diff_entries` with a `cba_diffs` summary. The CLI
 returns bounded counts and a content-addressed JSON path. Replacement installs
 the artifact first, then commits all SQL rows together; a failed SQL write can
 leave an unreferenced generation while preserving the previous result.
+Triage publishes all file, ELF, service, and coverage rows in one transaction;
+walk/stat failures abort before publication. Replacing an acquired image whose
+hash or version changes atomically clears that image's manifest, so diff
+requires retriage. Read-side SQLite errors in diff have a named CLI failure.
 
 The diff brief assigns patch-specific semantic analysis: document the vendor
 fix using both builds and search the target for surviving sibling sites,
 reusing observations, patterns, and recorded sweeps. It does not turn binary
 churn into findings or start general surface/hunt/emulation work.
 
-The focused suite passes 336 tests, including the read-only GL.iNet manifest,
-ELF-hash, and service consistency proof. The full harness measures 1,169 tests,
-26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
+The final-fix focused suite passes 125 tests. The full harness, including the
+read-only GL.iNet manifest, ELF-hash, and service consistency proof, measures
+1,202 tests, 26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
 42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/173 LF;
 the sandbox installs 100 markdown files with zero sentinel survivors and the
-real install untouched; coverage is 0 unexecuted / 3,138 statements, 0 allowed.
+real install untouched; coverage is 0 unexecuted / 3,170 statements, 0 allowed.
 Read-only benchmark scoring remains recall 9/19, 45 findings, precision 39/40,
 and $73.15 per match. The complete gate summary is in `SESSION_HANDOFF.md`.
 No paid audit or mutation sweep ran. Task-scoped
-implementation reviews are complete; whole-branch review and integration are
-still required.
+implementation reviews and the whole-branch fix wave are complete; integration
+is still required.
 
 Remaining limits: triage upserts without pruning disappeared files (use fresh
 image scopes/runs for changed carved trees), stored manifests are snapshots
@@ -329,8 +334,8 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    SESSION_HANDOFF §6 so it is not trusted.
 7. **Local changes are not pushed.** `main` at `ed055ba` is 16 commits ahead
    of `origin/main` (checked 2026-10-13). Stage 4c is in its separate feature
-   worktree/branch, with implementation head `60dd47a`; whole-branch review,
-   integration, and synchronization remain.
+   worktree/branch, with implementation head `f22fae2`; integration and
+   synchronization remain.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -384,7 +389,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 1,169 tests after Stage 4c implementation and coverage reconciliation |
+| `tests` | The pytest suite — 1,202 tests after Stage 4c review fixes |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -464,7 +469,7 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Finish Stage 4c whole-branch review and integration, then design Stage 4d
+1. **Integrate Stage 4c, then design Stage 4d
    (`surface`)** for dispatch/handler mapping, authentication boundaries,
    device state, and reachability evidence. Preserve image scoping and the
    target-only coverage denominator; account for triage's upsert-only snapshots.

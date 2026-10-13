@@ -227,12 +227,17 @@ manifest row. Only target and backward-compatible unscoped triage mirror rows
 into `cba_inventory`; reference triage cannot change the target coverage
 denominator. Triage upserts observed paths; it does not prune disappeared
 files, so use fresh image scopes/runs when replacing carved tree contents.
+It prepares filesystem facts before writing and publishes file, ELF, service,
+and coverage rows together. Traversal or stat errors abort the run. When an
+acquired image's hash or version changes, acquisition and same-image manifest
+invalidation commit together; diff refuses that image until retriage.
 
 `diff` compares stored manifests, never rereading carved trees. It requires
 acquired target/reference images of the same vendor/model with distinct image
 hashes, and rejects missing manifests, ambiguous roles, and legacy-unscoped
 provenance. All non-identical paths enter `cba_diff_entries`; unchanged paths
 are counted. The bounded terminal result points to the full JSON artifact.
+Read-side SQLite failures become `FirmwareDiffError` and a named CLI exit 1.
 Artifact installation precedes the SQL transaction; replacement commits the
 summary and entries together. SQL failure can leave an unreferenced artifact
 generation but preserves the prior durable result.
@@ -306,7 +311,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (1,169 tests after Stage 4c implementation and coverage reconciliation). |
+| `tests` | yes | The pytest suite (1,202 tests after Stage 4c review fixes). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |
