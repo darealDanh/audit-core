@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-12 · **Branch:** `main` at `6bbb0e0`; Stage 4b merged locally, 13 commits ahead of `origin/main` ·
-**Tests:** 890 · **Gates:** 8/8 green
+**Written:** 2026-10-13 · **Branch:** `stage4c-firmware-diff`, implementation head `60dd47a`; whole-branch review/integration pending ·
+**Tests:** 1,169 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,40 +59,57 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `main` at `6bbb0e0`. Stage 4b's `acquire` and `triage` firmware
-  phases are merged; the feature worktree and local branch have been removed.
-- **`main` is local-only at this point.** It is 13 commits ahead of
-  `origin/main`; Stage 4b has not been pushed.
-- **Stage 4b is firmware-audit behavior on the shared spine, not a separate
+- **Branch:** `stage4c-firmware-diff`, with implementation head `60dd47a`.
+  Stage 4c's eight implementation commits have task-scoped reviews; the final
+  whole-branch review and integration remain. The recorded head deliberately
+  names the last implementation commit, not the later documentation commit.
+- **`main` is local-only at this point.** It is at `ed055ba`, 16 commits ahead
+  of `origin/main` (checked 2026-10-13). Stage 4b is merged there; Stage 4c
+  remains in `.worktrees/stage4c-firmware-diff`.
+- **Stage 4c is firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
-- **Known data-model limit:** `cba_binfacts.path` and `cba_services.name` are
-  simple primary keys. A later slice must migrate them before triaging target
-  and diff-reference trees into the same database.
+- **Image isolation is implemented:** firmware facts now use `(image_id,
+  path/name)` keys. Only target and compatible unscoped triage mirror the
+  unscoped `cba_inventory`; reference triage cannot change target coverage.
+- **Existing Stage 4b runs need an upgrade:** rerun `audit.py init --timestamp
+  <existing timestamp>` for the same project. The atomic, idempotent firmware
+  rebuild preserves facts and maps missing image IDs to `legacy-unscoped`.
+  Re-triage both acquired images to populate manifests; `diff` refuses
+  unscoped provenance, missing manifests, ambiguous roles, mismatched
+  vendor/models, and identical acquired-image hashes.
+- **Snapshot limits:** triage upserts without pruning disappeared files, so
+  use fresh image scopes/runs when changing carved tree contents. Diff reads
+  stored manifests rather than verifying live files. SQL replacement is
+  atomic; a failed SQL write can leave an unreferenced artifact generation.
 
 ### Verify the state yourself
 
 ```bash
-cd ~/Documents/Offsec/Tools/codebase-audit
+cd ~/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4c-firmware-diff
 make all          # all eight gates
 ```
 
-Expected:
+Measured gate summary (2026-10-13; rerun after final documentation edits):
 
 ```
-PASS  tests      890 passed
-PASS  selftest   verbs  25 declared, all dispatchable / tables 18 in schema.sql, 17 under contract, columns agree / migrations 4 plus current schema applied to the pre-Stage-3 baseline, result accepted by connect()
+PASS  tests      1169 passed
+PASS  selftest   verbs  26 declared, all dispatchable / tables 21 in schema.sql, 20 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 164 LF
-PASS  manifest   41 features, 10 stages, 20 open items, all paths and verbs resolve
-PASS  install    96 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 2872 statements, 0 allowed
+PASS  eol        6 CRLF files, 173 LF
+PASS  manifest   42 features, 11 stages, 20 open items, all paths and verbs resolve
+PASS  install    100 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 3138 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed
 ```
 
 The real output also prints a per-gate duration; the block omits variable times.
+The focused Stage 4c suite passes 336 tests, including the available GL.iNet
+corpus check. The final test addition covers Python's integer-conversion digit
+limit without changing runtime behavior; the initial harness had found two
+unexecuted validation statements, now covered without an allowlist.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
@@ -113,23 +130,32 @@ already exists.
 
 This matches spec §6.1, which runs the benchmark at milestones only and uses
 **deterministic leading indicators** in between — indicators, now built in Stage 3b
-(`audit.py indicators`). This stage did not run a benchmark and did not change
-the deferral.
+(`audit.py indicators`). Stage 4c only rescored the existing read-only
+benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4b are merged to local `main`. Stage 4b adds
-`acquire`, `triage`, the three firmware tables, the triage dispatch brief, and
-the read-only GL.iNet corpus consistency test. It deliberately does not fetch,
-carve, diff, infer ports, inspect the kernel/bootloader, or create the separate
-`firmware-audit` skill tree. What remains:
+Stages 0 through 3c and Stages 4a-4b are merged to local `main`. Stage 4c adds
+`firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
+`cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
+Comparison stores every changed path in SQL and deterministic JSON while the
+terminal result stays bounded. The agent brief requires evidence for the
+vendor's fix and a target-only sibling search; changed bytes are not findings.
+The read-only GL.iNet check proves inventory/manifest/ELF/service consistency.
 
-### Design Stage 4c (`diff`)
+### Review and integrate Stage 4c, then design Stage 4d (`surface`)
 
-The target/diff-reference image pair now exists as data. Before two carved
-trees can safely share one database, migrate `cba_binfacts.path` and
-`cba_services.name` away from simple primary keys so the second image cannot
-overwrite the first image's rows.
+The feature branch still needs whole-branch review against the five design
+focus cases, the public Stage 4b upgrade remedy, reference/target isolation,
+transaction boundaries, and an operator walkthrough of the rendered brief.
+Reconcile documents and run a fresh `make all` after any resulting changes.
+
+Stage 4d is dispatch/handler mapping, authentication boundaries, device state,
+and reachability evidence. It inherits image scoping, the target-only coverage
+rule, and triage's upsert-only snapshot limitation. Stage 4c does not fetch,
+carve, infer ports, run emulation, inspect the kernel/bootloader, or create the
+separate `firmware-audit` tree. Its semantic agent quality has not been measured
+by an audit; benchmark gates remain deferred.
 
 ### Decide the remaining prose-string mutation survivors
 
@@ -165,7 +191,8 @@ running the gate — that is the point of them; do not "fix" them.
 ### What exists of Stage 4
 
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
-`acquire` and `triage`. All three run at zero audit cost. The remaining eight
+`acquire` and `triage`; Stage 4c implements `diff` on its feature branch. These
+four phases were built at zero audit cost. The remaining seven
 firmware phases do not exist yet, nor does the separate firmware skill tree.
 
 ### Stage 4 milestone work

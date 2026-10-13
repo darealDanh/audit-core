@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-12 · **HEAD:** `main` at `6bbb0e0`; Stage 4b merged locally, 13 commits ahead of `origin/main` · **Tests:** 890 ·
+**Last updated:** 2026-10-13 · **Implementation HEAD:** `60dd47a` on `stage4c-firmware-diff`; awaiting whole-branch review and integration · **Tests:** 1,169 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,8 +21,9 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4b are merged to `main`.** Stage 4 is being
-built as vertical slices. Stage 4c (`diff`) is next; Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4b are merged to `main`.** Stage 4c (`diff`)
+is implemented on `stage4c-firmware-diff`; whole-branch review and integration
+remain. The next feature slice is Stage 4d (`surface`); Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -34,7 +35,8 @@ built as vertical slices. Stage 4c (`diff`) is next; Stage 5 has not started.
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
-| 4 | `firmware-audit` + monorepo (remaining eight phases) | — | — | planned |
+| 4c | `diff` — image-scoped firmware comparison and agent brief | 8 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`60dd47a`) — 8/8 gates, whole-branch review/integration pending, no audit run |
+| 4 | `firmware-audit` + monorepo (remaining seven phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -54,8 +56,9 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-The benchmark has not moved across Stage 2 or Stage 3 — which is the point.
-Both stages were required to hold recall at or above 9/19, and both did.
+Read-only scoring of the existing audit remains unchanged through Stage 4c.
+This does not measure the effect of new behavior: the Stage 2/3 audit reruns
+remain deferred, so no recall, precision, or audit-cost improvement is claimed.
 
 **The contrast between 97.5% precision and 47.4% recall is the most useful
 number the project has produced.** It is the signature of a false-positive
@@ -246,9 +249,50 @@ architectures agree, and resolved service executables stay inside the root.
 
 This is firmware-audit behavior built on the shared core, not a separate
 `firmware-audit` skill tree. It does not fetch, carve, diff, infer ports, or
-inspect the kernel or bootloader. The next slice that puts two carved images in
-one database must migrate the simple `cba_binfacts.path` and
-`cba_services.name` primary keys before doing so.
+inspect the kernel or bootloader. Its simple firmware primary keys were a
+known limitation, closed by Stage 4c below.
+
+### Stage 4c - `diff`
+
+The third firmware slice migrates `cba_binfacts` and `cba_services` to
+image-scoped composite keys, preserving Stage 4b facts with an atomic,
+idempotent rebuild. `audit.py init --timestamp <existing timestamp>` upgrades
+the existing run; old unscoped facts become `legacy-unscoped`. Acquired images
+must then be triaged to populate manifests before diffing.
+
+`triage` now hashes every regular file into `cba_firmware_files`. Only target
+and compatible unscoped triage mirror `cba_inventory`: diff-reference triage
+cannot overwrite the target coverage denominator. `firmware_diff.py` compares
+stored manifests by path and SHA-256, counts unchanged paths, and persists
+every changed path in `cba_diff_entries` with a `cba_diffs` summary. The CLI
+returns bounded counts and a content-addressed JSON path. Replacement installs
+the artifact first, then commits all SQL rows together; a failed SQL write can
+leave an unreferenced generation while preserving the previous result.
+
+The diff brief assigns patch-specific semantic analysis: document the vendor
+fix using both builds and search the target for surviving sibling sites,
+reusing observations, patterns, and recorded sweeps. It does not turn binary
+churn into findings or start general surface/hunt/emulation work.
+
+The focused suite passes 336 tests, including the read-only GL.iNet manifest,
+ELF-hash, and service consistency proof. The full harness measures 1,169 tests,
+26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
+42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/173 LF;
+the sandbox installs 100 markdown files with zero sentinel survivors and the
+real install untouched; coverage is 0 unexecuted / 3,138 statements, 0 allowed.
+Read-only benchmark scoring remains recall 9/19, 45 findings, precision 39/40,
+and $73.15 per match. The complete gate summary is in `SESSION_HANDOFF.md`.
+No paid audit or mutation sweep ran. Task-scoped
+implementation reviews are complete; whole-branch review and integration are
+still required.
+
+Remaining limits: triage upserts without pruning disappeared files (use fresh
+image scopes/runs for changed carved trees), stored manifests are snapshots
+rather than live filesystem verification, semantic patch-analysis quality has
+not been measured by an audit, and there is still no separate firmware skill
+tree. Stage 4d `surface` follows review/integration and must preserve the
+target-only coverage rule while adding dispatch/handler mapping,
+authentication boundaries, device state, and reachability evidence.
 
 ---
 
@@ -283,10 +327,10 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Stage 4b is merged locally but not pushed.** `main` at `6bbb0e0` is 13
-   commits ahead of `origin/main`. The feature worktree and local
-   `stage4b/acquire-triage` branch were removed after the merged tree passed
-   all eight gates.
+7. **Local changes are not pushed.** `main` at `ed055ba` is 16 commits ahead
+   of `origin/main` (checked 2026-10-13). Stage 4c is in its separate feature
+   worktree/branch, with implementation head `60dd47a`; whole-branch review,
+   integration, and synchronization remain.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -340,7 +384,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 890 tests at the end of Stage 4b review |
+| `tests` | The pytest suite — 1,169 tests after Stage 4c implementation and coverage reconciliation |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -420,9 +464,10 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Design Stage 4c (`diff`)** around the target/diff-reference pair. Before
-   two rootfs trees share one database, migrate the path/name keys recorded in
-   Stage 4b's open item.
+1. **Finish Stage 4c whole-branch review and integration, then design Stage 4d
+   (`surface`)** for dispatch/handler mapping, authentication boundaries,
+   device state, and reachability evidence. Preserve image scoping and the
+   target-only coverage denominator; account for triage's upsert-only snapshots.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

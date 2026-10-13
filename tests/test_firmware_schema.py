@@ -1,4 +1,5 @@
 import sqlite3
+import sys
 
 import pytest
 
@@ -91,6 +92,20 @@ def test_diff_summary_rejects_counts_sqlite_would_store_as_text_or_real(
         con, column, value):
     with pytest.raises(db.DbError, match=column):
         db.put(con, "cba_diffs", DIFF | {column: value})
+    assert con.execute("SELECT COUNT(*) FROM cba_diffs").fetchone()[0] == 0
+    assert not con.in_transaction
+
+
+@pytest.mark.skipif(not hasattr(sys, "set_int_max_str_digits"),
+                    reason="Python has no integer conversion digit limit")
+def test_diff_summary_wraps_integer_conversion_limit_without_writing(con):
+    previous_limit = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(640)
+        with pytest.raises(db.DbError, match="added_count=.*not a non-negative integer"):
+            db.put(con, "cba_diffs", DIFF | {"added_count": "9" * 641})
+    finally:
+        sys.set_int_max_str_digits(previous_limit)
     assert con.execute("SELECT COUNT(*) FROM cba_diffs").fetchone()[0] == 0
     assert not con.in_transaction
 

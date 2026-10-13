@@ -2,7 +2,9 @@
 
 **Date:** 2026-10-12
 
-**Status:** Draft for written-spec review
+**Status:** Implemented on `stage4c-firmware-diff` (2026-10-13). Tasks 1–7
+individually reviewed; full harness passes after coverage reconciliation.
+Whole-branch review and integration remain pending.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §4
 

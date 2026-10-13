@@ -1,9 +1,9 @@
 {
   "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
   "project": "codebase-audit",
-  "generated": "2026-10-12",
+  "generated": "2026-10-13",
   "schema_version": 1,
-  "head": "6bbb0e0",
+  "head": "60dd47a",
   "status_enum": [
     "shipped",
     "held",
@@ -78,11 +78,18 @@
       "summary": "The second vertical slice of firmware-audit. Records two firmware-image roles, inventories an already-carved rootfs, reads bounded ELF facts, discovers evidenced boot services, and ships the triage agent brief. It does not fetch, carve, diff, infer open ports, or create the separate firmware-audit skill tree."
     },
     {
+      "id": "stage4c",
+      "name": "diff - image-scoped firmware comparison and patch analysis brief",
+      "status": "shipped",
+      "gate": "none - no audit run; full harness, read-only corpus consistency, and existing benchmark scoring",
+      "summary": "Migrates firmware facts to image-scoped keys, hashes regular-file manifests, compares acquired target/reference pairs deterministically, persists complete changed-path results with content-addressed JSON, and ships the semantic patch-analysis brief. Target-only inventory mirroring protects coverage; general surface mapping remains Stage 4d."
+    },
+    {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices because eleven phases is not one plan: qualify shipped as stage4a and acquire plus triage shipped as stage4b; the remaining eight phases follow in later slices. The asus golden exists to guard against overfitting to tplink."
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices because eleven phases is not one plan: qualify shipped as stage4a, acquire plus triage as stage4b, and diff as stage4c; the remaining seven phases start with stage4d surface. The required asus golden is still missing; it will guard against overfitting to tplink."
     },
     {
       "id": "stage5",
@@ -822,6 +829,38 @@
         "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
       ],
       "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks are excluded; ports remain agent-asserted and require evidence."
+    },
+    {
+      "id": "firmware-diff",
+      "name": "Image-scoped firmware manifests, durable comparison, and patch-analysis brief",
+      "area": "cli",
+      "status": "shipped",
+      "stage": "stage4c",
+      "verbs": ["diff", "triage", "brief", "init"],
+      "modules": [
+        "audit.py",
+        "audit_core/firmware_diff.py",
+        "audit_core/triage.py",
+        "audit_core/db.py",
+        "audit_core/schema.sql"
+      ],
+      "tests": [
+        "tests/test_migrate.py",
+        "tests/test_firmware_schema.py",
+        "tests/test_triage.py",
+        "tests/test_triage_corpus.py",
+        "tests/test_firmware_diff.py",
+        "tests/test_cli_stage4c.py",
+        "tests/test_diff_brief.py",
+        "tests/test_brief_templates.py"
+      ],
+      "docs": [
+        "references/briefs/diff-brief.md",
+        "docs/superpowers/specs/2026-10-12-stage4c-firmware-diff-design.md",
+        "docs/superpowers/plans/2026-10-12-stage4c-firmware-diff.md",
+        "docs/superpowers/derivations/2026-10-12-stage4c-diff-brief.md"
+      ],
+      "notes": "Last implementation commit is 60dd47a. Composite (image_id, path/name) keys preserve both images; the idempotent Stage 4b upgrade maps absent image IDs to legacy-unscoped and requires re-triage to populate manifests. Target-only inventory rule: target and compatible unscoped triage mirror cba_inventory; diff-reference triage never writes that unscoped coverage denominator. Diff uses stored SHA-256 manifests and persists every changed path; content-addressed artifact installation precedes atomic SQL replacement. Triage upserts without pruning removed files, so refreshed carved trees require fresh scopes/runs. Agent analysis is patch-specific; surface mapping belongs to Stage 4d."
     }
   ],
   "open_items": [
@@ -888,11 +927,10 @@
     {
       "id": "main-unpushed",
       "severity": "medium",
-      "summary": "main had not been pushed and origin was unreachable from the development machine.",
-      "note": "Rechecked 2026-10-12: git rev-list --left-right --count origin/main...main reports 0 0.",
+      "summary": "Local main and Stage 4c work have not been pushed.",
+      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-13: git rev-list --left-right --count origin/main...main reports 0 16; main is ed055ba and Stage 4c implementation is on stage4c-firmware-diff at 60dd47a, pending whole-branch review and integration.",
       "destination": "repository synchronization",
-      "status": "closed",
-      "closed_in": "stage3c"
+      "status": "open"
     },
     {
       "id": "severity-agreement-not-scored",
@@ -1045,10 +1083,13 @@
       "severity": "high",
       "summary": "cba_binfacts and cba_services use root-relative path or service name as their primary key, so triaging two carved images into one run can overwrite rows from the first image.",
       "docs": [
-        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
+        "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md",
+        "docs/superpowers/specs/2026-10-12-stage4c-firmware-diff-design.md"
       ],
-      "note": "Stage 4b records image_id but deliberately keeps the existing simple keys because it triages one tree. The first slice that puts target and diff-reference trees in one database must migrate these keys before doing so.",
-      "destination": "stage4c diff"
+      "note": "Closed by Stage 4c composite firmware keys and an atomic, idempotent Stage 4b rebuild. The additional cba_inventory.unit collision is prevented by target-only inventory mirroring: diff-reference triage does not write target coverage inventory.",
+      "destination": "stage4c diff",
+      "status": "closed",
+      "closed_in": "stage4c"
     }
   ]
 }

@@ -1,3 +1,4 @@
+import hashlib
 import pathlib
 
 import pytest
@@ -20,6 +21,7 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
         manifest = {(row[0], row[1]) for row in con.execute(
             "SELECT image_id, path FROM cba_firmware_files")}
         assert len(manifest) == summary.inventory_count
+        assert manifest == {(db.FIRMWARE_IMAGE_UNSCOPED, path) for path in inventory}
         binfacts = con.execute(
             "SELECT path, machine, image_id FROM cba_binfacts").fetchall()
         assert len(binfacts) == summary.elf_count
@@ -33,6 +35,19 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
             assert bash is not None
             assert {"libncursesw.so.6", "libgcc_s.so.1", "libc.so"} <= set(
                 bash[0].split(","))
+            stored = con.execute(
+                "SELECT kind, size, sha256 FROM cba_firmware_files "
+                "WHERE image_id = ? AND path = 'bin/bash'",
+                (db.FIRMWARE_IMAGE_UNSCOPED,)).fetchone()
+            digest = hashlib.sha256()
+            with (CORPUS / "bin/bash").open("rb") as source:
+                while chunk := source.read(1024 * 1024):
+                    digest.update(chunk)
+            assert tuple(stored) == (
+                "binary", (CORPUS / "bin/bash").stat().st_size, digest.hexdigest())
+            assert con.execute(
+                "SELECT sha256 FROM cba_binfacts WHERE image_id = ? AND path = 'bin/bash'",
+                (db.FIRMWARE_IMAGE_UNSCOPED,)).fetchone()[0] == digest.hexdigest()
         service_names = {
             row[0] for row in con.execute("SELECT name FROM cba_services")}
         assert "passwd" not in service_names

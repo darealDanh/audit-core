@@ -10,8 +10,8 @@ For *how to pick the work back up*, read
 ## 1. The thing being built
 
 This repository currently ships **one skill, made of two different kinds of
-material**. Its shared core now also contains the first three vertical phases
-of the future `firmware-audit` skill (`qualify`, `acquire`, and `triage`); the
+material**. Its shared core now also contains the first four vertical phases
+of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, and `diff`); the
 separate firmware skill tree does not exist yet.
 
 | Material | What it is | Who executes it |
@@ -51,7 +51,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 25 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 26 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -128,7 +128,7 @@ its own.
 One SQLite database per run, at `reports/audit-<timestamp>/audit.db`, created
 by `audit.py init`.
 
-**Seventeen tables under contract**, all prefixed `cba_`:
+**Twenty tables under contract**, all prefixed `cba_`:
 
 | Group | Tables |
 |---|---|
@@ -140,9 +140,10 @@ by `audit.py init`.
 | Control | `cba_checkpoints` |
 | Stage 3 | `cba_components`, `cba_chains` |
 | Firmware | `cba_images`, `cba_binfacts`, `cba_services` |
+| Firmware diff | `cba_firmware_files`, `cba_diffs`, `cba_diff_entries` |
 
-> `selftest` reports **18** tables in `schema.sql` against **17** under
-> contract. The eighteenth is `sqlite_sequence`, which SQLite creates by itself
+> `selftest` reports **21** tables in `schema.sql` against **20** under
+> contract. The extra table is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
 **Access is validated and bounded.** `audit_core/db.py` is the only writer.
@@ -155,9 +156,14 @@ identity with fewer than `MIN_EVIDENCE_CHARS` of evidence.
 EXISTS`, and `CREATE TABLE IF NOT EXISTS` is a no-op against a table that
 already exists — so adding a column to `schema.sql` repairs *nothing* on a
 database that exists already. `db.MIGRATIONS` carries the four column
-additions, `migrate()` applies them, and `connect()` refuses a database that
-has not been migrated. `selftest` proves the loop end to end by migrating the
-frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
+additions; Stage 4c also rebuilds legacy firmware tables together in one
+transaction. `cba_binfacts` uses `(image_id, path)` and `cba_services` uses
+`(image_id, name)`, with absent legacy image IDs mapped to `legacy-unscoped`.
+`connect()` rejects stale columns or primary keys and names the public remedy:
+rerun `audit.py init --timestamp <existing timestamp>` for the same project.
+`selftest` proves both the frozen pre-Stage-3 upgrade and the Stage 4b key
+rebuild, including acceptance by `connect()`. Existing facts survive; old
+databases need triage of both acquired images to populate the new manifests.
 
 **`put(replace=True)` merges; it does not replace.** A bare
 `INSERT OR REPLACE` drops every column the caller did not pass. That destroyed
@@ -170,20 +176,21 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 579 | Validated, bounded access to a run's `audit.db`. Specs, validators, migrations, merge-on-replace. |
+| `db.py` | 724 | Validated, bounded access to a run's `audit.db`. Specs, validators, column migrations and composite-key rebuilds, merge-on-replace. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
-| `chains.py` | 237 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
+| `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
 | `transcript.py` | 231 | Parse a Claude Code JSONL session into typed records. |
 | `budget.py` | 172 | Session economics: epochs, prefix, growth, attribution. |
-| `bench.py` | 192 | Score a run against a golden set: recall, severity agreement, weighted recall, precision, coverage, cost per match. |
-| `readings.py` | - | A measurement that can be a value, `absent` (no table) or `empty` (table, no rows) - never a silent `0`. |
-| `indicators.py` | - | The four deterministic leading indicators and their dated snapshots. |
-| `rerate.py` | - | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
-| `qualify.py` | - | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
-| `elf.py` | - | Pure, bounded ELF facts for architecture, linkage, dependencies, and three-state mitigations. |
-| `acquire.py` | - | Hash and record local target or diff-reference firmware image provenance; never fetch or carve. |
-| `triage.py` | - | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
+| `bench.py` | 341 | Score a run against a golden set: recall, severity agreement, weighted recall, precision, coverage, cost per match. |
+| `readings.py` | 77 | A measurement that can be a value, `absent` (no table) or `empty` (table, no rows) - never a silent `0`. |
+| `indicators.py` | 264 | The four deterministic leading indicators and their dated snapshots. |
+| `rerate.py` | 191 | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
+| `qualify.py` | 369 | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
+| `elf.py` | 263 | Pure, bounded ELF facts for architecture, linkage, dependencies, and three-state mitigations. |
+| `acquire.py` | 57 | Hash and record local target or diff-reference firmware image provenance; never fetch or carve. |
+| `triage.py` | 224 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
+| `firmware_diff.py` | 220 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -191,13 +198,13 @@ frozen `baseline-pre-stage3.sql` and handing the result to `connect()`.
 | `pivot.py` | 112 | Write a FALSE_POSITIVE verdict and the observation it pivots to, together. |
 | `patterns.py` | 111 | Which registered bug patterns have been swept, and which have not. |
 | `goldens.py` | 93 | Golden reference sets and adjudicated match records. |
-| `workspace.py` | 81 | Create a run directory and apply its schema. |
-| `briefs.py` | 75 | Render a subagent dispatch brief from a template (R6). |
-| `preflight.py` | 69 | Write a project-scoped MCP config (R4). |
+| `workspace.py` | 83 | Create a run directory and apply its schema. |
+| `briefs.py` | 81 | Render a subagent dispatch brief from a template (R6). |
+| `preflight.py` | 84 | Write a project-scoped MCP config (R4). |
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
-| `identity.py` | 45 | An asserted identity needs evidence that is not the component's own name. |
+| `identity.py` | 54 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-five verbs
+### The twenty-six verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -205,23 +212,37 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
-qualify  acquire  triage                              firmware phases
+qualify  acquire  triage  diff                        firmware phases
 ```
 
-### Stage 4b's firmware boundary
+### Stage 4c's firmware boundary and Stage 4d
 
-Stage 4b adds firmware behavior to the shared core without pretending that the
+Stages 4b and 4c add firmware behavior to the shared core without pretending that the
 separate `firmware-audit` skill exists. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
-writes file, ELF, and evidenced boot-service rows; it does not infer open ports,
-diff images, or inspect the kernel and bootloader. Its agent half ships as
-`references/briefs/triage-brief.md`.
+writes file, ELF, and evidenced boot-service rows; it does not infer open ports
+or inspect the kernel and bootloader. Its agent half ships as
+`references/briefs/triage-brief.md`. Every regular file gets an image-scoped
+manifest row. Only target and backward-compatible unscoped triage mirror rows
+into `cba_inventory`; reference triage cannot change the target coverage
+denominator. Triage upserts observed paths; it does not prune disappeared
+files, so use fresh image scopes/runs when replacing carved tree contents.
 
-The two-image data model is intentionally incomplete: `cba_binfacts.path` and
-`cba_services.name` are simple primary keys. A later slice that triages both a
-target and diff-reference into one run must migrate those keys before it can do
-so safely. Stage 4b records `image_id` now so that migration has provenance to
-preserve.
+`diff` compares stored manifests, never rereading carved trees. It requires
+acquired target/reference images of the same vendor/model with distinct image
+hashes, and rejects missing manifests, ambiguous roles, and legacy-unscoped
+provenance. All non-identical paths enter `cba_diff_entries`; unchanged paths
+are counted. The bounded terminal result points to the full JSON artifact.
+Artifact installation precedes the SQL transaction; replacement commits the
+summary and entries together. SQL failure can leave an unreferenced artifact
+generation but preserves the prior durable result.
+
+`references/briefs/diff-brief.md` assigns the semantic half: explain the known
+vendor fix with evidence from both builds, then sweep the target for surviving
+siblings using existing observation/pattern tables. Changed bytes alone are
+not vulnerabilities. General dispatch/handler mapping, authentication
+boundaries, device state, and reachability evidence belong to Stage 4d
+`surface`, the next slice; broad hunting and emulation remain later work.
 
 ### Stage 3's five quality mechanisms
 
@@ -285,7 +306,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (890 tests at the end of Stage 4b review). |
+| `tests` | yes | The pytest suite (1,169 tests after Stage 4c implementation and coverage reconciliation). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |
