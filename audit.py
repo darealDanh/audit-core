@@ -38,6 +38,7 @@ from audit_core import qualify as qualify_mod  # noqa: E402
 from audit_core import readings as readings_mod  # noqa: E402
 from audit_core import acquire as acquire_mod  # noqa: E402
 from audit_core import triage as triage_mod  # noqa: E402
+from audit_core import firmware_diff as firmware_diff_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -370,6 +371,34 @@ def cmd_triage(args: argparse.Namespace) -> int:
     else:
         print(f"triage recorded {result.inventory_count} file(s), "
               f"{result.elf_count} ELF(s), {result.service_count} service(s)")
+    return 0
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    if (args.target_image_id is None) != (args.reference_image_id is None):
+        print("Both target and reference image IDs are required together",
+              file=sys.stderr)
+        return 1
+    run_dir = pathlib.Path(args.run).expanduser()
+    con = _open_db(str(run_dir / "audit.db"))
+    if con is None:
+        return 1
+    try:
+        result = firmware_diff_mod.run(
+            con, run_dir, target_image_id=args.target_image_id,
+            reference_image_id=args.reference_image_id, replace=args.replace)
+    except (firmware_diff_mod.FirmwareDiffError, db_mod.DbError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(result), indent=2))
+    else:
+        print(f"diff {result.id}: {result.added_count} added, "
+              f"{result.removed_count} removed, {result.modified_count} modified, "
+              f"{result.unchanged_count} unchanged")
+        print(result.manifest_path)
     return 0
 
 
@@ -985,6 +1014,7 @@ HANDLERS = {
     "qualify": cmd_qualify,
     "acquire": cmd_acquire,
     "triage": cmd_triage,
+    "diff": cmd_diff,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1061,6 +1091,15 @@ def build_parser() -> argparse.ArgumentParser:
     trg.add_argument("--image-id", default=None)
     trg.add_argument("--allow-no-elf", action="store_true")
     trg.add_argument("--json", action="store_true")
+    dif = sub.add_parser(
+        "diff", help="compare stored target and reference firmware manifests")
+    dif.add_argument("--run", required=True, metavar="RUN_DIR")
+    dif.add_argument("--target-image-id", default=None, metavar="ID",
+                     help="select an explicit pair; requires --reference-image-id")
+    dif.add_argument("--reference-image-id", default=None, metavar="ID",
+                     help="select an explicit pair; requires --target-image-id")
+    dif.add_argument("--replace", action="store_true")
+    dif.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
