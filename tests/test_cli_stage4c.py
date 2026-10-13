@@ -1,9 +1,12 @@
 import json
 import pathlib
+import sqlite3
 import subprocess
 import sys
 
 import pytest
+
+import audit
 
 from audit_core import db, workspace
 
@@ -217,6 +220,27 @@ def test_diff_manifest_install_failure_is_named(paired_run):
         assert con.execute("SELECT COUNT(*) FROM cba_diff_entries").fetchone()[0] == 0
     finally:
         con.close()
+
+
+@pytest.mark.parametrize("table", ["cba_images", "cba_firmware_files"])
+def test_diff_cli_read_database_error_returns_named_exit_one(
+        paired_run, monkeypatch, capsys, table):
+    original = audit._open_db
+
+    def open_with_denied_read(path):
+        con = original(path)
+        con.set_authorizer(lambda action, name, column, database, source:
+                           sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and name == table
+                           else sqlite3.SQLITE_OK)
+        return con
+
+    monkeypatch.setattr(audit, "_open_db", open_with_denied_read)
+    assert audit.main(["diff", "--run", str(paired_run)]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "Cannot read" in output.err
+    assert "firmware diff" in output.err
+    assert "Traceback" not in output.err
 
 
 @pytest.mark.parametrize("json_output", [False, True])

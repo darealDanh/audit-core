@@ -34,16 +34,28 @@ def _sha256(path: pathlib.Path) -> str:
 
 def _regular_files(root: pathlib.Path) -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
-    for directory, names, filenames in os.walk(root, followlinks=False):
-        names[:] = sorted(
-            name for name in names
-            if not (pathlib.Path(directory) / name).is_symlink())
+
+    def traversal_error(exc: OSError) -> None:
+        raise TriageError(f"Cannot traverse carved tree {root}: {exc}") from exc
+
+    for directory, names, filenames in os.walk(
+            root, followlinks=False, onerror=traversal_error):
+        directories = []
+        for name in sorted(names):
+            path = pathlib.Path(directory) / name
+            try:
+                mode = path.lstat().st_mode
+            except OSError as exc:
+                raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
+            if stat.S_ISDIR(mode):
+                directories.append(name)
+        names[:] = directories
         for name in sorted(filenames):
             path = pathlib.Path(directory) / name
             try:
                 mode = path.lstat().st_mode
-            except OSError:
-                continue
+            except OSError as exc:
+                raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
             if stat.S_ISREG(mode):
                 files.append(path)
     return files
@@ -149,6 +161,8 @@ def _services(root: pathlib.Path,
 def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         image_id: str | None = None,
         allow_no_elf: bool = False) -> TriageSummary:
+    if con.in_transaction:
+        raise TriageError("Triage requires a connection without an active transaction")
     root_path = pathlib.Path(root)
     if not root_path.is_dir():
         raise TriageError(f"{root_path} is not a carved rootfs directory")
@@ -185,40 +199,46 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         }))
     services = _services(root_path, files)
 
-    elf_count = 0
-    for facts, manifest in prepared:
-        db.put(con, "cba_firmware_files", manifest, replace=True)
-        if mirror_inventory:
-            db.put(con, "cba_inventory", {
-                "unit": manifest["path"],
-                "kind": manifest["kind"],
-                "size": manifest["size"],
-            }, replace=True)
-        if facts is None:
-            continue
-        row = {
-            "image_id": effective_image_id,
-            "path": manifest["path"],
-            "machine": facts.machine,
-            "bits": str(facts.bits),
-            "endian": facts.endian,
-            "elf_type": facts.elf_type,
-            "needed": ",".join(facts.needed),
-            "nx": facts.nx,
-            "pie": facts.pie,
-            "relro": facts.relro,
-            "canary": facts.canary,
-            "stripped": facts.stripped,
-            "static": facts.static,
-            "sha256": manifest["sha256"],
-        }
-        if facts.interp is not None:
-            row["interp"] = facts.interp
-        if facts.runpath is not None:
-            row["runpath"] = facts.runpath
-        db.put(con, "cba_binfacts", row, replace=True)
-        elf_count += 1
-    for service in services:
-        service["image_id"] = effective_image_id
-        db.put(con, "cba_services", service, replace=True)
-    return TriageSummary(len(files), elf_count, len(services))
+    # Publish the complete prepared generation together, including coverage
+    # mirrors. A write/commit failure must preserve any prior triage generation.
+    try:
+        con.execute("BEGIN")
+        for facts, manifest in prepared:
+            db.put(con, "cba_firmware_files", manifest, replace=True, commit=False)
+            if mirror_inventory:
+                db.put(con, "cba_inventory", {
+                    "unit": manifest["path"],
+                    "kind": manifest["kind"],
+                    "size": manifest["size"],
+                }, replace=True, commit=False)
+            if facts is None:
+                continue
+            row = {
+                "image_id": effective_image_id,
+                "path": manifest["path"],
+                "machine": facts.machine,
+                "bits": str(facts.bits),
+                "endian": facts.endian,
+                "elf_type": facts.elf_type,
+                "needed": ",".join(facts.needed),
+                "nx": facts.nx,
+                "pie": facts.pie,
+                "relro": facts.relro,
+                "canary": facts.canary,
+                "stripped": facts.stripped,
+                "static": facts.static,
+                "sha256": manifest["sha256"],
+            }
+            if facts.interp is not None:
+                row["interp"] = facts.interp
+            if facts.runpath is not None:
+                row["runpath"] = facts.runpath
+            db.put(con, "cba_binfacts", row, replace=True, commit=False)
+        for service in services:
+            service["image_id"] = effective_image_id
+            db.put(con, "cba_services", service, replace=True, commit=False)
+        con.commit()
+    except Exception as exc:
+        con.rollback()
+        raise TriageError(f"Cannot publish triage for {effective_image_id}: {exc}") from exc
+    return TriageSummary(len(files), discovered_elfs, len(services))

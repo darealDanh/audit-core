@@ -1,4 +1,6 @@
 import hashlib
+import os
+import sqlite3
 import struct
 
 import pytest
@@ -186,6 +188,81 @@ def assert_triage_tables_empty(con):
         assert db.rows(con, table) == []
 
 
+def triage_snapshot(con):
+    return tuple(tuple(tuple(row) for row in con.execute(
+        f"SELECT * FROM {table} ORDER BY 1, 2")) for table in (
+            "cba_firmware_files", "cba_binfacts", "cba_services", "cba_inventory"))
+
+
+@pytest.mark.parametrize("prior", [False, True])
+@pytest.mark.parametrize("failure_table", [
+    "cba_firmware_files", "cba_binfacts", "cba_services", "cba_inventory"])
+def test_publication_failure_after_real_write_preserves_all_prior_rows(
+        con, tmp_path, monkeypatch, prior, failure_table):
+    root = carved_tree(tmp_path)
+    if prior:
+        triage.run(con, root)
+        (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
+        (root / "etc/init.d/S50httpd").write_text("#!/bin/sh\n/bin/httpd --changed\n")
+    before = triage_snapshot(con)
+    original = db.put
+
+    def fail_after_write(connection, table, row, *, replace=False, commit=True):
+        original(connection, table, row, replace=replace, commit=commit)
+        if table == failure_table:
+            raise sqlite3.OperationalError("injected publication failure")
+
+    monkeypatch.setattr(db, "put", fail_after_write)
+    with pytest.raises((triage.TriageError, sqlite3.Error), match="publication failure"):
+        triage.run(con, root)
+    assert not con.in_transaction
+    assert triage_snapshot(con) == before
+
+
+def test_triage_refuses_active_transaction_and_preserves_caller_work(con, tmp_path):
+    root = carved_tree(tmp_path)
+    con.execute("INSERT INTO cba_inventory (unit, kind) VALUES ('pending', 'file')")
+    with pytest.raises(triage.TriageError, match="transaction"):
+        triage.run(con, root)
+    assert con.in_transaction
+    assert con.execute("SELECT unit FROM cba_inventory").fetchone()[0] == "pending"
+
+
+@pytest.mark.parametrize("prior", [False, True])
+@pytest.mark.parametrize("failure", ["file-permission", "file-io", "subtree", "directory-stat"])
+def test_traversal_failure_with_readable_siblings_preserves_prior_publication(
+        con, tmp_path, monkeypatch, prior, failure):
+    root = carved_tree(tmp_path)
+    if prior:
+        triage.run(con, root)
+        (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
+    before = triage_snapshot(con)
+    blocked = root / "usr" if failure in ("subtree", "directory-stat") else root / "usr/share/banner"
+    if failure == "subtree":
+        original = os.scandir
+
+        def fail_scandir(path):
+            if str(path) == str(blocked):
+                raise PermissionError("injected subtree permission failure")
+            return original(path)
+
+        monkeypatch.setattr(os, "scandir", fail_scandir)
+    else:
+        original = type(root).lstat
+
+        def fail_lstat(path):
+            if path == blocked:
+                error = OSError if failure == "file-io" else PermissionError
+                raise error("injected stat failure")
+            return original(path)
+
+        monkeypatch.setattr(type(root), "lstat", fail_lstat)
+    with pytest.raises(triage.TriageError, match="injected"):
+        triage.run(con, root)
+    assert triage_snapshot(con) == before
+    assert not con.in_transaction
+
+
 @pytest.mark.parametrize("allow_no_elf", [False, True])
 def test_run_refuses_empty_tree_before_any_write(con, tmp_path, allow_no_elf):
     root = tmp_path / "empty-root"
@@ -253,7 +330,7 @@ def test_duplicate_service_keeps_first_sorted_source(con, tmp_path):
     assert alpha["evidence"] == "/usr/sbin/alpha -d"
 
 
-def test_walk_skips_file_that_vanishes_before_lstat(tmp_path, monkeypatch):
+def test_walk_refuses_file_that_vanishes_before_lstat(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()
     vanished = root / "vanished"
@@ -266,7 +343,8 @@ def test_walk_skips_file_that_vanishes_before_lstat(tmp_path, monkeypatch):
         return original(self)
 
     monkeypatch.setattr(type(vanished), "lstat", fail_lstat)
-    assert triage._regular_files(root) == []
+    with pytest.raises(triage.TriageError, match="vanished"):
+        triage._regular_files(root)
 
 
 def test_kind_degrades_when_file_cannot_be_opened(tmp_path, monkeypatch):

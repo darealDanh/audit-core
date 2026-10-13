@@ -380,3 +380,22 @@ def test_run_refuses_an_existing_transaction_without_rolling_back_caller_work(co
     assert con.execute("SELECT version FROM cba_images WHERE id = 'target'").fetchone()[0] == "pending"
     assert diff_snapshot(con) == ((), ())
     assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize("table", ["cba_images", "cba_firmware_files", "cba_diffs"])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_read_database_errors_are_named_before_any_output(con, tmp_path, table, explicit):
+    seed_pair(con)
+
+    def deny_read(action, name, column, database, source):
+        return sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and name == table else sqlite3.SQLITE_OK
+
+    con.set_authorizer(deny_read)
+    kwargs = {"target_image_id": "target", "reference_image_id": "ref"} if explicit else {}
+    try:
+        with pytest.raises(firmware_diff.FirmwareDiffError, match="Cannot read.*firmware diff"):
+            firmware_diff.run(con, tmp_path / "output", **kwargs)
+    finally:
+        con.set_authorizer(None)
+    assert diff_snapshot(con) == ((), ())
+    assert not (tmp_path / "output").exists()

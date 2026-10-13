@@ -175,20 +175,23 @@ def run(con: sqlite3.Connection, run_dir: str | pathlib.Path, *,
     """
     if con.in_transaction:
         raise FirmwareDiffError("Diff requires a connection without an active transaction")
-    reference, target = _resolve_pair(con, target_image_id, reference_image_id)
-    manifests = []
-    for image in (reference, target):
-        rows = [dict(row) for row in con.execute(
-            "SELECT path, kind, size, sha256 FROM cba_firmware_files "
-            "WHERE image_id = ? ORDER BY path", (image["id"],))]
-        if not rows:
-            raise FirmwareDiffError(f"Image {image['id']} has an empty triage manifest")
-        manifests.append(rows)
-    diff_id = "diff-" + hashlib.sha256(
-        f"{reference['id']}\0{target['id']}".encode("utf-8")).hexdigest()[:16]
-    if not replace and con.execute("SELECT 1 FROM cba_diffs WHERE id = ?",
-                                  (diff_id,)).fetchone() is not None:
-        raise FirmwareDiffError(f"Diff {diff_id} already exists; pass --replace to overwrite")
+    try:
+        reference, target = _resolve_pair(con, target_image_id, reference_image_id)
+        manifests = []
+        for image in (reference, target):
+            rows = [dict(row) for row in con.execute(
+                "SELECT path, kind, size, sha256 FROM cba_firmware_files "
+                "WHERE image_id = ? ORDER BY path", (image["id"],))]
+            if not rows:
+                raise FirmwareDiffError(f"Image {image['id']} has an empty triage manifest")
+            manifests.append(rows)
+        diff_id = "diff-" + hashlib.sha256(
+            f"{reference['id']}\0{target['id']}".encode("utf-8")).hexdigest()[:16]
+        if not replace and con.execute("SELECT 1 FROM cba_diffs WHERE id = ?",
+                                      (diff_id,)).fetchone() is not None:
+            raise FirmwareDiffError(f"Diff {diff_id} already exists; pass --replace to overwrite")
+    except sqlite3.Error as exc:
+        raise FirmwareDiffError(f"Cannot read firmware diff inputs: {exc}") from exc
     comparison = compare(*manifests)
     counts = {name: getattr(comparison, name) for name in
               ("added_count", "removed_count", "modified_count", "unchanged_count")}

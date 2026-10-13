@@ -26,6 +26,8 @@ class ImageRecord:
 def record(con: sqlite3.Connection, *, vendor: str, model: str, version: str,
            role: str, path: str | pathlib.Path, source: str,
            replace: bool = False) -> ImageRecord:
+    if con.in_transaction:
+        raise AcquireError("Acquire requires a connection without an active transaction")
     image = pathlib.Path(path)
     if not image.is_file():
         raise AcquireError(f"{image} is not a regular readable file")
@@ -53,5 +55,18 @@ def record(con: sqlite3.Connection, *, vendor: str, model: str, version: str,
     }
     if source.strip():
         row["source"] = source.strip()
-    db.put(con, "cba_images", row, replace=replace)
+    try:
+        con.execute("BEGIN")
+        previous = con.execute("SELECT sha256, version FROM cba_images WHERE id = ?",
+                               (image_id,)).fetchone()
+        db.put(con, "cba_images", row, replace=replace, commit=False)
+        if previous is not None and (previous["sha256"] != row["sha256"] or
+                                     previous["version"] != row["version"]):
+            # A manifest belongs to the acquired provenance. Preserve other
+            # scopes and the shared coverage inventory, but require retriage.
+            con.execute("DELETE FROM cba_firmware_files WHERE image_id = ?", (image_id,))
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
     return ImageRecord(id=image_id, path=str(image), sha256=digest.hexdigest(), size=size)

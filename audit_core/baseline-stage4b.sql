@@ -176,4 +176,3 @@ CREATE TABLE IF NOT EXISTS cba_services (
     ports TEXT,
     ports_evidence TEXT,
     recorded_at TEXT DEFAULT (datetime('now')));
-
