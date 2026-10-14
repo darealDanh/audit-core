@@ -1,6 +1,6 @@
 # Session handoff
 
-**Written:** 2026-10-14 · **Branch:** `stage4c-firmware-diff`, implementation head `ea78e1b`; review fixes applied, integration pending ·
+**Written:** 2026-10-14 · **Branch:** `stage4d-surface` at `deb3eed` (same as local `main`); Stage 4c merged locally, not pushed ·
 **Tests:** 1,209 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -59,14 +59,11 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4c-firmware-diff`, with implementation head `ea78e1b`.
-  Stage 4c's original eight implementation commits have task-scoped reviews;
-  the whole-branch review fix wave is applied and integration remains. The
-  recorded head deliberately names the last implementation commit, not the
-  later documentation commit.
-- **`main` is local-only at this point.** It is at `ed055ba`, 16 commits ahead
-  of `origin/main` (checked 2026-10-13). Stage 4b is merged there; Stage 4c
-  remains in `.worktrees/stage4c-firmware-diff`.
+- **Branch:** `stage4d-surface` at `deb3eed`. Stage 4c is merged into local
+  `main` at this same head; its feature branch and worktree have been removed.
+- **`main` is local-only at this point.** It is at `deb3eed`, 31 commits ahead
+  of `origin/main` (checked 2026-10-14; `git rev-list --left-right --count
+  origin/main...main` reports `0 31`). Nothing has been pushed.
 - **Stage 4c is firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
@@ -105,7 +102,7 @@ Measured gate summary (2026-10-14, after documentation reconciliation):
 PASS  tests      1209 passed
 PASS  selftest   verbs  26 declared, all dispatchable / tables 21 in schema.sql, 20 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 173 LF
+PASS  eol        6 CRLF files, 175 LF
 PASS  manifest   42 features, 11 stages, 20 open items, all paths and verbs resolve
 PASS  install    100 markdown files installed, 0 sentinel survivors, real install untouched
 PASS  coverage   0 unexecuted / 3170 statements, 0 allowed
@@ -154,11 +151,13 @@ terminal result stays bounded. The agent brief requires evidence for the
 vendor's fix and a target-only sibling search; changed bytes are not findings.
 The read-only GL.iNet check proves inventory/manifest/ELF/service consistency.
 
-### Integrate Stage 4c, then design Stage 4d (`surface`)
+### Design and implement Stage 4d (`surface`)
 
-The whole-branch review fix wave and its residual classification fix are applied.
-Integration into local `main` remains, including an operator walkthrough of
-the rendered brief. Stage 4d follows integration.
+Stage 4c is integrated into local `main`; its whole-branch review fix wave and
+residual classification fix are applied. Stage 4d design/implementation is
+next. It inherits the need to preserve image scoping and the target-only
+coverage rule, plus triage's upsert-only snapshot limitation. The asus golden
+remains a prerequisite for the later Stage 4 milestone gate.
 
 Stage 4d is dispatch/handler mapping, authentication boundaries, device state,
 and reachability evidence. It inherits image scoping, the target-only coverage

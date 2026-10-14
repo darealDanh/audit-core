@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-14 · **Implementation HEAD:** `ea78e1b` on `stage4c-firmware-diff`; review fixes applied, integration pending · **Tests:** 1,209 ·
+**Last updated:** 2026-10-14 · **HEAD:** `deb3eed` on `stage4d-surface` (same as local `main`); Stage 4c merged locally, not pushed · **Tests:** 1,209 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,10 +21,10 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4b are merged to `main`.** Stage 4c (`diff`)
-is implemented on `stage4c-firmware-diff`; the whole-branch review fixes are
-applied and integration remains. The next feature slice is Stage 4d (`surface`);
-Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4c are merged to local `main`.** Stage 4c
+(`diff`) was fast-forwarded into local `main`; its feature worktree and branch
+have been removed. Nothing has been pushed. The next feature slice is Stage 4d
+(`surface`); Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -36,7 +36,7 @@ Stage 5 has not started.
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
-| 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`ea78e1b`) — 8/8 gates, review fixes applied, integration pending, no audit run |
+| 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining seven phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -286,7 +286,7 @@ churn into findings or start general surface/hunt/emulation work.
 The residual-fix focused suite passes 133 tests. The full harness, including the
 read-only GL.iNet manifest, ELF-hash, and service consistency proof, measures
 1,209 tests, 26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
-42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/173 LF;
+42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/175 LF;
 the sandbox installs 100 markdown files with zero sentinel survivors and the
 real install untouched; coverage is 0 unexecuted / 3,170 statements, 0 allowed.
 Read-only benchmark scoring remains recall 9/19, 45 findings, precision 39/40,
@@ -336,10 +336,11 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** `main` at `ed055ba` is 16 commits ahead
-   of `origin/main` (checked 2026-10-13). Stage 4c is in its separate feature
-   worktree/branch, with implementation head `ea78e1b`; integration and
-   synchronization remain.
+7. **Local changes are not pushed.** Local `main` is at `deb3eed`, 31 commits
+   ahead of `origin/main` (checked 2026-10-14; `git rev-list --left-right
+   --count origin/main...main` reports `0 31`). Stage 4c is merged locally;
+   its former feature worktree and branch have been removed. Nothing has been
+   pushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -473,10 +474,12 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Integrate Stage 4c, then design Stage 4d
-   (`surface`)** for dispatch/handler mapping, authentication boundaries,
-   device state, and reachability evidence. Preserve image scoping and the
-   target-only coverage denominator; account for triage's upsert-only snapshots.
+1. **Design and implement Stage 4d (`surface`)** for dispatch/handler mapping,
+   authentication boundaries, device state, and reachability evidence.
+   Preserve image scoping and the target-only coverage denominator; account
+   for triage's upsert-only snapshots. The Stage 4c design is complete; its
+   next prerequisite is Stage 4d design, with the asus golden still missing
+   ahead of the later Stage 4 milestone gate.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

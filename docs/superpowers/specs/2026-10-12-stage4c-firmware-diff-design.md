@@ -2,13 +2,15 @@
 
 **Date:** 2026-10-12
 
-**Status:** Implemented on `stage4c-firmware-diff` (2026-10-14), implementation
-head `ea78e1b`. Tasks 1–7 individually reviewed; whole-branch review fixes and
-the residual directory-classification fix are applied. Integration remains
-pending. The implementation now traverses with `scandir` directly: scan,
-classification, stat, and inconsistent-classification failures abort before
-atomic triage publication. Successful retriage still upserts without pruning
-disappeared paths; the historical design below remains unchanged.
+**Status:** Merged into local `main` (2026-10-14; current head `deb3eed`), not
+pushed. The `stage4c-firmware-diff` feature branch and worktree have been
+removed. Tasks 1–7 were individually reviewed; whole-branch review fixes and
+the residual directory-classification fix are applied. The implementation
+traverses with `scandir` directly: scan, classification, stat, and
+inconsistent-classification failures abort before atomic triage publication.
+Successful retriage still upserts without pruning disappeared paths; the
+historical design below remains unchanged. Stage 4d design/implementation is
+next.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §4
 
@@ -435,4 +437,7 @@ are present. No recall or cost improvement is claimed until the deferred
 milestone audit is deliberately run.
 
 The next vertical slice is Stage 4d `surface`: dispatch and handler tables,
-authentication boundaries, device state, and reachability evidence.
+authentication boundaries, device state, and reachability evidence. Preserve
+image scoping and the target-only coverage denominator, and account for
+triage's upsert-only snapshots. The asus golden remains a prerequisite for the
+later Stage 4 milestone gate.

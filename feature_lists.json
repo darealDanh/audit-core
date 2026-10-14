@@ -3,7 +3,7 @@
   "project": "codebase-audit",
   "generated": "2026-10-14",
   "schema_version": 1,
-  "head": "ea78e1b",
+  "head": "deb3eed",
   "status_enum": [
     "shipped",
     "held",
@@ -927,8 +927,8 @@
     {
       "id": "main-unpushed",
       "severity": "medium",
-      "summary": "Local main and Stage 4c work have not been pushed.",
-      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-14: git rev-list --left-right --count origin/main...main reports 0 16; main is ed055ba and Stage 4c implementation is on stage4c-firmware-diff at ea78e1b, with review fixes applied and integration pending.",
+      "summary": "Local main has not been pushed.",
+      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-14: git rev-list --left-right --count origin/main...main reports 0 31; local main is deb3eed, with Stage 4c merged locally. Its former feature branch and worktree have been removed; nothing has been pushed.",
       "destination": "repository synchronization",
       "status": "open"
     },
