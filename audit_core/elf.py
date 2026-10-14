@@ -74,12 +74,14 @@ def _mapped_blob(blob: bytes, address: int, size: int,
     return None
 
 
-def read(path: str | pathlib.Path) -> ElfFacts | None:
-    """Return facts for a structurally recognisable ELF; never raise on data."""
+def read(path: str | pathlib.Path, *, strict_io: bool = False) -> ElfFacts | None:
+    """Read ELF facts; strict_io propagates I/O errors, never malformed data."""
     try:
         with pathlib.Path(path).open("rb") as handle:
             blob = handle.read(MAX_READ + 1)
     except OSError:
+        if strict_io:
+            raise
         return None
     if len(blob) < 16 or blob[:4] != b"\x7fELF":
         return None

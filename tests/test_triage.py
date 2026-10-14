@@ -5,7 +5,7 @@ import struct
 
 import pytest
 
-from audit_core import db, triage, workspace
+from audit_core import db, firmware_tree, triage, workspace
 
 
 def minimal_elf():
@@ -126,13 +126,13 @@ def test_target_and_reference_keep_facts_without_changing_inventory(con, tmp_pat
 def test_each_regular_file_is_hashed_once_and_elf_digest_is_reused(con, tmp_path, monkeypatch):
     root = carved_tree(tmp_path)
     hashed = []
-    original = triage._sha256
+    original = firmware_tree._sha256
 
     def record_hash(path):
         hashed.append(path.relative_to(root).as_posix())
         return original(path)
 
-    monkeypatch.setattr(triage, "_sha256", record_hash)
+    monkeypatch.setattr(firmware_tree, "_sha256", record_hash)
     triage.run(con, root)
     assert sorted(hashed) == ["bin/httpd", "etc/httpd.conf", "etc/init.d/S50httpd",
                               "usr/share/banner"]
@@ -140,19 +140,40 @@ def test_each_regular_file_is_hashed_once_and_elf_digest_is_reused(con, tmp_path
     assert db.rows(con, "cba_binfacts")[0]["sha256"] == manifest["sha256"]
 
 
-def test_hash_failure_leaves_all_triage_tables_empty(con, tmp_path, monkeypatch):
+@pytest.mark.parametrize("prior", [False, True])
+def test_scanner_hash_failure_preserves_all_triage_rows_and_timestamps(
+        con, tmp_path, monkeypatch, prior):
     root = carved_tree(tmp_path)
-    original = triage._sha256
+    if prior:
+        triage.run(con, root)
+        (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
+    before = triage_snapshot(con)
+    original = firmware_tree._sha256
 
     def fail_last_hash(path):
         if path.relative_to(root).as_posix() == "usr/share/banner":
             raise OSError("file vanished while hashing")
         return original(path)
 
-    monkeypatch.setattr(triage, "_sha256", fail_last_hash)
-    with pytest.raises(OSError, match="vanished while hashing"):
+    monkeypatch.setattr(firmware_tree, "_sha256", fail_last_hash)
+    with pytest.raises(triage.TriageError, match="vanished while hashing"):
         triage.run(con, root)
-    assert_triage_tables_empty(con)
+    assert triage_snapshot(con) == before
+    assert not con.in_transaction
+    if not prior:
+        assert_triage_tables_empty(con)
+
+
+def test_triage_publishes_identity_from_shared_scan_without_rereading(con, tmp_path, monkeypatch):
+    # Breaks: rehashing/reclassifying files after the shared scan returned.
+    root = carved_tree(tmp_path)
+    facts = firmware_tree.scan(root)
+    (root / "usr/share/banner").write_bytes(b"#!/bin/sh\nchanged\n")
+    monkeypatch.setattr(firmware_tree, "scan", lambda path: facts)
+    assert triage.run(con, root) == triage.TriageSummary(4, 1, 1)
+    row = db.rows(con, "cba_firmware_files", where={"path": "usr/share/banner"})[0]
+    assert (row["kind"], row["size"], row["sha256"]) == (
+        "file", 6, "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03")
 
 
 @pytest.mark.parametrize("root_kind", ["missing", "file"])
@@ -345,7 +366,7 @@ def test_regular_files_are_sorted_and_exclude_links_and_nonregular_entries(tmp_p
     (root / "z-last").write_text("last\n")
     (root / "a-first").write_text("first\n")
     os.mkfifo(root / "pipe")
-    assert [path.relative_to(root).as_posix() for path in triage._regular_files(root)] == [
+    assert [fact.relative for fact in firmware_tree.scan(root)] == [
         "a-first", "bin/httpd", "etc/httpd.conf", "etc/init.d/S50httpd",
         "usr/share/banner", "z-last",
     ]
@@ -431,12 +452,14 @@ def test_walk_refuses_file_that_vanishes_before_lstat(tmp_path, monkeypatch):
         return original(self)
 
     monkeypatch.setattr(type(vanished), "lstat", fail_lstat)
-    with pytest.raises(triage.TriageError, match="vanished"):
-        triage._regular_files(root)
+    with pytest.raises(firmware_tree.FirmwareTreeError, match="vanished"):
+        firmware_tree.scan(root)
 
 
-def test_kind_degrades_when_file_cannot_be_opened(tmp_path, monkeypatch):
-    path = tmp_path / "plain"
+def test_triage_refuses_file_that_cannot_be_opened(con, tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    path = root / "plain"
     path.write_text("x")
     original = type(path).open
 
@@ -446,7 +469,9 @@ def test_kind_degrades_when_file_cannot_be_opened(tmp_path, monkeypatch):
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(type(path), "open", fail_open)
-    assert triage._kind(path, "plain", None) == "file"
+    with pytest.raises(triage.TriageError, match="vanished"):
+        triage.run(con, root, allow_no_elf=True)
+    assert_triage_tables_empty(con)
 
 
 def test_service_scan_skips_source_that_cannot_be_read(tmp_path, monkeypatch):

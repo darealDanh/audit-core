@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import os
 import pathlib
 import re
 import shlex
 import sqlite3
-import stat
 
-from audit_core import db, elf
+from audit_core import db, firmware_tree
 
 
 class TriageError(Exception):
@@ -24,66 +21,14 @@ class TriageSummary:
     service_count: int
 
 
-def _sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _regular_files(root: pathlib.Path) -> list[pathlib.Path]:
-    files: list[pathlib.Path] = []
-    pending = [root]
-    while pending:
-        directory = pending.pop()
-        directories = []
-        try:
-            # os.walk suppresses is_dir() errors and can silently omit a real
-            # subtree. Classify entries ourselves so every I/O failure aborts.
-            with os.scandir(directory) as entries:
-                for entry in sorted(entries, key=lambda entry: entry.name):
-                    path = directory / entry.name
-                    is_directory = entry.is_dir(follow_symlinks=False)
-                    try:
-                        mode = path.lstat().st_mode
-                    except OSError as exc:
-                        raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
-                    if is_directory != stat.S_ISDIR(mode):
-                        raise TriageError(f"Inconsistent directory classification for {path}")
-                    if is_directory:
-                        directories.append(path)
-                    elif stat.S_ISREG(mode):
-                        files.append(path)
-        except OSError as exc:
-            raise TriageError(f"Cannot traverse carved tree {directory}: {exc}") from exc
-        pending.extend(reversed(directories))
-    return sorted(files, key=lambda path: path.relative_to(root).as_posix())
-
-
-def _kind(path: pathlib.Path, relative: str,
-          facts: elf.ElfFacts | None) -> str:
-    if facts is not None:
-        return "binary"
-    try:
-        with path.open("rb") as handle:
-            shebang = handle.read(2) == b"#!"
-    except OSError:
-        shebang = False
-    if shebang:
-        return "script"
-    if relative == "etc" or relative.startswith("etc/"):
-        return "config"
-    return "file"
-
-
 _ABSOLUTE_EXEC = re.compile(r"(?<![A-Za-z0-9_.-])(/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)")
 
 
 def _boot_sources(root: pathlib.Path,
                   regular_files: list[pathlib.Path] | None = None
                   ) -> list[pathlib.Path]:
-    files = regular_files if regular_files is not None else _regular_files(root)
+    files = (regular_files if regular_files is not None else
+             [fact.path for fact in firmware_tree.scan(root)])
     candidates = []
     for path in files:
         relative = path.relative_to(root).as_posix()
@@ -164,8 +109,6 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
     if con.in_transaction:
         raise TriageError("Triage requires a connection without an active transaction")
     root_path = pathlib.Path(root)
-    if not root_path.is_dir():
-        raise TriageError(f"{root_path} is not a carved rootfs directory")
     effective_image_id = db.FIRMWARE_IMAGE_UNSCOPED
     mirror_inventory = True
     if image_id is not None:
@@ -176,28 +119,28 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
         effective_image_id = image_id
         mirror_inventory = found[0]["role"] == "target"
 
-    files = _regular_files(root_path)
-    if not files:
+    try:
+        scanned = firmware_tree.scan(root_path)
+    except firmware_tree.FirmwareTreeError as exc:
+        raise TriageError(str(exc)) from exc
+    if not scanned:
         raise TriageError(f"{root_path} contains no regular files")
-    discovered = [(path, elf.read(path)) for path in files]
-    discovered_elfs = sum(facts is not None for _, facts in discovered)
+    discovered_elfs = sum(fact.elf is not None for fact in scanned)
     if discovered_elfs == 0 and not allow_no_elf:
         raise TriageError(f"{root_path} contains zero ELF binaries; pass "
                           "--allow-no-elf only for a confirmed non-ELF image")
 
-    # Finish filesystem reads before the first write, so a failed hash cannot
-    # leave an incomplete manifest. ELF facts reuse the one digest per file.
+    # Publish directly from the shared complete scan; ELF facts reuse its digest.
     prepared = []
-    for path, facts in discovered:
-        relative = path.relative_to(root_path).as_posix()
-        prepared.append((facts, {
+    for fact in scanned:
+        prepared.append((fact.elf, {
             "image_id": effective_image_id,
-            "path": relative,
-            "kind": _kind(path, relative, facts),
-            "size": str(path.stat().st_size),
-            "sha256": _sha256(path),
+            "path": fact.relative,
+            "kind": fact.kind,
+            "size": str(fact.size),
+            "sha256": fact.sha256,
         }))
-    services = _services(root_path, files)
+    services = _services(root_path, [fact.path for fact in scanned])
 
     # Publish the complete prepared generation together, including coverage
     # mirrors. A write/commit failure must preserve any prior triage generation.
@@ -241,4 +184,4 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
     except Exception as exc:
         con.rollback()
         raise TriageError(f"Cannot publish triage for {effective_image_id}: {exc}") from exc
-    return TriageSummary(len(files), discovered_elfs, len(services))
+    return TriageSummary(len(scanned), discovered_elfs, len(services))

@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-from audit_core import db, triage, workspace
+from audit_core import db, firmware_tree, triage, workspace
 
 CORPUS = pathlib.Path(
     "/Users/danhnguyen/Documents/Offsec/Opswat/Devices/gl_inet/extracted/rootfs")
@@ -22,6 +22,11 @@ def test_gl_inet_triage_is_internally_consistent(tmp_path):
             "SELECT image_id, path FROM cba_firmware_files")}
         assert len(manifest) == summary.inventory_count
         assert manifest == {(db.FIRMWARE_IMAGE_UNSCOPED, path) for path in inventory}
+        shared = firmware_tree.scan(CORPUS)
+        assert {tuple(row) for row in con.execute(
+                "SELECT path, kind, size, sha256 FROM cba_firmware_files")} == {
+                    (fact.relative, fact.kind, fact.size, fact.sha256)
+                    for fact in shared}
         binfacts = con.execute(
             "SELECT path, machine, image_id FROM cba_binfacts").fetchall()
         assert len(binfacts) == summary.elf_count
