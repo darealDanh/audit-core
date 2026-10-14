@@ -291,15 +291,15 @@ the sandbox installs 100 markdown files with zero sentinel survivors and the
 real install untouched; coverage is 0 unexecuted / 3,170 statements, 0 allowed.
 Read-only benchmark scoring remains recall 9/19, 45 findings, precision 39/40,
 and $73.15 per match. The complete gate summary is in `SESSION_HANDOFF.md`.
-No paid audit or mutation sweep ran. Task-scoped
-implementation reviews and the whole-branch fix wave are complete; integration
-is still required.
+No paid audit or mutation sweep ran. Task-scoped implementation reviews and
+the whole-branch fix wave are complete; Stage 4c is integrated into local
+`main`.
 
 Remaining limits: triage upserts without pruning disappeared files (use fresh
 image scopes/runs for changed carved trees), stored manifests are snapshots
 rather than live filesystem verification, semantic patch-analysis quality has
 not been measured by an audit, and there is still no separate firmware skill
-tree. Stage 4d `surface` follows review/integration and must preserve the
+tree. Stage 4d `surface` is next and must preserve the
 target-only coverage rule while adding dispatch/handler mapping,
 authentication boundaries, device state, and reachability evidence.
 

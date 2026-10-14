@@ -92,7 +92,7 @@ These are not style preferences. Each one has a specific, known cost.
 ### Verify the state yourself
 
 ```bash
-cd ~/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4c-firmware-diff
+cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4d-surface
 make all          # all eight gates
 ```
 
