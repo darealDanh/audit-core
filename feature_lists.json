@@ -1,9 +1,9 @@
 {
   "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
   "project": "codebase-audit",
-  "generated": "2026-10-13",
+  "generated": "2026-10-14",
   "schema_version": 1,
-  "head": "f22fae2",
+  "head": "ea78e1b",
   "status_enum": [
     "shipped",
     "held",
@@ -828,7 +828,7 @@
         "references/briefs/triage-brief.md",
         "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
       ],
-      "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks are excluded; traversal/stat errors abort; prepared file, ELF, service, and coverage rows publish atomically. Ports remain agent-asserted and require evidence."
+      "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks and nonregular entries are excluded; direct scandir traversal propagates scan, classification, and stat errors and rejects inconsistent directory classifications; regular files sort by relative path; prepared file, ELF, service, and coverage rows publish atomically. Failed fresh/retriage preserves all four publication tables. Ports remain agent-asserted and require evidence."
     },
     {
       "id": "firmware-diff",
@@ -860,7 +860,7 @@
         "docs/superpowers/plans/2026-10-12-stage4c-firmware-diff.md",
         "docs/superpowers/derivations/2026-10-12-stage4c-diff-brief.md"
       ],
-      "notes": "Last implementation commit is f22fae2. Composite (image_id, path/name) keys preserve both images; the idempotent Stage 4b upgrade maps absent image IDs to legacy-unscoped and requires re-triage to populate manifests. Target-only inventory rule: target and compatible unscoped triage mirror cba_inventory; diff-reference triage never writes that unscoped coverage denominator. Diff uses stored SHA-256 manifests and persists every changed path; content-addressed artifact installation precedes atomic SQL replacement. Changed acquired-image provenance clears the same-image manifest; read-side SQL errors are named. Triage upserts without pruning removed files, so refreshed carved trees require fresh scopes/runs. Agent analysis is patch-specific; surface mapping belongs to Stage 4d."
+      "notes": "Last implementation commit is ea78e1b. Composite (image_id, path/name) keys preserve both images; the idempotent Stage 4b upgrade maps absent image IDs to legacy-unscoped and requires re-triage to populate manifests. Target-only inventory rule: target and compatible unscoped triage mirror cba_inventory; diff-reference triage never writes that unscoped coverage denominator. Diff uses stored SHA-256 manifests and persists every changed path; content-addressed artifact installation precedes atomic SQL replacement. Changed acquired-image provenance clears the same-image manifest; read-side SQL errors are named. Triage upserts without pruning removed files, so refreshed carved trees require fresh scopes/runs. Agent analysis is patch-specific; surface mapping belongs to Stage 4d."
     }
   ],
   "open_items": [
@@ -928,7 +928,7 @@
       "id": "main-unpushed",
       "severity": "medium",
       "summary": "Local main and Stage 4c work have not been pushed.",
-      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-13: git rev-list --left-right --count origin/main...main reports 0 16; main is ed055ba and Stage 4c implementation is on stage4c-firmware-diff at f22fae2, with review fixes applied and integration pending.",
+      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-14: git rev-list --left-right --count origin/main...main reports 0 16; main is ed055ba and Stage 4c implementation is on stage4c-firmware-diff at ea78e1b, with review fixes applied and integration pending.",
       "destination": "repository synchronization",
       "status": "open"
     },

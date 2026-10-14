@@ -228,7 +228,12 @@ into `cba_inventory`; reference triage cannot change the target coverage
 denominator. Triage upserts observed paths; it does not prune disappeared
 files, so use fresh image scopes/runs when replacing carved tree contents.
 It prepares filesystem facts before writing and publishes file, ELF, service,
-and coverage rows together. Traversal or stat errors abort the run. When an
+and coverage rows together. Direct `scandir` traversal propagates scan,
+directory-entry classification, and stat errors instead of relying on
+`os.walk`, which suppresses classification errors. A mismatch between entry
+classification and `lstat` also aborts. Regular files are ordered by relative
+path; directory symlinks, file symlinks, and nonregular entries are excluded.
+These failures occur before publication and preserve prior rows. When an
 acquired image's hash or version changes, acquisition and same-image manifest
 invalidation commit together; diff refuses that image until retriage.
 
@@ -311,7 +316,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (1,202 tests after Stage 4c review fixes). |
+| `tests` | yes | The pytest suite (1,209 tests after Stage 4c review fixes). |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |

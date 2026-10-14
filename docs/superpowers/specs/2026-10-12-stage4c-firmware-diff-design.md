@@ -2,9 +2,13 @@
 
 **Date:** 2026-10-12
 
-**Status:** Implemented on `stage4c-firmware-diff` (2026-10-13). Tasks 1–7
-individually reviewed; full harness passes after coverage reconciliation.
-Whole-branch review and integration remain pending.
+**Status:** Implemented on `stage4c-firmware-diff` (2026-10-14), implementation
+head `ea78e1b`. Tasks 1–7 individually reviewed; whole-branch review fixes and
+the residual directory-classification fix are applied. Integration remains
+pending. The implementation now traverses with `scandir` directly: scan,
+classification, stat, and inconsistent-classification failures abort before
+atomic triage publication. Successful retriage still upserts without pruning
+disappeared paths; the historical design below remains unchanged.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §4
 

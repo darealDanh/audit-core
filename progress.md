@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-13 · **Implementation HEAD:** `f22fae2` on `stage4c-firmware-diff`; review fixes applied, integration pending · **Tests:** 1,202 ·
+**Last updated:** 2026-10-14 · **Implementation HEAD:** `ea78e1b` on `stage4c-firmware-diff`; review fixes applied, integration pending · **Tests:** 1,209 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -36,7 +36,7 @@ Stage 5 has not started.
 | 4a | `qualify` - the hard GO/NO-GO gate (first slice of Stage 4) | — | see branch `stage4a/qualify` | **merged** (`3eb2a93`) — gate *none — no audit run* |
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
-| 4c | `diff` — image-scoped firmware comparison and agent brief | 9 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`f22fae2`) — 8/8 gates, review fixes applied, integration pending, no audit run |
+| 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | branch `stage4c-firmware-diff` | **shipped on branch** (`ea78e1b`) — 8/8 gates, review fixes applied, integration pending, no audit run |
 | 4 | `firmware-audit` + monorepo (remaining seven phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -270,7 +270,11 @@ returns bounded counts and a content-addressed JSON path. Replacement installs
 the artifact first, then commits all SQL rows together; a failed SQL write can
 leave an unreferenced generation while preserving the previous result.
 Triage publishes all file, ELF, service, and coverage rows in one transaction;
-walk/stat failures abort before publication. Replacing an acquired image whose
+scan, directory-entry classification, and stat failures abort before publication.
+Direct `scandir` traversal avoids `os.walk` silently suppressing classification
+errors; inconsistent directory classifications also fail closed. Regular-file
+paths are sorted relative to the root, excluding symlinks and nonregular entries.
+Replacing an acquired image whose
 hash or version changes atomically clears that image's manifest, so diff
 requires retriage. Read-side SQLite errors in diff have a named CLI failure.
 
@@ -279,9 +283,9 @@ fix using both builds and search the target for surviving sibling sites,
 reusing observations, patterns, and recorded sweeps. It does not turn binary
 churn into findings or start general surface/hunt/emulation work.
 
-The final-fix focused suite passes 125 tests. The full harness, including the
+The residual-fix focused suite passes 133 tests. The full harness, including the
 read-only GL.iNet manifest, ELF-hash, and service consistency proof, measures
-1,202 tests, 26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
+1,209 tests, 26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
 42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/173 LF;
 the sandbox installs 100 markdown files with zero sentinel survivors and the
 real install untouched; coverage is 0 unexecuted / 3,170 statements, 0 allowed.
@@ -334,7 +338,7 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    SESSION_HANDOFF §6 so it is not trusted.
 7. **Local changes are not pushed.** `main` at `ed055ba` is 16 commits ahead
    of `origin/main` (checked 2026-10-13). Stage 4c is in its separate feature
-   worktree/branch, with implementation head `f22fae2`; integration and
+   worktree/branch, with implementation head `ea78e1b`; integration and
    synchronization remain.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
@@ -389,7 +393,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 1,202 tests after Stage 4c review fixes |
+| `tests` | The pytest suite — 1,209 tests after Stage 4c review fixes |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |

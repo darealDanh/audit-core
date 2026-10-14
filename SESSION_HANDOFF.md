@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-13 · **Branch:** `stage4c-firmware-diff`, implementation head `f22fae2`; review fixes applied, integration pending ·
-**Tests:** 1,202 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
+**Written:** 2026-10-14 · **Branch:** `stage4c-firmware-diff`, implementation head `ea78e1b`; review fixes applied, integration pending ·
+**Tests:** 1,209 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,7 +59,7 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4c-firmware-diff`, with implementation head `f22fae2`.
+- **Branch:** `stage4c-firmware-diff`, with implementation head `ea78e1b`.
   Stage 4c's original eight implementation commits have task-scoped reviews;
   the whole-branch review fix wave is applied and integration remains. The
   recorded head deliberately names the last implementation commit, not the
@@ -83,8 +83,12 @@ These are not style preferences. Each one has a specific, known cost.
   use fresh image scopes/runs when changing carved tree contents. Diff reads
   stored manifests rather than verifying live files. SQL replacement is
   atomic; a failed SQL write can leave an unreferenced artifact generation.
-- **Review fixes:** triage publication is atomic and walk/stat failures abort
-  before writes. A changed acquisition hash or version clears only that image's
+- **Review fixes:** triage publication is atomic and scan, directory-entry
+  classification, and stat failures abort before writes. Direct `scandir`
+  traversal propagates errors that `os.walk` suppressed, refuses inconsistent
+  directory classifications, and orders regular files by relative path while
+  excluding symlinks and nonregular entries. A changed acquisition hash or
+  version clears only that image's
   manifest in the same transaction; diff then requires retriage. Read-side
   SQLite errors in diff reach the CLI as named errors with exit 1.
 
@@ -95,10 +99,10 @@ cd ~/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4c-firmware-diff
 make all          # all eight gates
 ```
 
-Measured gate summary (2026-10-13, after documentation reconciliation):
+Measured gate summary (2026-10-14, after documentation reconciliation):
 
 ```
-PASS  tests      1202 passed
+PASS  tests      1209 passed
 PASS  selftest   verbs  26 declared, all dispatchable / tables 21 in schema.sql, 20 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
 PASS  lint       skill lint: clean
 PASS  eol        6 CRLF files, 173 LF
@@ -111,10 +115,12 @@ all 8 gate(s) passed
 ```
 
 The real output also prints a per-gate duration; the block omits variable times.
-The final-fix focused suite passes 125 tests; the full harness includes the
+The residual-fix focused suite passes 133 tests; the full harness includes the
 available GL.iNet corpus check. The final review regressions cover failed
-fresh/retriage writes, acquisition replacement, unreadable traversal, and
-read-side SQLite errors.
+fresh/retriage writes, acquisition replacement, unreadable traversal,
+classification and scan-iteration errors with readable siblings, and read-side
+SQLite errors. Fresh failures leave all four triage publication tables empty;
+failed retriage preserves every prior row, including timestamps.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
@@ -150,7 +156,7 @@ The read-only GL.iNet check proves inventory/manifest/ELF/service consistency.
 
 ### Integrate Stage 4c, then design Stage 4d (`surface`)
 
-The whole-branch review found five fix areas and its fix wave is applied.
+The whole-branch review fix wave and its residual classification fix are applied.
 Integration into local `main` remains, including an operator walkthrough of
 the rendered brief. Stage 4d follows integration.
 
