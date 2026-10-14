@@ -371,6 +371,81 @@ def test_same_generation_refuses_inputs_changed_during_install(setup, monkeypatc
     assert not con.in_transaction
 
 
+@pytest.mark.parametrize("same_generation", [False, True])
+@pytest.mark.parametrize("mutation", ["content", "added", "removed", "unreadable"])
+def test_root_changed_during_install_preserves_prior_sql(setup, monkeypatch, same_generation, mutation):
+    # Breaks: publishing or accepting idempotence after the installed generation's root changes.
+    con, run, root = seed(setup)
+    old = surface.prepare(con, run, root)
+    claims(con)
+    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    con.execute("UPDATE cba_surface_runs SET status='complete', completed_at='kept'")
+    con.commit()
+    before = {table: rows(con, table) for table in db.TABLE_SPECS}
+    old_files = artifacts(run)
+    original = surface.atomic_install
+    def change_root(destination, files):
+        original(destination, files)
+        if mutation == "content":
+            (root / "banner").write_bytes(b"world\n")
+        elif mutation == "added":
+            (root / "new").write_bytes(b"new")
+        elif mutation == "removed":
+            (root / "banner").unlink()
+        else:
+            original_open = pathlib.Path.open
+            def unreadable(path, *args, **kwargs):
+                if path == root / "banner":
+                    raise PermissionError("injected root read failure")
+                return original_open(path, *args, **kwargs)
+            monkeypatch.setattr(pathlib.Path, "open", unreadable)
+    monkeypatch.setattr(surface, "atomic_install", change_root)
+    with pytest.raises(surface.SurfaceError, match="Live root|injected root read"):
+        surface.prepare(con, run, root, batch_size=50 if same_generation else 1)
+    assert {table: rows(con, table) for table in before} == before
+    assert not con.in_transaction
+    assert pathlib.Path(old.worklist_path).is_file()
+    assert all(artifacts(run)[path] == content for path, content in old_files.items())
+
+
+@pytest.mark.parametrize("shape", ["null-unit", "string-unit", "object-units", "null-units",
+    "array-index", "object-batches", "null-descriptor", "array-batch"])
+def test_hash_consistent_prior_artifact_shapes_raise_surface_error(setup, shape):
+    # Breaks: trusting decoded JSON shapes and leaking AttributeError or accepting malformed containers.
+    con, run, root = seed(setup)
+    old = surface.prepare(con, run, root)
+    claims(con)
+    index_path = pathlib.Path(old.worklist_path)
+    index = json.loads(index_path.read_bytes())
+    batch_path = index_path.with_name("batch-0001.json")
+    batch = json.loads(batch_path.read_bytes())
+    if shape == "array-index":
+        index = []
+    elif shape == "object-batches":
+        index["batches"] = {}
+    elif shape == "null-descriptor":
+        index["batches"] = [None]
+    else:
+        if shape == "array-batch":
+            batch = []
+        else:
+            batch["units"] = {"null-unit": [None], "string-unit": ["banner"],
+                "object-units": {"banner": None}, "null-units": None}[shape]
+        content = json.dumps(batch).encode()
+        batch_path.write_bytes(content)
+        index["batches"][0]["sha256"] = hashlib.sha256(content).hexdigest()
+    content = json.dumps(index).encode()
+    index_path.write_bytes(content)
+    con.execute("UPDATE cba_surface_runs SET worklist_sha256=?", (hashlib.sha256(content).hexdigest(),))
+    con.commit()
+    before = {table: rows(con, table) for table in db.TABLE_SPECS}
+    before_files = artifacts(run)
+    with pytest.raises(surface.SurfaceError, match="prior|Prior"):
+        surface.prepare(con, run, root, batch_size=1)
+    assert {table: rows(con, table) for table in before} == before
+    assert artifacts(run) == before_files
+
+
 def test_hint_only_generation_change_invalidates_claims(setup):
     # Breaks: invalidation considering only manifest hashes despite changed assignments.
     con, run, root = seed(setup)

@@ -138,6 +138,18 @@ def _inventory_agreement(con: sqlite3.Connection, manifest: list[dict[str, objec
         raise SurfaceError(f"Target inventory differs from manifest at {differing[0]}")
 
 
+def _root_agreement(root: str | pathlib.Path, manifest: list[dict[str, object]]) -> None:
+    scanned = canonical_manifest({"path": fact.relative, "kind": fact.kind,
+                                  "size": fact.size, "sha256": fact.sha256}
+                                 for fact in firmware_tree.scan(root))
+    if scanned != manifest:
+        expected = {row["path"]: row for row in manifest}
+        actual = {row["path"]: row for row in scanned}
+        differing = sorted(path for path in expected.keys() | actual.keys()
+                           if expected.get(path) != actual.get(path))
+        raise SurfaceError(f"Live root differs from target manifest at {differing[0]}")
+
+
 def _bounded(row: Mapping[str, object], fields: tuple[str, ...]) -> dict[str, object]:
     return {field: (value[:1024] if isinstance(value, str) else value)
             for field in fields if (value := row.get(field)) is not None}
@@ -204,10 +216,14 @@ def _prior_units(run: Mapping[str, object]) -> list[str]:
         if hashlib.sha256(content).hexdigest() != run["worklist_sha256"]:
             raise SurfaceError("Prior worklist index digest differs")
         index = json.loads(content)
+        if not isinstance(index, dict) or not isinstance(index.get("batches"), list):
+            raise SurfaceError("Invalid prior worklist index shape")
         if index["image_id"] != run["image_id"] or index["manifest_sha256"] != run["manifest_sha256"]:
             raise SurfaceError("Prior worklist provenance differs")
         units = []
         for batch in index["batches"]:
+            if not isinstance(batch, dict):
+                raise SurfaceError("Invalid prior worklist batch descriptor shape")
             name = batch["path"]
             if not isinstance(name, str) or re.fullmatch(r"batch-[0-9]{4,}\.json", name) is None:
                 raise SurfaceError("Invalid prior worklist batch path")
@@ -215,6 +231,9 @@ def _prior_units(run: Mapping[str, object]) -> list[str]:
             if hashlib.sha256(content).hexdigest() != batch["sha256"]:
                 raise SurfaceError(f"Prior worklist batch digest differs: {name}")
             payload = json.loads(content)
+            if (not isinstance(payload, dict) or not isinstance(payload.get("units"), list) or
+                    any(not isinstance(unit, dict) for unit in payload["units"])):
+                raise SurfaceError(f"Invalid prior worklist batch shape: {name}")
             if payload["image_id"] != run["image_id"] or payload["manifest_sha256"] != run["manifest_sha256"]:
                 raise SurfaceError(f"Prior worklist batch provenance differs: {name}")
             if len(payload["units"]) != batch["unit_count"]:
@@ -239,15 +258,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         selected = _resolve_target(_query(con, "SELECT id,role FROM cba_images"), image_id)
         manifest = _manifest(con, selected)
         _inventory_agreement(con, manifest)
-        scanned = canonical_manifest({"path": fact.relative, "kind": fact.kind,
-                                      "size": fact.size, "sha256": fact.sha256}
-                                     for fact in firmware_tree.scan(root))
-        if scanned != manifest:
-            expected = {row["path"]: row for row in manifest}
-            actual = {row["path"]: row for row in scanned}
-            differing = sorted(path for path in expected.keys() | actual.keys()
-                               if expected.get(path) != actual.get(path))
-            raise SurfaceError(f"Live root differs from target manifest at {differing[0]}")
+        _root_agreement(root, manifest)
         digest = manifest_sha256(manifest)
         units = _units(con, selected, manifest)
         files, worklist_digest, batch_count = _worklist(selected, digest, units, batch_size)
@@ -269,6 +280,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
                 _query(con, "SELECT * FROM cba_surface_runs WHERE image_id=?", (selected,)) != prior_rows):
             raise SurfaceError("Surface preparation inputs changed before publication")
         _inventory_agreement(con, manifest)
+        _root_agreement(root, manifest)
         if same:
             con.commit()
             return summary
