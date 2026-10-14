@@ -1,4 +1,4 @@
-"""Strict file-backed agent results; validation never publishes SQL or artifacts."""
+"""Strict file-backed agent results and atomic, batch-owned publication."""
 from __future__ import annotations
 
 import dataclasses
@@ -70,6 +70,16 @@ class ValidatedBatch:
     result: BatchResult
     assigned_units: tuple[str, ...]
     index_path: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ImportSummary:
+    image_id: str
+    batch_path: str
+    unit_count: int
+    surface_count: int
+    unknown_count: int
+    artifact_path: str
 
 
 def _object(value: object, keys: tuple[str, ...], label: str) -> dict:
@@ -334,3 +344,70 @@ def validate(con: sqlite3.Connection, run_dir: pathlib.Path, result: BatchResult
 def canonical_bytes(validated: ValidatedBatch) -> bytes:
     """Serialize only agent result data, excluding host paths and derived metadata."""
     return surface.canonical_bytes(dataclasses.asdict(validated.result))
+
+
+def _refuse_existing(con: sqlite3.Connection, validated: ValidatedBatch) -> None:
+    """Any existing decision or claim in an assigned unit requires replacement."""
+    for unit in validated.assigned_units:
+        for table in ("cba_firmware_surfaces", "cba_unknowns"):
+            if con.execute(f"SELECT 1 FROM {table} WHERE image_id=? AND component_path=? LIMIT 1",
+                           (validated.result.image_id, unit)).fetchone():
+                raise SurfaceError(f"Surface result already exists for {unit}; pass --replace")
+        if con.execute("SELECT 1 FROM cba_coverage WHERE phase='surface' AND unit=?",
+                       (unit,)).fetchone():
+            raise SurfaceError(f"Surface coverage already exists for {unit}; pass --replace")
+
+
+def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+           result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
+    """Install immutable evidence before atomically publishing only its assigned units."""
+    if con.in_transaction:
+        raise SurfaceError("Surface import requires a connection without an active transaction")
+    run_dir = pathlib.Path(run_dir)
+    validated = validate(con, run_dir, load(result_path))
+    try:
+        if not replace:
+            _refuse_existing(con, validated)
+        content = canonical_bytes(validated)
+        digest = hashlib.sha256(content).hexdigest()
+        destination = run_dir / "artifacts/surface" / digest
+        artifact_path = str(destination / "result.json")
+        surface.atomic_install(destination, {"result.json": content})
+    except (OSError, sqlite3.Error) as exc:
+        raise SurfaceError(f"Cannot install surface result: {exc}") from exc
+    result = validated.result
+    summary = ImportSummary(result.image_id, result.batch_path, len(validated.assigned_units),
+        sum(len(unit.surfaces) for unit in result.decisions),
+        sum(len(unit.unknowns) for unit in result.decisions), artifact_path)
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        # Artifact installation can admit another writer; recheck ownership and
+        # prepared provenance under the publication lock before deleting rows.
+        validate(con, run_dir, result)
+        if not replace:
+            _refuse_existing(con, validated)
+        else:
+            for table in ("cba_unknowns", "cba_firmware_surfaces"):
+                con.executemany(f"DELETE FROM {table} WHERE image_id=? AND component_path=?",
+                    [(result.image_id, unit) for unit in validated.assigned_units])
+            con.executemany("DELETE FROM cba_coverage WHERE phase='surface' AND unit=?",
+                            [(unit,) for unit in validated.assigned_units])
+        provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
+                      "artifact_sha256": digest}
+        for decision in result.decisions:
+            for row in decision.surfaces:
+                db.put(con, "cba_firmware_surfaces", dataclasses.asdict(row) | provenance, commit=False)
+            for row in decision.unknowns:
+                db.put(con, "cba_unknowns", dataclasses.asdict(row) | provenance, commit=False)
+            reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
+            db.put(con, "cba_coverage", {"unit": decision.path, "phase": "surface",
+                "state": decision.state, "reason": reason}, commit=False)
+        con.execute("UPDATE cba_surface_runs SET status='pending',completed_at=NULL WHERE image_id=?",
+                    (result.image_id,))
+        con.commit()
+    except Exception as exc:
+        con.rollback()
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError)):
+            raise SurfaceError(f"Cannot publish surface batch {result.batch_path}: {exc}") from exc
+        raise
+    return summary

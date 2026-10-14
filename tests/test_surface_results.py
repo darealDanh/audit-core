@@ -3,6 +3,7 @@ import copy
 import dataclasses
 import hashlib
 import json
+import os
 import pathlib
 import sqlite3
 
@@ -547,3 +548,274 @@ def test_ids_cannot_steal_rows_owned_by_other_batches_or_images(prepared, collis
     with pytest.raises(surface.SurfaceError):
         validate_payload(prepared, prepared[2])
     assert con.total_changes == before
+
+
+def sql_snapshot(con):
+    """Include all contracted tables, timestamps and unrelated phase/image rows."""
+    return {table: sorted((tuple(row) for row in con.execute(f"SELECT * FROM {table}")), key=repr)
+            for table in db.TABLE_SPECS}
+
+
+def record_payload(prepared, payload=None, **kwargs):
+    load_payload(prepared, prepared[2] if payload is None else payload)
+    return api().record(prepared[0], prepared[1], prepared[1] / "result.json", **kwargs)
+
+
+def sibling_payload(prepared):
+    batch = pathlib.Path(prepared[4].worklist_path).with_name("batch-0002.json")
+    decision = copy.deepcopy(prepared[2]["decisions"][2])
+    decision["path"] = "zzz/outside"
+    decision["surfaces"][0].update(component_path="zzz/outside", surface_id="outside-rpc")
+    decision["unknowns"][0].update(component_path="zzz/outside", surface_id="outside-rpc", id="outside-posture")
+    return prepared[2] | {"batch_path": "batch-0002.json",
+        "batch_sha256": hashlib.sha256(batch.read_bytes()).hexdigest(), "decisions": [decision]}
+
+
+def completed(con):
+    con.execute("UPDATE cba_surface_runs SET status='complete',completed_at='old-completion'")
+    con.commit()
+
+
+def test_import_derives_canonical_provenance_and_publishes_exact_rows(prepared):
+    # Breaks: persisting raw input bytes, partial coverage, or completing during import.
+    con, run, payload, canonical, _ = prepared
+    completed(con)
+    summary = record_payload(prepared)
+    digest = hashlib.sha256(canonical).hexdigest()
+    artifact = pathlib.Path(summary.artifact_path)
+    assert artifact.relative_to(run / "artifacts/surface").parts == (digest, "result.json")
+    assert artifact.read_bytes() == canonical
+    assert dataclasses.asdict(summary) == {"image_id": "target", "batch_path": "batch-0001.json",
+        "unit_count": 3, "surface_count": 2, "unknown_count": 1, "artifact_path": str(artifact)}
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        summary.unit_count = 99
+    assert [tuple(row) for row in con.execute(
+        "SELECT unit,phase,state,reason FROM cba_coverage ORDER BY unit")] == [
+        ("etc/settings.conf", "surface", "analyzed", "Configuration has no dispatcher."),
+        ("usr/httpd", "surface", "analyzed", None), ("usr/relay", "surface", "analyzed", None)]
+    for decision in payload["decisions"]:
+        for table, records in [("cba_firmware_surfaces", decision["surfaces"]), ("cba_unknowns", decision["unknowns"])]:
+            for expected in records:
+                key = "surface_id" if table == "cba_firmware_surfaces" else "id"
+                row = dict(con.execute(f"SELECT * FROM {table} WHERE {key}=?", (expected[key],)).fetchone())
+                assert row.pop("recorded_at")
+                assert row == expected | {"image_id": "target", "artifact_path": str(artifact), "artifact_sha256": digest}
+    assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
+    assert not con.in_transaction
+
+
+def test_all_units_imported_still_require_the_explicit_completion_gate(prepared):
+    record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    assert prepared[0].execute("SELECT COUNT(*) FROM cba_coverage WHERE phase='surface'").fetchone()[0] == 4
+    assert tuple(prepared[0].execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
+
+
+@pytest.mark.parametrize("existing", ["import", "surface", "unknown", "coverage"])
+def test_duplicate_refusal_preserves_entire_sql_generation(prepared, existing):
+    # Breaks: duplicate checking coverage alone or deleting prior rows before refusing.
+    con = prepared[0]
+    record_payload(prepared)
+    if existing != "import":
+        keep = {"surface": "cba_firmware_surfaces", "unknown": "cba_unknowns", "coverage": "cba_coverage"}[existing]
+        for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_coverage"):
+            if table != keep:
+                con.execute(f"DELETE FROM {table}")
+        con.commit()
+    completed(con)
+    before = sql_snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="existing|already|replace|duplicate"):
+        record_payload(prepared)
+    assert sql_snapshot(con) == before
+    assert not con.in_transaction
+
+
+def test_replacement_reuses_owned_ids_removes_stale_rows_and_preserves_sibling(prepared):
+    # Breaks: refusing owned IDs, blanket image deletes, or retaining stale batch rows.
+    con = prepared[0]
+    first = record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    db.put(con, "cba_coverage", {"unit": "usr/httpd", "phase": "audit", "state": "analyzed"})
+    completed(con)
+    before = sql_snapshot(con)
+    changed = copy.deepcopy(prepared[2])
+    changed["decisions"][1].update(surfaces=[], unknowns=[], reason="Dispatcher retired in revised analysis.")
+    changed["decisions"][2]["surfaces"][0].update(handler="revised-relay", posture_required="sta-lan")
+    changed["decisions"][2]["unknowns"][0].update(status="resolved", resolution="LAN only", evidence="usr/relay: bind LAN")
+    validated = validate_payload(prepared, changed)
+    assert validated.result.decisions[2].surfaces[0].surface_id == "relay-rpc"
+    assert validated.result.decisions[2].unknowns[0].id == "relay-posture"
+    summary = record_payload(prepared, changed, replace=True)
+    assert summary.artifact_path != first.artifact_path
+    after = sql_snapshot(con)
+    for table, column in [("cba_firmware_surfaces", 2), ("cba_unknowns", 2), ("cba_coverage", 0)]:
+        assert [r for r in after[table] if r[column] == "zzz/outside"] == [r for r in before[table] if r[column] == "zzz/outside"]
+    assert [r for r in after["cba_coverage"] if r[1] == "audit"] == [r for r in before["cba_coverage"] if r[1] == "audit"]
+    assert con.execute("SELECT surface_id,handler FROM cba_firmware_surfaces WHERE component_path='usr/relay'").fetchone()[1] == "revised-relay"
+    assert con.execute("SELECT status,resolution FROM cba_unknowns WHERE id='relay-posture'").fetchone()[1] == "LAN only"
+    assert con.execute("SELECT COUNT(*) FROM cba_firmware_surfaces WHERE component_path='usr/httpd'").fetchone()[0] == 0
+    assert pathlib.Path(first.artifact_path).read_bytes() == prepared[3]
+
+
+@pytest.mark.parametrize("collision", ["surface", "unknown"])
+def test_replace_cannot_take_a_sibling_batch_id(prepared, collision):
+    record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    payload = copy.deepcopy(prepared[2])
+    if collision == "surface":
+        payload["decisions"][1]["surfaces"][0]["surface_id"] = "outside-rpc"
+    else:
+        payload["decisions"][2]["unknowns"][0]["id"] = "outside-posture"
+    before = sql_snapshot(prepared[0])
+    with pytest.raises(surface.SurfaceError, match="another.*batch"):
+        record_payload(prepared, payload, replace=True)
+    assert sql_snapshot(prepared[0]) == before
+
+
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.parametrize("failure", ["mkdir", "create", "write", "replace", "surface-insert", "unknown-insert", "coverage-insert", "commit"])
+def test_failed_import_preserves_exact_prior_sql(prepared, monkeypatch, replace, failure):
+    # Breaks: SQL before immutable installation, early commits, or incomplete rollback.
+    con, run, payload, *_ = prepared
+    record_payload(prepared, sibling_payload(prepared))
+    if replace:
+        record_payload(prepared)
+    completed(con)
+    before = sql_snapshot(con)
+    old_files = {p: p.read_bytes() for p in (run / "artifacts/surface").rglob("*.json")}
+    changed = copy.deepcopy(payload)
+    changed["decisions"][1]["surfaces"][0]["handler"] = "changed-handler"
+    load_payload(prepared, changed)
+    if failure == "mkdir":
+        monkeypatch.setattr(pathlib.Path, "mkdir", lambda *a, **k: (_ for _ in ()).throw(OSError("injected mkdir")))
+    elif failure == "create":
+        monkeypatch.setattr(surface.tempfile, "mkdtemp", lambda *a, **k: (_ for _ in ()).throw(OSError("injected create")))
+    elif failure == "write":
+        monkeypatch.setattr(pathlib.Path, "write_bytes", lambda *a, **k: (_ for _ in ()).throw(OSError("injected write")))
+    elif failure == "replace":
+        monkeypatch.setattr(os, "replace", lambda *a: (_ for _ in ()).throw(OSError("injected replace")))
+    elif failure.endswith("insert"):
+        table = {"surface-insert": "cba_firmware_surfaces", "unknown-insert": "cba_unknowns", "coverage-insert": "cba_coverage"}[failure]
+        con.execute(f"CREATE TRIGGER fail_record BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'injected SQL'); END")
+        con.commit()
+    else:
+        class CommitFailure(sqlite3.Connection):
+            def commit(self):
+                raise sqlite3.OperationalError("injected commit")
+        con = sqlite3.connect(run / "audit.db", factory=CommitFailure)
+        con.row_factory = sqlite3.Row
+    try:
+        with pytest.raises(surface.SurfaceError, match="injected"):
+            api().record(con, run, run / "result.json", replace=replace)
+        assert sql_snapshot(con) == before
+        assert not con.in_transaction
+        current_files = {p: p.read_bytes() for p in (run / "artifacts/surface").rglob("*.json")}
+        assert all(current_files[p] == content for p, content in old_files.items())
+        extras = set(current_files) - set(old_files)
+        assert len(extras) == (1 if failure.endswith("insert") or failure == "commit" else 0)
+        for artifact in extras:
+            assert artifact.parent.name == hashlib.sha256(current_files[artifact]).hexdigest()
+            assert not any(str(artifact) in repr(row) for rows in before.values() for row in rows)
+        assert not list((run / "artifacts/surface").glob(".surface-*"))
+    finally:
+        if failure == "commit":
+            con.close()
+
+
+def test_import_refuses_caller_transaction_without_rolling_it_back(prepared):
+    con = prepared[0]
+    con.execute("UPDATE cba_surface_runs SET completed_at='caller-owned'")
+    before = sql_snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="active transaction"):
+        record_payload(prepared)
+    assert con.in_transaction
+    assert sql_snapshot(con) == before
+    assert not (prepared[1] / "artifacts/surface").exists()
+
+
+def test_invalid_import_installs_no_artifact_or_sql(prepared):
+    before = sql_snapshot(prepared[0])
+    with pytest.raises(surface.SurfaceError):
+        record_payload(prepared, prepared[2] | {"batch_sha256": "b" * 64})
+    assert sql_snapshot(prepared[0]) == before
+    assert not (prepared[1] / "artifacts/surface").exists()
+
+
+def test_duplicate_check_sql_failure_is_named_before_install(prepared):
+    # Breaks: leaking raw SQLite errors outside the publication transaction.
+    class ReadFailure(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql.startswith("SELECT 1 FROM cba_firmware_surfaces"):
+                raise sqlite3.OperationalError("injected duplicate read")
+            return super().execute(sql, *args, **kwargs)
+    load_payload(prepared, prepared[2])
+    con = sqlite3.connect(prepared[1] / "audit.db", factory=ReadFailure)
+    con.row_factory = sqlite3.Row
+    try:
+        before = sql_snapshot(con)
+        with pytest.raises(surface.SurfaceError, match="injected duplicate read"):
+            api().record(con, prepared[1], prepared[1] / "result.json")
+        assert sql_snapshot(con) == before
+        assert not con.in_transaction
+        assert not (prepared[1] / "artifacts/surface").exists()
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("change", ["duplicate", "provenance", "ownership"])
+def test_inputs_changed_during_install_are_rechecked_before_sql(prepared, monkeypatch, change):
+    # Breaks: deleting or upserting using validation from before another writer.
+    con, run, payload, *_ = prepared
+    load_payload(prepared, payload)
+    original = surface.atomic_install
+    concurrent = {}
+    def install_and_change(destination, files):
+        original(destination, files)
+        with db.connect(run / "audit.db") as other:
+            if change == "duplicate":
+                db.put(other, "cba_coverage", {"unit": "usr/httpd", "phase": "surface", "state": "analyzed"})
+            elif change == "provenance":
+                other.execute("UPDATE cba_surface_runs SET worklist_sha256=?", ("b" * 64,))
+                other.commit()
+            else:
+                row = payload["decisions"][1]["surfaces"][0] | {"component_path": "zzz/outside",
+                    "image_id": "target", "artifact_path": "sibling.json", "artifact_sha256": "a" * 64}
+                db.put(other, "cba_firmware_surfaces", row)
+            concurrent.update(sql_snapshot(other))
+    monkeypatch.setattr(surface, "atomic_install", install_and_change)
+    with pytest.raises(surface.SurfaceError):
+        api().record(con, run, run / "result.json", replace=change != "duplicate")
+    assert sql_snapshot(con) == concurrent
+    assert not con.in_transaction
+
+
+def test_unexpected_publication_exception_also_rolls_back_every_row(prepared, monkeypatch):
+    # Breaks: rollback restricted to expected filesystem/SQLite exceptions.
+    con = prepared[0]
+    record_payload(prepared)
+    completed(con)
+    before = sql_snapshot(con)
+    original = db.put
+    def fail_after_write(connection, table, row, **kwargs):
+        original(connection, table, row, **kwargs)
+        if table == "cba_unknowns":
+            raise RuntimeError("injected unexpected error after write")
+    monkeypatch.setattr(db, "put", fail_after_write)
+    with pytest.raises(RuntimeError, match="unexpected"):
+        record_payload(prepared, replace=True)
+    assert sql_snapshot(con) == before
+    assert not con.in_transaction
+
+
+def test_import_normalizes_budget_reason_for_the_existing_coverage_gate(prepared):
+    # Breaks: validated whitespace hiding a budget skip from SQL-based coverage.
+    from audit_core import coverage
+    payload = copy.deepcopy(prepared[2])
+    payload["decisions"][0].update(state="not_audited", reason=" \tbudget\n")
+    summary = record_payload(prepared, payload)
+    record_payload(prepared, sibling_payload(prepared))
+    report = coverage.report(prepared[0], "surface")
+    assert report.budget_skips == 1
+    assert not coverage.gate(report).ok
+    artifact = json.loads(pathlib.Path(summary.artifact_path).read_bytes())
+    assert artifact["decisions"][0]["reason"] == " \tbudget\n"
