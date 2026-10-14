@@ -62,8 +62,18 @@ def record(con: sqlite3.Connection, *, vendor: str, model: str, version: str,
         db.put(con, "cba_images", row, replace=replace, commit=False)
         if previous is not None and (previous["sha256"] != row["sha256"] or
                                      previous["version"] != row["version"]):
-            # A manifest belongs to the acquired provenance. Preserve other
-            # scopes and the shared coverage inventory, but require retriage.
+            # A surface generation belongs to the target provenance. Resolve
+            # its coverage units from the old manifest before deleting it;
+            # the subquery avoids a host-parameter limit on large manifests.
+            if role == "target":
+                for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_surface_runs"):
+                    con.execute(f"DELETE FROM {table} WHERE image_id = ?", (image_id,))
+                con.execute(
+                    "DELETE FROM cba_coverage WHERE phase = 'surface' AND unit IN "
+                    "(SELECT path FROM cba_firmware_files WHERE image_id = ?)",
+                    (image_id,))
+            # A manifest belongs to the acquired provenance. Other image
+            # scopes, coverage phases, and the inventory survive retriage.
             con.execute("DELETE FROM cba_firmware_files WHERE image_id = ?", (image_id,))
         con.commit()
     except Exception:

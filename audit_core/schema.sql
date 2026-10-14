@@ -209,3 +209,49 @@ CREATE TABLE IF NOT EXISTS cba_diff_entries (
     reference_sha256 TEXT,
     target_sha256 TEXT,
     PRIMARY KEY (diff_id, path));
+
+-- Stage 4d surface phase provenance, handler maps, and settling questions.
+CREATE TABLE IF NOT EXISTS cba_surface_runs (
+    image_id TEXT PRIMARY KEY,
+    manifest_sha256 TEXT NOT NULL,
+    worklist_path TEXT NOT NULL,
+    worklist_sha256 TEXT NOT NULL,
+    unit_count INTEGER NOT NULL,
+    batch_count INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    prepared_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT);
+
+CREATE TABLE IF NOT EXISTS cba_firmware_surfaces (
+    image_id TEXT NOT NULL,
+    surface_id TEXT NOT NULL,
+    component_path TEXT NOT NULL,
+    entry_point TEXT NOT NULL,
+    protocol TEXT NOT NULL,
+    dispatch_path TEXT NOT NULL,
+    handler TEXT NOT NULL,
+    lifecycle_required TEXT NOT NULL,
+    posture_required TEXT NOT NULL,
+    auth_required TEXT NOT NULL,
+    reachability TEXT NOT NULL,
+    reach_evidence TEXT NOT NULL,
+    artifact_path TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, surface_id));
+
+CREATE TABLE IF NOT EXISTS cba_unknowns (
+    id TEXT PRIMARY KEY,
+    image_id TEXT NOT NULL,
+    component_path TEXT NOT NULL,
+    surface_id TEXT,
+    field TEXT NOT NULL,
+    question TEXT NOT NULL,
+    settling_observation TEXT NOT NULL,
+    method TEXT NOT NULL,
+    status TEXT NOT NULL,
+    resolution TEXT,
+    evidence TEXT,
+    artifact_path TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')));

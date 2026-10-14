@@ -36,6 +36,40 @@ CREATE TABLE IF NOT EXISTS cba_patterns (
 FULL_PRE_STAGE3_SQL = workspace.BASELINE_PATH.read_text()
 
 
+@pytest.mark.parametrize("baseline", ["baseline-pre-stage3.sql", "baseline-stage4b.sql"])
+def test_surface_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_path, baseline):
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript((workspace.SCHEMA_PATH.parent / baseline).read_text())
+    con.execute("INSERT INTO cba_patterns (id, name, regex, created_at) VALUES "
+                "('old-pattern', 'Original', 'test', '2026-01-02 03:04:05')")
+    con.execute("INSERT INTO cba_findings (id, group_id, title, severity, confidence, "
+                "location, root_cause, impact, created_at) VALUES "
+                "('old-finding', 'G1', 'Original', 'HIGH', 8, 'src/a.c:1', "
+                "'unchecked length', 'overwrite', '2026-01-03 04:05:06')")
+    con.commit()
+    old_rows = {table: con.execute(f"SELECT * FROM {table}").fetchall()
+                for table in ("cba_patterns", "cba_findings")}
+    old_columns = {table: tuple(row[1] for row in con.execute(f"PRAGMA table_info({table})"))
+                   for table in old_rows}
+    con.close()
+    result = workspace.apply_schema(path)
+    assert len(result.tables) == 24
+    con = db.connect(path)
+    try:
+        for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
+            assert db.rows(con, table) == []
+        for table in old_rows:
+            assert [tuple(row) for row in con.execute(
+                f"SELECT {', '.join(old_columns[table])} FROM {table}")] == old_rows[table]
+        assert db.migrate(con) == []
+    finally:
+        con.close()
+    second = workspace.apply_schema(path)
+    assert second.migrated == []
+    db.connect(path).close()
+
+
 def columns(con, table):
     return {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
 

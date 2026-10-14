@@ -17,12 +17,13 @@ def con(tmp_path):
 def test_schema_and_contract_expose_all_firmware_tables(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20261009-000000")
     result = workspace.apply_schema(run / "audit.db")
-    assert len(result.tables) == 21
-    assert len(db.TABLE_SPECS) == 20
+    assert len(result.tables) == 24
+    assert len(db.TABLE_SPECS) == 23
     con = sqlite3.connect(run / "audit.db")
     try:
         for table in ("cba_images", "cba_binfacts", "cba_services",
-                      "cba_firmware_files", "cba_diffs", "cba_diff_entries"):
+                      "cba_firmware_files", "cba_diffs", "cba_diff_entries",
+                      "cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
             schema_columns = tuple(
                 row[1] for row in con.execute(f"PRAGMA table_info({table})"))
             assert schema_columns == db.TABLE_SPECS[table].columns
@@ -252,3 +253,230 @@ def test_inventory_accepts_firmware_file_kinds(con):
     db.put(con, "cba_inventory", {"unit": "etc/init.d/S01", "kind": "script"})
     assert [r[0] for r in db.rows(con, "cba_inventory", columns=("kind",))] == [
         "config", "script"]
+
+
+SURFACE_RUN = {
+    "image_id": "acme|r1|target", "manifest_sha256": "a" * 64,
+    "worklist_path": "files/surface/index.json", "worklist_sha256": "b" * 64,
+    "unit_count": 2, "batch_count": 1, "status": "pending",
+}
+SURFACE = {
+    "image_id": "acme|r1|target", "surface_id": "http.login:1",
+    "component_path": "bin/httpd", "entry_point": "POST /login",
+    "protocol": "http", "dispatch_path": "route table -> dispatch_request",
+    "handler": "login_handler", "lifecycle_required": "provisioned",
+    "posture_required": "sta-lan", "auth_required": "pre-auth",
+    "reachability": "evidenced", "reach_evidence": "dispatch.c:42 route to login",
+    "artifact_path": "files/surface/result.json", "artifact_sha256": "c" * 64,
+}
+UNKNOWN = {
+    "id": "unknown.http:1", "image_id": "acme|r1|target",
+    "component_path": "bin/httpd", "surface_id": "http.login:1",
+    "field": "posture", "question": "Does WAN forward requests to httpd?",
+    "settling_observation": "Observe WAN forwarding in a packet trace",
+    "method": "emulate", "status": "open",
+    "artifact_path": "files/surface/result.json", "artifact_sha256": "c" * 64,
+}
+
+SURFACE_CONTRACTS = [
+    ("cba_surface_runs",
+     ("image_id", "manifest_sha256", "worklist_path", "worklist_sha256",
+      "unit_count", "batch_count", "status", "prepared_at", "completed_at"),
+     ("image_id", "manifest_sha256", "worklist_path", "worklist_sha256",
+      "unit_count", "batch_count", "status"), ("image_id",)),
+    ("cba_firmware_surfaces",
+     ("image_id", "surface_id", "component_path", "entry_point", "protocol",
+      "dispatch_path", "handler", "lifecycle_required", "posture_required",
+      "auth_required", "reachability", "reach_evidence", "artifact_path",
+      "artifact_sha256", "recorded_at"),
+     ("image_id", "surface_id", "component_path", "entry_point", "protocol",
+      "dispatch_path", "handler", "lifecycle_required", "posture_required",
+      "auth_required", "reachability", "reach_evidence", "artifact_path",
+      "artifact_sha256"), ("image_id", "surface_id")),
+    ("cba_unknowns",
+     ("id", "image_id", "component_path", "surface_id", "field", "question",
+      "settling_observation", "method", "status", "resolution", "evidence",
+      "artifact_path", "artifact_sha256", "recorded_at"),
+     ("id", "image_id", "component_path", "field", "question",
+      "settling_observation", "method", "status", "artifact_path",
+      "artifact_sha256"), ("id",)),
+]
+
+
+@pytest.mark.parametrize("table,columns,required,key", SURFACE_CONTRACTS)
+def test_surface_tables_have_the_exact_durable_contract(con, table, columns,
+                                                       required, key):
+    info = list(con.execute(f"PRAGMA table_info({table})"))
+    assert tuple(row[1] for row in info) == columns
+    assert tuple(row[1] for row in info if row[3] or row[5]) == required
+    assert tuple(name for _, name in sorted(
+        (row[5], row[1]) for row in info if row[5])) == key
+    spec = db.TABLE_SPECS[table]
+    assert (spec.columns, spec.required, spec.primary_key) == (columns, required, key)
+
+
+@pytest.mark.parametrize("table,row,column", [
+    (table, row, column)
+    for (table, _, required, _), row in zip(
+        SURFACE_CONTRACTS, (SURFACE_RUN, SURFACE, UNKNOWN))
+    for column in required
+])
+@pytest.mark.parametrize("value", ["omit", "", " \t ", None])
+def test_surface_contract_requires_nonempty_fields(con, table, row, column, value):
+    invalid = dict(row)
+    if value == "omit":
+        invalid.pop(column)
+    else:
+        invalid[column] = value
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, invalid)
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+SURFACE_ENUMS = [
+    ("cba_surface_runs", SURFACE_RUN, "status", ("pending", "complete")),
+    ("cba_firmware_surfaces", SURFACE, "lifecycle_required",
+     ("factory-fresh", "provisioned", "bound-to-owner", "cloud-registered",
+      "post-reset", "unknown")),
+    ("cba_firmware_surfaces", SURFACE, "posture_required",
+     ("softap-setup", "sta-lan", "wan-exposed", "ble", "cloud-tunnel-only", "unknown")),
+    ("cba_firmware_surfaces", SURFACE, "auth_required",
+     ("pre-auth", "session", "admin", "local-shell", "physical-uart", "unknown")),
+    ("cba_firmware_surfaces", SURFACE, "reachability", ("evidenced", "refuted", "unknown")),
+    ("cba_unknowns", UNKNOWN, "field", ("dispatch", "handler", "lifecycle", "posture", "auth", "reachability")),
+    ("cba_unknowns", UNKNOWN, "method", ("static", "emulate", "hardware")),
+    ("cba_unknowns", UNKNOWN, "status", ("open", "resolved")),
+]
+
+
+@pytest.mark.parametrize("table,row,column,value", [
+    (table, row, column, value) for table, row, column, values in SURFACE_ENUMS
+    for value in values
+])
+def test_surface_contract_accepts_every_canonical_enum(con, table, row, column, value):
+    valid = row | {column: value}
+    if table == "cba_unknowns" and column == "status" and value == "resolved":
+        valid |= {"resolution": "WAN forwarding is disabled", "evidence": "config:17 wan=off"}
+    db.put(con, table, valid)
+    assert db.rows(con, table)[0][column] == value
+
+
+@pytest.mark.parametrize("table,row,column,values", SURFACE_ENUMS)
+@pytest.mark.parametrize("value", ["invalid", "UNKNOWN", " unknown ", True])
+def test_surface_contract_rejects_noncanonical_enums(con, table, row, column, values, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("column", ["unit_count", "batch_count"])
+@pytest.mark.parametrize("value", [-1, "-1", "1.5", 1.0, "nope", None, True,
+                                    "1_0", "１", "\u00a01\u00a0",
+                                    "9223372036854775808", 9223372036854775808])
+def test_surface_run_rejects_counts_outside_sqlite_integer_contract(con, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_surface_runs", SURFACE_RUN | {column: value})
+    assert db.rows(con, "cba_surface_runs") == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("column", ["unit_count", "batch_count"])
+@pytest.mark.parametrize("value,expected", [
+    (0, 0), ("0", 0), ("-0", 0), (9223372036854775807, 9223372036854775807),
+    ("9223372036854775807", 9223372036854775807),
+    (" \t+9223372036854775807\r\n", 9223372036854775807),
+])
+def test_surface_run_boundary_counts_persist_as_sqlite_integers(con, column, value, expected):
+    db.put(con, "cba_surface_runs", SURFACE_RUN | {column: value})
+    got = con.execute(f"SELECT {column}, typeof({column}) FROM cba_surface_runs").fetchone()
+    assert tuple(got) == (expected, "integer")
+
+
+@pytest.mark.parametrize("table,row,column", [
+    ("cba_surface_runs", SURFACE_RUN, "manifest_sha256"),
+    ("cba_surface_runs", SURFACE_RUN, "worklist_sha256"),
+    ("cba_firmware_surfaces", SURFACE, "artifact_sha256"),
+    ("cba_unknowns", UNKNOWN, "artifact_sha256"),
+])
+@pytest.mark.parametrize("value", ["a" * 63, "a" * 65, "A" * 64, "g" * 64, " a" * 32, 123])
+def test_surface_contract_rejects_invalid_sha256(con, table, row, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+
+
+@pytest.mark.parametrize("table,row,column", [
+    ("cba_firmware_surfaces", SURFACE, "surface_id"),
+    ("cba_unknowns", UNKNOWN, "id"), ("cba_unknowns", UNKNOWN, "surface_id"),
+])
+@pytest.mark.parametrize("value", ["bad id", "bad/id", "-leading", "é", "x" * 129, True, 7])
+def test_surface_contract_rejects_unsafe_identifiers(con, table, row, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+
+
+@pytest.mark.parametrize("table,row,column", [
+    ("cba_firmware_surfaces", SURFACE, "surface_id"),
+    ("cba_unknowns", UNKNOWN, "id"), ("cba_unknowns", UNKNOWN, "surface_id"),
+])
+@pytest.mark.parametrize("value", ["0", "A._:-z", "x" * 128])
+def test_surface_contract_accepts_identifier_boundaries(con, table, row, column, value):
+    db.put(con, table, row | {column: value})
+    assert db.rows(con, table)[0][column] == value
+
+
+@pytest.mark.parametrize("surface_id", [None, "", "  "])
+def test_unknown_can_omit_surface_when_no_surface_identified(con, surface_id):
+    db.put(con, "cba_unknowns", UNKNOWN | {"surface_id": surface_id})
+    assert len(db.rows(con, "cba_unknowns")) == 1
+
+
+@pytest.mark.parametrize("column", ["resolution", "evidence"])
+def test_open_unknown_refuses_resolution_or_evidence(con, column):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_unknowns", UNKNOWN | {column: "unexpected claim"})
+    assert db.rows(con, "cba_unknowns") == []
+
+
+@pytest.mark.parametrize("column", ["resolution", "evidence"])
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_resolved_unknown_requires_both_resolution_and_evidence(con, column, value):
+    row = UNKNOWN | {"status": "resolved", "resolution": "Forwarding disabled",
+                     "evidence": "config:17 wan=off", column: value}
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_unknowns", row)
+    assert db.rows(con, "cba_unknowns") == []
+
+
+@pytest.mark.parametrize("status", ["open", "resolved"])
+@pytest.mark.parametrize("column", ["resolution", "evidence"])
+@pytest.mark.parametrize("value", [True, 7, {"claim": "not text"}])
+def test_unknown_optional_evidence_fields_reject_nontext_values(con, status, column, value):
+    row = UNKNOWN | {"status": status}
+    if status == "resolved":
+        row |= {"resolution": "Forwarding disabled", "evidence": "config:17 wan=off"}
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_unknowns", row | {column: value})
+    assert db.rows(con, "cba_unknowns") == []
+    assert not con.in_transaction
+
+
+def test_unknown_replacement_validates_retained_resolution(con):
+    db.put(con, "cba_unknowns", UNKNOWN | {"status": "resolved",
+                                         "resolution": "Forwarding disabled",
+                                         "evidence": "config:17 wan=off"})
+    with pytest.raises(db.DbError, match="resolution"):
+        db.put(con, "cba_unknowns", UNKNOWN, replace=True)
+    assert db.rows(con, "cba_unknowns")[0]["status"] == "resolved"
+
+
+def test_surface_keys_scope_ids_by_image_but_unknown_ids_are_global(con):
+    db.put(con, "cba_firmware_surfaces", SURFACE)
+    db.put(con, "cba_firmware_surfaces", SURFACE | {"image_id": "other|r1|target"})
+    assert len(db.rows(con, "cba_firmware_surfaces")) == 2
+    db.put(con, "cba_unknowns", UNKNOWN)
+    with pytest.raises(db.DbError, match="--replace"):
+        db.put(con, "cba_unknowns", UNKNOWN | {"image_id": "other|r1|target"})

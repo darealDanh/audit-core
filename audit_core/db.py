@@ -34,6 +34,18 @@ TRISTATE = ("yes", "no", "unknown")
 RELRO_STATES = ("full", "partial", "none", "unknown")
 FIRMWARE_IMAGE_UNSCOPED = "legacy-unscoped"
 DIFF_CHANGES = ("added", "removed", "modified")
+SURFACE_RUN_STATES = ("pending", "complete")
+LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
+                    "cloud-registered", "post-reset", "unknown")
+POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
+                  "cloud-tunnel-only", "unknown")
+AUTH_STATES = ("pre-auth", "session", "admin", "local-shell", "physical-uart",
+               "unknown")
+REACHABILITY_STATES = ("evidenced", "refuted", "unknown")
+UNKNOWN_FIELDS = ("dispatch", "handler", "lifecycle", "posture", "auth",
+                  "reachability")
+UNKNOWN_METHODS = ("static", "emulate", "hardware")
+UNKNOWN_STATES = ("open", "resolved")
 
 # Columns added to tables that already existed when an earlier stage shipped.
 # `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
@@ -232,9 +244,9 @@ def _validate_service(row: dict[str, str]) -> None:
                       "port was established")
 
 
-def _validate_diff(row: dict[str, str]) -> None:
-    for column in ("added_count", "removed_count", "modified_count",
-                   "unchanged_count"):
+def _validate_nonnegative_integers(row: dict[str, str],
+                                  columns: tuple[str, ...]) -> None:
+    for column in columns:
         # SQLite ignores ASCII whitespace around numeric values; Python's
         # default strip also accepts Unicode whitespace retained as TEXT.
         raw = str(row.get(column, "")).strip(" \t\n\r\v\f")
@@ -247,6 +259,77 @@ def _validate_diff(row: dict[str, str]) -> None:
         if not 0 <= value <= 9223372036854775807:
             raise DbError(f"{column}={raw!r} is outside the SQLite non-negative "
                           "integer range 0-9223372036854775807")
+
+
+def _validate_diff(row: dict[str, str]) -> None:
+    _validate_nonnegative_integers(row, ("added_count", "removed_count",
+                                        "modified_count", "unchanged_count"))
+
+
+def _validate_surface_text(row: dict[str, str], table: str,
+                           *, counts: tuple[str, ...] = ()) -> None:
+    for column in TABLE_SPECS[table].required:
+        if column in counts:
+            continue
+        value = row.get(column)
+        if not isinstance(value, str) or not value.strip():
+            raise DbError(f"{column} requires a non-empty string")
+
+
+def _validate_sha256(row: dict[str, str], column: str) -> None:
+    value = row.get(column)
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise DbError(f"{column} must be exactly 64 lower-case hexadecimal characters")
+
+
+def _validate_surface_identifier(row: dict[str, str], column: str) -> None:
+    value = row.get(column)
+    if not isinstance(value, str) or re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", value) is None:
+        raise DbError(f"{column} must be a safe identifier of 1-128 characters")
+
+
+def _validate_surface_run(row: dict[str, str]) -> None:
+    counts = ("unit_count", "batch_count")
+    _validate_surface_text(row, "cba_surface_runs", counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    for column in ("manifest_sha256", "worklist_sha256"):
+        _validate_sha256(row, column)
+    one_of("status", SURFACE_RUN_STATES)(row)
+
+
+def _validate_firmware_surface(row: dict[str, str]) -> None:
+    _validate_surface_text(row, "cba_firmware_surfaces")
+    _validate_surface_identifier(row, "surface_id")
+    _validate_sha256(row, "artifact_sha256")
+    for column, allowed in (("lifecycle_required", LIFECYCLE_STATES),
+                            ("posture_required", POSTURE_STATES),
+                            ("auth_required", AUTH_STATES),
+                            ("reachability", REACHABILITY_STATES)):
+        one_of(column, allowed)(row)
+
+
+def _validate_unknown(row: dict[str, str]) -> None:
+    _validate_surface_text(row, "cba_unknowns")
+    _validate_surface_identifier(row, "id")
+    surface_id = row.get("surface_id")
+    if surface_id is not None and surface_id != "" and (
+            not isinstance(surface_id, str) or surface_id.strip()):
+        _validate_surface_identifier(row, "surface_id")
+    _validate_sha256(row, "artifact_sha256")
+    for column, allowed in (("field", UNKNOWN_FIELDS),
+                            ("method", UNKNOWN_METHODS),
+                            ("status", UNKNOWN_STATES)):
+        one_of(column, allowed)(row)
+    for column in ("resolution", "evidence"):
+        value = row.get(column)
+        if value is not None and not isinstance(value, str):
+            raise DbError(f"{column} must be a string or absent")
+        present = bool(value and value.strip())
+        if row["status"] == "open" and present:
+            raise DbError(f"an open unknown requires empty {column}")
+        if row["status"] == "resolved" and not present:
+            raise DbError(f"a resolved unknown requires non-empty {column}")
 
 
 def _validate_diff_entry(row: dict[str, str]) -> None:
@@ -376,6 +459,30 @@ TABLE_SPECS: dict[str, TableSpec] = {
         required=("diff_id", "path", "change"),
         primary_key=("diff_id", "path"),
         validate=_validate_diff_entry),
+    "cba_surface_runs": TableSpec(
+        columns=("image_id", "manifest_sha256", "worklist_path", "worklist_sha256",
+                 "unit_count", "batch_count", "status", "prepared_at", "completed_at"),
+        required=("image_id", "manifest_sha256", "worklist_path", "worklist_sha256",
+                  "unit_count", "batch_count", "status"),
+        primary_key=("image_id",), validate=_validate_surface_run),
+    "cba_firmware_surfaces": TableSpec(
+        columns=("image_id", "surface_id", "component_path", "entry_point", "protocol",
+                 "dispatch_path", "handler", "lifecycle_required", "posture_required",
+                 "auth_required", "reachability", "reach_evidence", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "surface_id", "component_path", "entry_point", "protocol",
+                  "dispatch_path", "handler", "lifecycle_required", "posture_required",
+                  "auth_required", "reachability", "reach_evidence", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("image_id", "surface_id"), validate=_validate_firmware_surface),
+    "cba_unknowns": TableSpec(
+        columns=("id", "image_id", "component_path", "surface_id", "field", "question",
+                 "settling_observation", "method", "status", "resolution", "evidence",
+                 "artifact_path", "artifact_sha256", "recorded_at"),
+        required=("id", "image_id", "component_path", "field", "question",
+                  "settling_observation", "method", "status", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("id",), validate=_validate_unknown),
 }
 
 
