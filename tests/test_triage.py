@@ -229,7 +229,8 @@ def test_triage_refuses_active_transaction_and_preserves_caller_work(con, tmp_pa
 
 
 @pytest.mark.parametrize("prior", [False, True])
-@pytest.mark.parametrize("failure", ["file-permission", "file-io", "subtree", "directory-stat"])
+@pytest.mark.parametrize("failure", ["file-permission", "file-io", "subtree",
+                                     "subtree-iteration", "directory-stat"])
 def test_traversal_failure_with_readable_siblings_preserves_prior_publication(
         con, tmp_path, monkeypatch, prior, failure):
     root = carved_tree(tmp_path)
@@ -237,12 +238,33 @@ def test_traversal_failure_with_readable_siblings_preserves_prior_publication(
         triage.run(con, root)
         (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
     before = triage_snapshot(con)
-    blocked = root / "usr" if failure in ("subtree", "directory-stat") else root / "usr/share/banner"
-    if failure == "subtree":
+    blocked = (root / "usr" if failure in ("subtree", "subtree-iteration", "directory-stat")
+               else root / "usr/share/banner")
+    if failure in ("subtree", "subtree-iteration"):
         original = os.scandir
+
+        class FailingIterator:
+            def __init__(self, path):
+                self.iterator = original(path)
+
+            def __enter__(self):
+                self.iterator.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.iterator.__exit__(*args)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                next(self.iterator)
+                raise OSError("injected subtree iteration failure")
 
         def fail_scandir(path):
             if str(path) == str(blocked):
+                if failure == "subtree-iteration":
+                    return FailingIterator(path)
                 raise PermissionError("injected subtree permission failure")
             return original(path)
 
@@ -261,6 +283,72 @@ def test_traversal_failure_with_readable_siblings_preserves_prior_publication(
         triage.run(con, root)
     assert triage_snapshot(con) == before
     assert not con.in_transaction
+
+
+@pytest.mark.parametrize("prior", [False, True])
+@pytest.mark.parametrize("failure", ["error", "mismatch"])
+def test_directory_classification_error_preserves_all_publication_tables(
+        con, tmp_path, monkeypatch, prior, failure):
+    root = carved_tree(tmp_path)
+    (root / "audit_core").mkdir()
+    (root / "audit_core/hidden").write_bytes(minimal_elf())
+    (root / "audit.py").write_text("readable sibling\n")
+    if prior:
+        triage.run(con, root)
+        (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
+        (root / "audit.py").write_text("changed readable sibling\n")
+    before = triage_snapshot(con)
+    original = os.scandir
+
+    class EntryProxy:
+        def __init__(self, entry):
+            self.entry = entry
+
+        def __getattr__(self, name):
+            return getattr(self.entry, name)
+
+        def is_dir(self, *, follow_symlinks=True):
+            if self.entry.path == str(root / "audit_core"):
+                if failure == "mismatch":
+                    return False
+                raise OSError("injected directory classification failure")
+            return self.entry.is_dir(follow_symlinks=follow_symlinks)
+
+    class ScandirProxy:
+        def __init__(self, path):
+            self.iterator = original(path)
+
+        def __enter__(self):
+            self.iterator.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.iterator.__exit__(*args)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return EntryProxy(next(self.iterator))
+
+    monkeypatch.setattr(os, "scandir", ScandirProxy)
+    with pytest.raises(triage.TriageError, match="classif"):
+        triage.run(con, root)
+    assert triage_snapshot(con) == before
+    assert not con.in_transaction
+
+
+def test_regular_files_are_sorted_and_exclude_links_and_nonregular_entries(tmp_path):
+    root = carved_tree(tmp_path)
+    (root / "linked-directory").symlink_to(root / "usr", target_is_directory=True)
+    (root / "missing-link").symlink_to("missing")
+    (root / "z-last").write_text("last\n")
+    (root / "a-first").write_text("first\n")
+    os.mkfifo(root / "pipe")
+    assert [path.relative_to(root).as_posix() for path in triage._regular_files(root)] == [
+        "a-first", "bin/httpd", "etc/httpd.conf", "etc/init.d/S50httpd",
+        "usr/share/banner", "z-last",
+    ]
 
 
 @pytest.mark.parametrize("allow_no_elf", [False, True])

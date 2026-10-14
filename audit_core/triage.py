@@ -34,31 +34,31 @@ def _sha256(path: pathlib.Path) -> str:
 
 def _regular_files(root: pathlib.Path) -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
-
-    def traversal_error(exc: OSError) -> None:
-        raise TriageError(f"Cannot traverse carved tree {root}: {exc}") from exc
-
-    for directory, names, filenames in os.walk(
-            root, followlinks=False, onerror=traversal_error):
+    pending = [root]
+    while pending:
+        directory = pending.pop()
         directories = []
-        for name in sorted(names):
-            path = pathlib.Path(directory) / name
-            try:
-                mode = path.lstat().st_mode
-            except OSError as exc:
-                raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
-            if stat.S_ISDIR(mode):
-                directories.append(name)
-        names[:] = directories
-        for name in sorted(filenames):
-            path = pathlib.Path(directory) / name
-            try:
-                mode = path.lstat().st_mode
-            except OSError as exc:
-                raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
-            if stat.S_ISREG(mode):
-                files.append(path)
-    return files
+        try:
+            # os.walk suppresses is_dir() errors and can silently omit a real
+            # subtree. Classify entries ourselves so every I/O failure aborts.
+            with os.scandir(directory) as entries:
+                for entry in sorted(entries, key=lambda entry: entry.name):
+                    path = directory / entry.name
+                    is_directory = entry.is_dir(follow_symlinks=False)
+                    try:
+                        mode = path.lstat().st_mode
+                    except OSError as exc:
+                        raise TriageError(f"Cannot stat carved tree path {path}: {exc}") from exc
+                    if is_directory != stat.S_ISDIR(mode):
+                        raise TriageError(f"Inconsistent directory classification for {path}")
+                    if is_directory:
+                        directories.append(path)
+                    elif stat.S_ISREG(mode):
+                        files.append(path)
+        except OSError as exc:
+            raise TriageError(f"Cannot traverse carved tree {directory}: {exc}") from exc
+        pending.extend(reversed(directories))
+    return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
 
 def _kind(path: pathlib.Path, relative: str,
