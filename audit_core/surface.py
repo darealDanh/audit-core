@@ -29,6 +29,18 @@ class PreparationSummary:
     worklist_path: str
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class SurfaceCheck:
+    image_id: str
+    manifest_units: int
+    analyzed: int
+    not_audited: int
+    surfaces: int
+    open_unknowns: int
+    resolved_unknowns: int
+    complete: bool
+
+
 def canonical_bytes(value: object) -> bytes:
     """Canonical UTF-8 JSON shared by preparation and result publication."""
     return (json.dumps(value, sort_keys=True, ensure_ascii=False,
@@ -298,3 +310,162 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         con.rollback()
         raise SurfaceError(f"Cannot publish surface preparation for {selected}: {exc}") from exc
     return summary
+
+
+def _checked_worklist(con: sqlite3.Connection, run: Mapping[str, object],
+                      manifest: list[dict[str, object]]) -> pathlib.Path:
+    """Verify every prepared assignment, including batches with no stored claims."""
+    # Local import avoids the parser's SurfaceError/surface helper import cycle.
+    from audit_core import surface_results as results
+
+    index_path = pathlib.Path(str(run["worklist_path"]))
+    if len(index_path.parents) < 4:
+        raise SurfaceError("Invalid prepared worklist path")
+    run_dir = index_path.parents[3]
+    _, index = results._read_json(index_path)
+    index = results._object(index, ("schema_version", "image_id", "manifest_sha256",
+        "batch_size", "unit_count", "batches"), "index")
+    descriptors = results._array(index["batches"], "batches")
+    if not descriptors:
+        raise SurfaceError("Prepared worklist has no batches")
+    assigned = []
+    for descriptor in descriptors:
+        descriptor = results._object(descriptor, ("path", "sha256", "unit_count"), "batch descriptor")
+        result = results.BatchResult(1, str(run["image_id"]), str(run["manifest_sha256"]),
+            str(run["worklist_sha256"]), descriptor["path"], descriptor["sha256"], ())
+        units, _ = results._assigned(con, run_dir, result)
+        assigned.extend(units)
+    if sorted(assigned) != [unit["path"] for unit in manifest]:
+        raise SurfaceError("Prepared assignments must cover each current manifest unit exactly once")
+    return run_dir
+
+
+def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path,
+                       coverage: Mapping[str, Mapping[str, object]],
+                       surfaces: list[dict[str, object]], unknowns: list[dict[str, object]]) -> None:
+    """Bind both directions of every referenced canonical result to current SQL."""
+    from audit_core import surface_results as results
+
+    artifacts = {(str(row["artifact_path"]), str(row["artifact_sha256"]))
+                 for row in surfaces + unknowns}
+    for artifact_path, digest in sorted(artifacts):
+        path = pathlib.Path(artifact_path)
+        expected = run_dir / "artifacts/surface" / digest / "result.json"
+        if path.absolute() != expected.absolute():
+            raise SurfaceError("Surface artifact provenance is outside the current run generation")
+        for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+            if directory.is_symlink():
+                raise SurfaceError(f"Surface artifact directory is a symlink: {directory}")
+        content, payload = results._read_json(path, bounded=True)
+        if hashlib.sha256(content).hexdigest() != digest:
+            raise SurfaceError(f"Surface artifact SHA-256 differs: {path}")
+        validated = results.validate(con, run_dir, results._parse(payload))
+        if results.canonical_bytes(validated) != content:
+            raise SurfaceError(f"Surface result artifact is not canonical: {path}")
+        assigned = set(validated.assigned_units)
+        for table_rows, field in ((surfaces, "surfaces"), (unknowns, "unknowns")):
+            actual = [{key: value for key, value in row.items() if key != "recorded_at"}
+                      for row in table_rows if row["component_path"] in assigned]
+            expected_rows = [dataclasses.asdict(row) | {"image_id": validated.result.image_id,
+                "artifact_path": artifact_path, "artifact_sha256": digest}
+                for decision in validated.result.decisions for row in getattr(decision, field)]
+            if sorted(actual, key=repr) != sorted(expected_rows, key=repr):
+                raise SurfaceError(f"Stored {field} differ from their bound surface artifact")
+        for decision in validated.result.decisions:
+            stored = coverage[decision.path]
+            reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
+            stored_reason = stored["reason"]
+            if decision.state == "not_audited" and isinstance(stored_reason, str):
+                stored_reason = stored_reason.strip()
+            if stored["state"] != decision.state or stored_reason != reason:
+                raise SurfaceError(f"Stored coverage differs from its bound artifact: {decision.path}")
+
+
+def _check_inputs(con: sqlite3.Connection, image_id: str | None
+                  ) -> tuple[SurfaceCheck, dict[str, object]]:
+    """Read the uncapped denominator and reject inconsistent current claims."""
+    from audit_core import surface_results as results
+
+    selected = _resolve_target(_query(con, "SELECT id,role FROM cba_images"), image_id)
+    runs = _query(con, "SELECT * FROM cba_surface_runs WHERE image_id=?", (selected,))
+    if not runs:
+        raise SurfaceError("No prepared surface run for target")
+    run = runs[0]
+    db.TABLE_SPECS["cba_surface_runs"].validate(run)
+    manifest = _manifest(con, selected)
+    _inventory_agreement(con, manifest)
+    if run["manifest_sha256"] != manifest_sha256(manifest):
+        raise SurfaceError("Current and prepared surface manifest provenance differs")
+    run_dir = _checked_worklist(con, run, manifest)
+    paths = {str(unit["path"]) for unit in manifest}
+    coverage = {str(row["unit"]): row for row in _query(con,
+        "SELECT * FROM cba_coverage WHERE phase='surface'") if row["unit"] in paths}
+    if set(coverage) != paths:
+        missing = sorted(paths - coverage.keys())[0]
+        raise SurfaceError(f"Missing surface coverage decision for {missing}")
+    for row in coverage.values():
+        if row["reason"] is not None and not isinstance(row["reason"], str):
+            raise SurfaceError("Surface coverage reason must be text or absent")
+        db.TABLE_SPECS["cba_coverage"].validate(row)
+        if row["state"] == "not_audited" and row["reason"].strip() == "budget":
+            raise SurfaceError(f"Surface coverage has a budget skip: {row['unit']}")
+    surfaces = _query(con, "SELECT * FROM cba_firmware_surfaces WHERE image_id=?", (selected,))
+    unknowns = _query(con, "SELECT * FROM cba_unknowns WHERE image_id=?", (selected,))
+    for table, rows, cls, nullable in (
+            ("cba_firmware_surfaces", surfaces, results.SurfaceRecord, ()),
+            ("cba_unknowns", unknowns, results.UnknownRecord, ("surface_id", "resolution", "evidence"))):
+        for row in rows:
+            db.TABLE_SPECS[table].validate(row)
+            fields = {field.name: row[field.name] for field in dataclasses.fields(cls)}
+            results._record(fields, cls, nullable)
+            if row["component_path"] not in paths:
+                raise SurfaceError(f"Dangling surface component: {row['component_path']}")
+    by_id = {row["surface_id"]: row for row in surfaces}
+    for row in surfaces:
+        if coverage[row["component_path"]]["state"] != "analyzed":
+            raise SurfaceError("not_audited cannot publish surfaces")
+    for row in unknowns:
+        if row["surface_id"] is not None:
+            results._identifier(row["surface_id"], "unknown surface_id")
+            linked = by_id.get(row["surface_id"])
+            if linked is None or linked["component_path"] != row["component_path"]:
+                raise SurfaceError("Unknown surface linkage is dangling or belongs to another component")
+    open_fields = {(row["surface_id"], row["field"]) for row in unknowns if row["status"] == "open"}
+    for row in surfaces:
+        for column, field in (("lifecycle_required", "lifecycle"), ("posture_required", "posture"),
+                              ("auth_required", "auth"), ("reachability", "reachability")):
+            if row[column] == "unknown" and (row["surface_id"], field) not in open_fields:
+                raise SurfaceError(f"Unknown {field} requires a matching open unknown for {row['surface_id']}")
+    _checked_artifacts(con, run_dir, coverage, surfaces, unknowns)
+    return SurfaceCheck(selected, len(manifest),
+        sum(row["state"] == "analyzed" for row in coverage.values()),
+        sum(row["state"] == "not_audited" for row in coverage.values()), len(surfaces),
+        sum(row["status"] == "open" for row in unknowns),
+        sum(row["status"] == "resolved" for row in unknowns), True), run
+
+
+def check(con: sqlite3.Connection, *, image_id: str | None = None) -> SurfaceCheck:
+    """Certify current surface completeness; this is the sole completion transition."""
+    started = False
+    try:
+        if con.in_transaction:
+            raise SurfaceError("Surface check requires a connection without an active transaction")
+        summary, run = _check_inputs(con, image_id)
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        # Validation before locking is diagnostic only. All SQL and file evidence
+        # is re-read while other SQL writers cannot publish another generation.
+        current, current_run = _check_inputs(con, image_id)
+        if current != summary or current_run != run:
+            raise SurfaceError("Surface check inputs changed before completion")
+        if run["status"] != "complete":
+            con.execute("UPDATE cba_surface_runs SET status='complete',completed_at=datetime('now') WHERE image_id=?",
+                        (summary.image_id,))
+        con.commit()
+        return summary
+    except Exception as exc:
+        if started:
+            con.rollback()
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError)):
+            raise SurfaceError(f"Cannot check surface completeness: {exc}") from exc
+        raise
