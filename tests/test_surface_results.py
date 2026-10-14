@@ -224,6 +224,35 @@ def test_membership_is_established_before_row_semantics(prepared):
         validate_payload(prepared, payload)
 
 
+@pytest.mark.parametrize("reason", [None, "", " \t\n"])
+def test_analyzed_empty_batch_cannot_claim_coverage_without_explanations(prepared, reason):
+    payload = copy.deepcopy(prepared[2])
+    for decision in payload["decisions"]:
+        decision.update(reason=reason, surfaces=[], unknowns=[])
+    before = prepared[0].total_changes
+    with pytest.raises(surface.SurfaceError, match="explanation|reason"):
+        validate_payload(prepared, payload)
+    assert prepared[0].total_changes == before
+
+
+@pytest.mark.parametrize("reason", [None, "", " \t\n"])
+def test_explanatory_unknown_can_support_analyzed_decision_without_a_surface(prepared, reason):
+    payload = copy.deepcopy(prepared[2])
+    payload["decisions"][0].update(reason=reason, unknowns=[{
+        "id": "config-dispatch", "component_path": "etc/settings.conf", "surface_id": None,
+        "field": "dispatch", "question": "Does this configuration select an undiscovered service wrapper?",
+        "settling_observation": "Trace the configured wrapper to its caller.",
+        "method": "static", "status": "open", "resolution": None, "evidence": None}])
+    validated = validate_payload(prepared, payload)
+    assert validated.result.decisions[0].reason == reason
+    assert validated.result.decisions[0].unknowns[0].id == "config-dispatch"
+
+
+def test_no_surface_explanation_is_retained_in_the_canonical_artifact(prepared):
+    validated = validate_payload(prepared, prepared[2])
+    assert b'"reason":"Configuration has no dispatcher."' in api().canonical_bytes(validated)
+
+
 @pytest.mark.parametrize("damage", ["missing-reason", "blank-reason", "bad-reason", "surface", "bad-state"])
 def test_coverage_decisions_follow_existing_coverage_contract(prepared, damage):
     payload = copy.deepcopy(prepared[2])

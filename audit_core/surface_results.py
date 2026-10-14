@@ -256,6 +256,9 @@ def _semantics(con: sqlite3.Connection, result: BatchResult, assigned: tuple[str
                 raise SurfaceError(f"not_audited requires a valid reason for {decision.path}")
             if decision.surfaces:
                 raise SurfaceError("not_audited cannot publish surfaces")
+        elif (not decision.surfaces and not decision.unknowns and
+              not (decision.reason and decision.reason.strip())):
+            raise SurfaceError(f"Analyzed no-surface decision requires a retained explanation in reason: {decision.path}")
         for row in decision.surfaces:
             if row.component_path != decision.path:
                 raise SurfaceError("Surface component must belong to its assigned decision")
