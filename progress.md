@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-16 · **Last implementation:** `2550866` on `stage4d-surface`; Stage 4d implemented, integration pending; local `main` remains `deb3eed`, not pushed · **Tests:** 2,060 ·
-**Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
+**Last updated:** 2026-10-16 · **Last implementation:** `b14b4fb` on `stage4d-surface`; Stage 4d implemented, integration pending; local `main` remains `deb3eed`, not pushed · **Tests:** 2,081 ·
+**Gates:** 8/8 green (`make all`; `mutate` remains opt-in) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -24,7 +24,7 @@ benchmark-gated before it ships.
 **Stages 0 through 3c and Stages 4a-4c are merged to local `main`.** Stage 4c
 (`diff`) was fast-forwarded into local `main`; its feature worktree and branch
 have been removed. Stage 4d (`surface`) is implemented on `stage4d-surface`
-in `.worktrees/stage4d-surface`, through `2550866`; it has not been merged or
+in `.worktrees/stage4d-surface`, through `b14b4fb`; it has not been merged or
 pushed. The next feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -38,7 +38,7 @@ pushed. The next feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
-| 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `2550866` | branch `stage4d-surface` | **implemented**, integration pending; no audit run |
+| 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | branch `stage4d-surface` | **implemented**, integration pending; no audit run |
 | 4 | `firmware-audit` + monorepo (remaining six phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -339,20 +339,33 @@ rollback. Changed worklist generations and changed target acquisition
 provenance invalidate dependent surface rows and only affected surface coverage
 atomically. Failed SQL preserves prior state; orphan artifacts may remain.
 
-The exact Task 10 focused suite passed **1,147 tests** with no corpus skip.
+The exact reopened Task 10 focused suite passed **1,168 tests** with no corpus
+skip.
 Task-scoped implementation reviews and the controller's whole-branch review
 of `deb3eed..4394621` are complete. Its two Important findings (unexpected
 exception hiding and unbounded diagnostics) were fixed in `2550866` and the
-scoped re-review was clean. Fresh post-documentation `make all` passes all
-eight gates: **2,060 tests**, 27 dispatchable verbs, 24 schema tables / 23
-contracted, columns and primary keys agreeing; four migrations plus current
-schema applied to both frozen pre-Stage-3 and Stage-4b baselines, preserving
-firmware rows and accepted by `connect()`. Lint is clean; EOL is 6 CRLF / 186 LF;
-43 features / 12 stages / 21 open-item records resolve. The sandbox installs
-104 Markdown files with zero sentinel survivors and the real install untouched.
-Statement coverage is **0 unexecuted / 4,060 statements, 0 allowed**. Benchmark
-scoring remains recall 9/19, 45 findings, precision 39/40, and $73.15 per match.
-The complete current gate summary is in `SESSION_HANDOFF.md`.
+scoped re-review was clean. The final whole-branch review then found overlapping
+explicit targets shared raw inventory/surface coverage keys. Fix `b14b4fb`
+qualifies `cba_inventory.unit` and surface `cba_coverage.unit` through the single
+`db.firmware_unit_key` encoding, preserving schemas and generic coverage joins.
+Preparation/import/check, replacement, and acquisition invalidation now isolate
+each target even with identical raw paths. Artifacts, surface/unknown component
+paths, and surface-facing output remain raw; legacy-unscoped remains raw.
+Old unqualified inventory is not accepted for acquired images; overlapping old
+raw surface coverage refuses import even with replacement and is preserved by
+invalidation. Use a fresh run rather than guessing ownership. ELF/service hints
+are image-scoped; globally keyed component hints remain advisory. Retriage is
+still upsert-only. The fix's scoped review was clean. Fresh post-documentation
+`make all` passes all eight gates: **2,081 tests**, 27 dispatchable verbs, 24
+schema tables / 23 contracted, with columns and primary keys agreeing. Four
+migrations plus current schema apply to the frozen pre-Stage-3 and Stage-4b
+baselines, preserve firmware rows, and are accepted by `connect()`. Lint is
+clean; EOL is 6 CRLF / 186 LF; 43 features / 12 stages / 21 open-item records
+resolve. The sandbox installs 104 Markdown files with zero sentinel survivors
+and the real install untouched. Statement coverage is **0 unexecuted / 4,074
+statements, 0 allowed**. Benchmark scoring remains recall 9/19, 45 findings,
+precision 39/40, and $73.15 per match. These replace the superseded initial
+closeout counts; the complete summary is in `SESSION_HANDOFF.md`.
 
 No audit, new indicator snapshot, paid milestone benchmark, or mutation sweep
 ran. The full harness's benchmark gate only scores the existing read-only

@@ -177,7 +177,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 831 | Validated, bounded access to a run's `audit.db`. Specs, validators, column migrations and composite-key rebuilds, merge-on-replace. |
+| `db.py` | 847 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, and image-qualified firmware-unit identity. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -193,8 +193,8 @@ databases need triage of both acquired images to populate the new manifests.
 | `triage.py` | 187 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
 | `firmware_diff.py` | 223 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
 | `firmware_tree.py` | 101 | Shared fail-closed regular-file traversal, hashing, classification, and retained ELF facts for triage and surface. |
-| `surface.py` | 510 | Exact-root verification, deterministic content-addressed batches, generation invalidation, and the sole completion transition. |
-| `surface_results.py` | 413 | Strict bounded result parsing, provenance/ownership/state validation, and atomic batch-owned import. |
+| `surface.py` | 514 | Exact-root verification, deterministic content-addressed batches, image-owned generation invalidation, and the sole completion transition. |
+| `surface_results.py` | 422 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -228,8 +228,9 @@ writes file, ELF, and evidenced boot-service rows; it does not infer open ports
 or inspect the kernel and bootloader. Its agent half ships as
 `references/briefs/triage-brief.md`. Every regular file gets an image-scoped
 manifest row. Only target and backward-compatible unscoped triage mirror rows
-into `cba_inventory`; reference triage cannot change the target coverage
-denominator. Triage upserts observed paths; it does not prune disappeared
+into `cba_inventory`; acquired targets use image-qualified unit keys while
+legacy-unscoped triage keeps raw keys. Reference triage cannot change the
+target coverage denominator. Triage upserts observed paths; it does not prune disappeared
 files, so use fresh image scopes/runs when replacing carved tree contents.
 It prepares filesystem facts before writing and publishes file, ELF, service,
 and coverage rows together. Direct `scandir` traversal propagates scan,
@@ -266,6 +267,28 @@ are uncapped, independent of the interactive 200-row limit. Batch size defaults
 to 50 (1–1000). Canonical schema-version-1 UTF-8 JSON excludes host paths and
 timestamps; index bytes determine the worklist digest. Worklists install under
 `RUN/files/surface/<worklist-sha256>/` before SQL publication.
+
+`db.firmware_unit_key(image_id, path)` encodes database units as
+`/firmware/<image-ID Unicode character count>:<exact image ID>:<exact raw path>`.
+Length framing is injective even with delimiters or Unicode in either value;
+the leading slash separates qualified units from valid relative manifest paths.
+An empty path gives the exact image prefix for inventory reads. Target triage's
+`cba_inventory.unit` and surface import's `cba_coverage.unit` share this encoding,
+so generic coverage joins/gates still work without schema changes. Preparation,
+validation, replacement, completion, and acquisition invalidation address only
+the selected image, including when two targets share every raw path. Check
+maps selected keys back to raw paths before artifact matching and aggregation.
+Manifests, worklists, results, surface/unknown component paths, and surface-facing
+output remain raw. Legacy-unscoped keys and non-surface coverage writes remain
+unchanged. ELF/service hints are image-scoped; `cba_components` is still globally
+keyed by raw path and supplies advisory hints, never ownership or completeness.
+
+Old raw inventory is not accepted as acquired-image inventory. Import refuses
+overlapping unqualified surface coverage even with replacement, before artifact
+installation and again under the SQL lock. Preparation/acquisition invalidation
+preserves such ambiguous rows; there is no ownership-guessing migration. Use a
+fresh run when these old rows obstruct import. This isolation does not add
+pruning to upsert-only retriage.
 
 `cba_surface_runs` binds one target's manifest/worklist hashes, counts, and
 pending/complete status. `cba_firmware_surfaces` stores image-scoped surface IDs,

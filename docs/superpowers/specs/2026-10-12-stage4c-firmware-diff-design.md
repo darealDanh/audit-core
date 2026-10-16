@@ -9,8 +9,9 @@ the residual directory-classification fix are applied. The implementation
 traverses with `scandir` directly: scan, classification, stat, and
 inconsistent-classification failures abort before atomic triage publication.
 Successful retriage still upserts without pruning disappeared paths; the
-historical design below remains unchanged. Stage 4d design/implementation is
-next.
+historical design below remains unchanged. Stage 4d is implemented on
+`stage4d-surface` through `b14b4fb`, with local integration pending; Stage 4e
+`hunt` is next with separate non-transferable L-sink and L-dark budgets.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §4
 

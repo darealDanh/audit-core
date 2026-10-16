@@ -3,7 +3,7 @@
   "project": "codebase-audit",
   "generated": "2026-10-16",
   "schema_version": 1,
-  "head": "2550866",
+  "head": "b14b4fb",
   "status_enum": [
     "shipped",
     "held",
@@ -89,7 +89,7 @@
       "name": "surface - evidence-backed firmware dispatch mapping and completion",
       "status": "shipped",
       "gate": "none - no audit run; focused regressions, full harness, and existing read-only benchmark scoring",
-      "summary": "Implemented on stage4d-surface through 2550866; integration into local main is pending. Verifies the live target root, prepares deterministic full-manifest batches, imports strict agent results atomically, records state and settling questions, and gates complete coverage with canonical evidence for every batch. Stage 4e hunt is next with separate non-transferable L-sink and L-dark budgets."
+      "summary": "Implemented on stage4d-surface through b14b4fb; integration into local main is pending. Verifies the live target root, prepares deterministic full-manifest batches, imports strict agent results atomically, records state and settling questions, and gates complete coverage with canonical evidence for every batch. Database inventory and surface coverage use deterministic image-qualified unit keys while artifacts and surface-facing paths stay raw. Overlapping targets are isolated without schema changes; ambiguous old raw surface coverage is refused/preserved. Stage 4e hunt is next with separate non-transferable L-sink and L-dark budgets."
     },
     {
       "id": "stage4",
@@ -836,7 +836,7 @@
         "references/briefs/triage-brief.md",
         "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
       ],
-      "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks and nonregular entries are excluded; direct scandir traversal propagates scan, classification, and stat errors and rejects inconsistent directory classifications; regular files sort by relative path; prepared file, ELF, service, and coverage rows publish atomically. Failed fresh/retriage preserves all four publication tables. Ports remain agent-asserted and require evidence."
+      "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks and nonregular entries are excluded; direct scandir traversal propagates scan, classification, and stat errors and rejects inconsistent directory classifications; regular files sort by relative path; prepared file, ELF, service, and coverage rows publish atomically. Failed fresh/retriage preserves all four publication tables. Acquired-target inventory uses db.firmware_unit_key while legacy-unscoped stays raw; retriage remains upsert-only. Ports remain agent-asserted and require evidence."
     },
     {
       "id": "firmware-diff",
@@ -868,7 +868,7 @@
         "docs/superpowers/plans/2026-10-12-stage4c-firmware-diff.md",
         "docs/superpowers/derivations/2026-10-12-stage4c-diff-brief.md"
       ],
-      "notes": "Last implementation commit is ea78e1b. Composite (image_id, path/name) keys preserve both images; the idempotent Stage 4b upgrade maps absent image IDs to legacy-unscoped and requires re-triage to populate manifests. Target-only inventory rule: target and compatible unscoped triage mirror cba_inventory; diff-reference triage never writes that unscoped coverage denominator. Diff uses stored SHA-256 manifests and persists every changed path; content-addressed artifact installation precedes atomic SQL replacement. Changed acquired-image provenance clears the same-image manifest; read-side SQL errors are named. Triage upserts without pruning removed files, so refreshed carved trees require fresh scopes/runs. Agent analysis is patch-specific; surface mapping belongs to Stage 4d."
+      "notes": "Last implementation commit is ea78e1b. Composite (image_id, path/name) keys preserve both images; the idempotent Stage 4b upgrade maps absent image IDs to legacy-unscoped and requires re-triage to populate manifests. Target-only inventory rule: target and compatible unscoped triage mirror cba_inventory; diff-reference triage never writes that coverage denominator. Stage 4d now qualifies acquired-target inventory and surface coverage keys; legacy-unscoped remains raw. Diff uses stored SHA-256 manifests and persists every changed path; content-addressed artifact installation precedes atomic SQL replacement. Changed acquired-image provenance clears the same-image manifest; read-side SQL errors are named. Triage upserts without pruning removed files, so refreshed carved trees require fresh scopes/runs. Agent analysis is patch-specific; surface mapping belongs to Stage 4d."
     },
     {
       "id": "firmware-surface",
@@ -915,7 +915,7 @@
         "progress.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Last implementation commit is 2550866; implemented on stage4d-surface, integration pending. Prepare verifies all target regular files by path/kind/size/SHA-256 and inventory agreement, rescans before publication, and writes canonical path-ordered batches (default 50, range 1..1000). Hints never reduce the complete target-manifest denominator. Strict 8 MiB results bind image/manifest/worklist/batch provenance and exactly one decision per unit; state unknowns require matching open settling questions, and analyzed no-surface units require a retained explanation or explanatory unknown. Canonical artifacts install before atomic batch-owned SQL; replace preserves sibling batches, import resets pending, and only check certifies complete with matching canonical evidence for every batch. Changed preparation/acquisition provenance invalidates dependent target state atomically; failures preserve prior SQL and may leave orphans. Expected SQL diagnostics are fixed; other expected diagnostics are escaped/capped at 512 ASCII characters plus newline; unexpected errors propagate after rollback. No audit, paid milestone benchmark, mutation sweep, or indicator snapshot ran; no fetch/carve/execute/hunt/severity/emulation/kernel/bootloader work or separate skill tree. Retained orphan-candidate scan scaling is a local-run performance limitation; future durable batch receipts should avoid it. Stage 4e hunt is next with separate non-transferable L-sink/L-dark budgets."
+      "notes": "Last implementation commit is b14b4fb; implemented on stage4d-surface, integration pending. Prepare verifies all target regular files by path/kind/size/SHA-256 and inventory agreement, rescans before publication, and writes canonical path-ordered batches (default 50, range 1..1000). Hints never reduce the complete target-manifest denominator. Strict 8 MiB results bind image/manifest/worklist/batch provenance and exactly one decision per unit; state unknowns require matching open settling questions, and analyzed no-surface units require a retained explanation or explanatory unknown. Canonical artifacts install before atomic batch-owned SQL; replace preserves sibling batches, import resets pending, and only check certifies complete with matching canonical evidence for every batch. Changed preparation/acquisition provenance invalidates dependent target state atomically; failures preserve prior SQL and may leave orphans. Expected SQL diagnostics are fixed; other expected diagnostics are escaped/capped at 512 ASCII characters plus newline; unexpected errors propagate after rollback. No audit, paid milestone benchmark, mutation sweep, or indicator snapshot ran; no fetch/carve/execute/hunt/severity/emulation/kernel/bootloader work or separate skill tree. Retained orphan-candidate scan scaling is a local-run performance limitation; future durable batch receipts should avoid it. db.firmware_unit_key qualifies acquired-target inventory and surface coverage units as /firmware/<image-ID Unicode character count>:<exact image ID>:<raw path>; legacy-unscoped remains raw. Generic coverage joins still match, and preparation/import/check/replacement/acquisition invalidation isolate overlapping targets. Manifests/worklists/results/surface and unknown component paths/human output remain raw. Old raw inventory is not accepted for acquired images; overlapping raw surface coverage refuses import even with replacement and is preserved by invalidation, requiring a fresh run when obstructed. ELF/service hints are image-scoped; globally keyed component hints remain advisory; triage is still upsert-only. New cross-image and encoding regressions are in tests/test_surface_gate.py. Stage 4e hunt is next with separate non-transferable L-sink/L-dark budgets."
     }
   ],
   "open_items": [
@@ -983,7 +983,7 @@
       "id": "main-unpushed",
       "severity": "medium",
       "summary": "Local main has not been pushed.",
-      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-16: git rev-list --left-right --count origin/main...main reports 0 31; local main is deb3eed, with Stage 4c merged locally. Its former feature branch and worktree have been removed. Stage 4d is implemented on stage4d-surface through 2550866, integration pending; nothing has been pushed.",
+      "note": "Previously closed after synchronization in Stage 3c. Rechecked 2026-10-16: git rev-list --left-right --count origin/main...main reports 0 31; local main is deb3eed, with Stage 4c merged locally. Its former feature branch and worktree have been removed. Stage 4d is implemented on stage4d-surface through b14b4fb, integration pending; nothing has been pushed.",
       "destination": "repository synchronization",
       "status": "open"
     },

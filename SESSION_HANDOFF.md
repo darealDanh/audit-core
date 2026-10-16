@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-16 · **Branch:** `stage4d-surface`; last implementation `2550866`; Stage 4d integration pending; local `main` remains `deb3eed`, not pushed ·
-**Tests:** 2,060 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
+**Written:** 2026-10-16 · **Branch:** `stage4d-surface`; last implementation `b14b4fb`; Stage 4d integration pending; local `main` remains `deb3eed`, not pushed ·
+**Tests:** 2,081 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -60,7 +60,7 @@ These are not style preferences. Each one has a specific, known cost.
 ## 2. State you are inheriting
 
 - **Branch:** `stage4d-surface` in `.worktrees/stage4d-surface`, implemented
-  through `2550866`; Stage 4d is not merged or pushed. Stage 4c is merged into
+  through `b14b4fb`; Stage 4d is not merged or pushed. Stage 4c is merged into
   local `main` at `deb3eed`; its feature branch and worktree have been removed.
 - **`main` is local-only at this point.** It is at `deb3eed`, 31 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
@@ -69,8 +69,21 @@ These are not style preferences. Each one has a specific, known cost.
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
 - **Image isolation is implemented:** firmware facts now use `(image_id,
-  path/name)` keys. Only target and compatible unscoped triage mirror the
-  unscoped `cba_inventory`; reference triage cannot change target coverage.
+  path/name)` keys. Target triage mirrors inventory with
+  `db.firmware_unit_key(image_id, path)`; legacy-unscoped triage retains raw
+  keys. Reference triage cannot change target coverage. Surface coverage uses
+  the same deterministic image-qualified database keys as inventory, preserving
+  generic coverage joins without schema changes. Preparation/import/check,
+  replacement, and acquisition invalidation isolate overlapping target paths.
+  Worklists/results, surface/unknown component paths, and surface-facing output
+  retain raw paths. ELF/service hints are image-scoped; component hints remain
+  globally keyed by raw path and advisory.
+- **No ownership guessing for old raw rows:** unqualified inventory cannot
+  establish acquired-image agreement. Import refuses an overlapping old raw
+  surface coverage row even with `--replace`, before installation and under
+  the SQL lock. Preparation/acquisition invalidation preserves ambiguous rows;
+  use a fresh run if they obstruct import. No automatic migration or retriage
+  pruning was added.
 - **Existing Stage 4b runs need an upgrade:** rerun `audit.py init --timestamp
   <existing timestamp>` for the same project. The atomic, idempotent firmware
   rebuild preserves facts and maps missing image IDs to `legacy-unscoped`.
@@ -110,7 +123,10 @@ These are not style preferences. Each one has a specific, known cost.
   durable batch receipt should avoid this scan without capping the denominator.
 - **Review gate:** the controller reviewed `deb3eed..4394621` before Task 10.
   Both Important findings were fixed in `2550866` with regression evidence;
-  the scoped re-review was clean. Task 10 Step 2 is satisfied.
+  the scoped re-review was clean. Task 10 Step 2 is satisfied. Final whole-branch
+  review then found a cross-image inventory/coverage collision, fixed in
+  `b14b4fb` with overlapping-target and rollback regressions; scoped re-review
+  was clean. Reopened Task 10 reconciles that implemented ownership contract.
 
 ### Verify the state yourself
 
@@ -122,13 +138,13 @@ make all          # all eight gates
 Measured gate summary (2026-10-16, after Stage 4d documentation reconciliation):
 
 ```
-PASS  tests      2060 passed
+PASS  tests      2081 passed
 PASS  selftest   verbs  27 declared, all dispatchable / tables 24 in schema.sql, 23 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
 PASS  lint       skill lint: clean
 PASS  eol        6 CRLF files, 186 LF
 PASS  manifest   43 features, 12 stages, 21 open items, all paths and verbs resolve
 PASS  install    104 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 4060 statements, 0 allowed
+PASS  coverage   0 unexecuted / 4074 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed
@@ -138,8 +154,9 @@ Variable per-gate durations are omitted; measured counts and summaries are
 preserved. The manifest's 21 open-item records include historical closed records;
 the new record names the retained-orphan candidate scan scaling limitation.
 
-The exact Task 10 focused command from the plan/brief passed **1,147 tests in
-31.34s**, with no corpus skip. It covers schema/migration/acquisition, shared
+The exact reopened Task 10 focused command from the plan/brief passed **1,168
+tests in 35.91s** after the ownership documentation edits, with no corpus skip.
+It covers schema/migration/acquisition, shared
 traversal and triage/corpus, surface prepare/results/gate/CLI, and rendered brief
 contracts. Review regressions pin same-size byte changes, publication races,
 batch ownership/replacement isolation, reverse artifact provenance, honest open
@@ -184,7 +201,7 @@ Stage 4d adds `firmware_tree.py`, `surface.py`, `surface_results.py`, the
 Installed-user prepare/record/check commands, bounded output, state/unknown
 rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
-implementation commit is `2550866`, independent of the documentation commit.
+implementation commit is `b14b4fb`, independent of the documentation commit.
 
 ### Design and implement Stage 4e (`hunt`)
 

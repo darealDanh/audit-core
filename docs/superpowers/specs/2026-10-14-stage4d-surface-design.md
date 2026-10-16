@@ -3,9 +3,10 @@
 **Date:** 2026-10-14
 
 **Status:** Implemented on `stage4d-surface`; integration into local `main` pending.
-Last implementation commit: `2550866`. Documentation and measured verification:
+Last implementation commit: `b14b4fb`. Documentation and measured verification:
 [`../../../SESSION_HANDOFF.md`](../../../SESSION_HANDOFF.md). Historical design
-requirements below are preserved.
+requirements below retain their historical intent; §5.4 records the implemented
+schema-preserving ownership refinement from the final review.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §3.4 and §4
 
@@ -236,7 +237,29 @@ them without always carrying the image in a human-facing reference.
 Stage 4d does not change the `cba_inventory` schema. Stage 4c already guarantees
 that only target or legacy-unscoped triage populates it; explicit image-scoped
 surface work refuses `legacy-unscoped`. The prepared target manifest and the
-target inventory must agree path-for-path before dispatch.
+selected target inventory must agree path-for-path and by kind/size before
+dispatch, after removing that image's database-unit prefix.
+
+**Implemented ownership refinement (`b14b4fb`):** the existing schemas are
+unchanged. `db.firmware_unit_key(image_id, path)` encodes acquired target
+inventory and surface coverage units as
+`/firmware/<image-ID Unicode character count>:<exact image ID>:<exact raw path>`.
+Length framing keeps image/path pairs distinct even with delimiters or Unicode.
+Both tables use the same key, preserving generic coverage joins. Preparation,
+import, replacement, check, generation invalidation, and acquisition invalidation
+operate on selected-image keys, isolating overlapping target paths. Check
+converts them back to raw paths for artifact matching and aggregate counts.
+Manifests, worklists, result decisions, surface/unknown component paths, and
+surface-facing output retain raw paths. Legacy-unscoped inventory stays raw;
+non-surface coverage writes are unchanged.
+
+Old raw inventory cannot establish acquired-image inventory agreement. Import
+refuses overlapping unqualified surface coverage even with `--replace`, both
+before artifact installation and under the publication lock. Invalidation
+preserves ambiguous raw rows rather than guessing ownership; use a fresh run
+when those rows obstruct import. This adds no automatic ownership migration or
+pruning of vanished files. The original per-unit denominator and atomicity
+intent below are unchanged.
 
 Each imported unit writes one `cba_coverage` row with `phase='surface'`:
 
@@ -251,7 +274,8 @@ second copy of agent prose.
 
 `cba_services`, `cba_binfacts`, and `cba_components` are preparation hints.
 They may prioritize work-list batches and enrich their metadata, but they do
-not remove any target manifest unit from the denominator.
+not remove any target manifest unit from the denominator. ELF/service hints are
+image-scoped; component hints remain globally keyed by raw path and advisory.
 
 ## 6. Preparation
 

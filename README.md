@@ -281,6 +281,26 @@ ambiguous, wrong-role, legacy-unscoped, or stale inputs refuse before SQL
 publication. The shared fail-closed scanner excludes symlinks and nonregular
 entries and reports traversal/read failures. A final rescan precedes publication.
 
+Database ownership is image-qualified without changing the schema. Target
+triage writes `cba_inventory.unit`, and surface import writes
+`cba_coverage.unit`, using `db.firmware_unit_key(image_id, path)`:
+`/firmware/<image-ID Unicode character count>:<exact image ID>:<raw path>`.
+The length framing preserves arbitrary image/path text without collisions.
+Inventory agreement, prepare/import/check, replacement, and acquisition
+invalidation select that image's keys, so overlapping target paths remain
+independent. Generic coverage joins still match inventory and decisions.
+`legacy-unscoped` inventory keeps raw keys; unrelated non-surface coverage
+writes are unchanged. Manifests, worklists, results, surface/unknown component
+paths, and surface-facing output retain raw paths. ELF/service hints are
+image-scoped; globally keyed component hints remain advisory.
+
+Old unqualified inventory cannot stand in for an acquired image's inventory.
+An old raw `surface` coverage row has unprovable ownership: import refuses an
+overlapping row even with `--replace`, including a row arriving during artifact
+installation. Invalidation preserves those rows instead of guessing ownership.
+Use a fresh run when old raw surface rows obstruct import; there is no automatic
+ownership migration. Triage still upserts observed paths without pruning.
+
 Worklists live at `RUN/files/surface/<worklist-sha256>/index.json` with sibling
 `batch-0001.json` files. Their canonical UTF-8 JSON excludes host paths and
 timestamps from content identity. Render
