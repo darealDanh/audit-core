@@ -39,6 +39,8 @@ from audit_core import readings as readings_mod  # noqa: E402
 from audit_core import acquire as acquire_mod  # noqa: E402
 from audit_core import triage as triage_mod  # noqa: E402
 from audit_core import firmware_diff as firmware_diff_mod  # noqa: E402
+from audit_core import surface as surface_mod  # noqa: E402
+from audit_core import surface_results as surface_results_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -399,6 +401,68 @@ def cmd_diff(args: argparse.Namespace) -> int:
               f"{result.removed_count} removed, {result.modified_count} modified, "
               f"{result.unchanged_count} unchanged")
         print(result.manifest_path)
+    return 0
+
+
+def cmd_surface(args: argparse.Namespace) -> int:
+    preparing = args.record is None and not args.check
+    if args.replace and args.record is None:
+        error = "--replace requires --record"
+    elif not preparing and args.root is not None:
+        error = "--root is only valid for prepare"
+    elif not preparing and args.batch_size is not None:
+        error = "--batch-size is only valid for prepare"
+    elif args.record is not None and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    elif preparing and args.root is None:
+        error = "--root is required for surface prepare"
+    elif args.batch_size is not None and not 1 <= args.batch_size <= 1000:
+        error = "batch_size must be an integer from 1 to 1000"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    con = _open_db(str(run_dir / "audit.db"))
+    if con is None:
+        return 1
+    try:
+        if preparing:
+            result = surface_mod.prepare(
+                con, run_dir, pathlib.Path(args.root).expanduser(),
+                image_id=args.image_id,
+                batch_size=50 if args.batch_size is None else args.batch_size)
+        elif args.record is not None:
+            result = surface_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace)
+        else:
+            result = surface_mod.check(con, image_id=args.image_id)
+    except (surface_mod.SurfaceError, db_mod.DbError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+    if args.json:
+        print(json.dumps(dataclasses.asdict(result), indent=2))
+    elif preparing:
+        print(f"surface prepared {result.image_id}: {result.unit_count} unit(s), "
+              f"{result.batch_count} batch(es)")
+        print(f"manifest sha256 {result.manifest_sha256}")
+        print(f"worklist sha256 {result.worklist_sha256}")
+        print(result.worklist_path)
+    elif args.record is not None:
+        print(f"surface recorded {result.image_id} {result.batch_path}: "
+              f"{result.unit_count} unit(s), {result.surface_count} surface(s), "
+              f"{result.unknown_count} unknown(s)")
+        print(result.artifact_path)
+    else:
+        status = "complete" if result.complete else "pending"
+        print(f"surface {result.image_id}: {result.manifest_units} manifest unit(s), "
+              f"{result.analyzed} analyzed, {result.not_audited} not audited, "
+              f"{result.surfaces} surface(s), {result.open_unknowns} open unknown(s), "
+              f"{result.resolved_unknowns} resolved unknown(s), {status}")
     return 0
 
 
@@ -1015,6 +1079,7 @@ HANDLERS = {
     "acquire": cmd_acquire,
     "triage": cmd_triage,
     "diff": cmd_diff,
+    "surface": cmd_surface,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1100,6 +1165,21 @@ def build_parser() -> argparse.ArgumentParser:
                      help="select an explicit pair; requires --target-image-id")
     dif.add_argument("--replace", action="store_true")
     dif.add_argument("--json", action="store_true")
+    srf = sub.add_parser(
+        "surface", help="prepare, record, or check firmware dispatch surface mapping")
+    srf.add_argument("--run", required=True, metavar="RUN_DIR")
+    srf.add_argument("--root", default=None, metavar="CARVED_ROOTFS",
+                     help="required for prepare (the default mode)")
+    srf.add_argument("--image-id", default=None, metavar="ID",
+                     help="select a target for prepare or check")
+    srf.add_argument("--batch-size", type=int, default=None, metavar="N",
+                     help="prepare units per batch, 1..1000 (default: 50)")
+    srf_mode = srf.add_mutually_exclusive_group()
+    srf_mode.add_argument("--record", metavar="RESULT_JSON")
+    srf_mode.add_argument("--check", action="store_true")
+    srf.add_argument("--replace", action="store_true",
+                     help="replace assigned batch results with --record")
+    srf.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
