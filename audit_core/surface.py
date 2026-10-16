@@ -313,7 +313,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
 
 
 def _checked_worklist(con: sqlite3.Connection, run: Mapping[str, object],
-                      manifest: list[dict[str, object]]) -> pathlib.Path:
+                      manifest: list[dict[str, object]]) -> tuple[pathlib.Path, tuple[str, ...]]:
     """Verify every prepared assignment, including batches with no stored claims."""
     # Local import avoids the parser's SurfaceError/surface helper import cycle.
     from audit_core import surface_results as results
@@ -337,48 +337,85 @@ def _checked_worklist(con: sqlite3.Connection, run: Mapping[str, object],
         assigned.extend(units)
     if sorted(assigned) != [unit["path"] for unit in manifest]:
         raise SurfaceError("Prepared assignments must cover each current manifest unit exactly once")
-    return run_dir
+    return run_dir, tuple(descriptor["path"] for descriptor in descriptors)
 
 
-def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path,
-                       coverage: Mapping[str, Mapping[str, object]],
-                       surfaces: list[dict[str, object]], unknowns: list[dict[str, object]]) -> None:
-    """Bind both directions of every referenced canonical result to current SQL."""
+def _matching_artifact(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapping[str, object],
+                       batches: tuple[str, ...], artifact_path: str, digest: str,
+                       coverage: Mapping[str, Mapping[str, object]], surfaces: list[dict[str, object]],
+                       unknowns: list[dict[str, object]]) -> str:
+    """Return a batch only when its complete canonical result matches current SQL."""
     from audit_core import surface_results as results
 
+    path = pathlib.Path(artifact_path)
+    expected = run_dir / "artifacts/surface" / digest / "result.json"
+    if path.absolute() != expected.absolute():
+        raise SurfaceError("Surface artifact provenance is outside the current run generation")
+    for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+        if directory.is_symlink():
+            raise SurfaceError(f"Surface artifact directory is a symlink: {directory}")
+    content, payload = results._read_json(path, bounded=True)
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise SurfaceError(f"Surface artifact SHA-256 differs: {path}")
+    result = results._parse(payload)
+    if (result.image_id != run["image_id"] or result.manifest_sha256 != run["manifest_sha256"] or
+            result.worklist_sha256 != run["worklist_sha256"] or result.batch_path not in batches):
+        raise SurfaceError("Surface artifact does not describe a current prepared target batch")
+    validated = results.validate(con, run_dir, result)
+    if results.canonical_bytes(validated) != content:
+        raise SurfaceError(f"Surface result artifact is not canonical: {path}")
+    assigned = set(validated.assigned_units)
+    for table_rows, field in ((surfaces, "surfaces"), (unknowns, "unknowns")):
+        actual = [{key: value for key, value in row.items() if key != "recorded_at"}
+                  for row in table_rows if row["component_path"] in assigned]
+        expected_rows = [dataclasses.asdict(row) | {"image_id": validated.result.image_id,
+            "artifact_path": artifact_path, "artifact_sha256": digest}
+            for decision in validated.result.decisions for row in getattr(decision, field)]
+        if sorted(actual, key=repr) != sorted(expected_rows, key=repr):
+            raise SurfaceError(f"Stored {field} differ from their bound surface artifact")
+    for decision in validated.result.decisions:
+        stored = coverage[decision.path]
+        reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
+        stored_reason = stored["reason"]
+        if decision.state == "not_audited" and isinstance(stored_reason, str):
+            stored_reason = stored_reason.strip()
+        if stored["state"] != decision.state or stored_reason != reason:
+            raise SurfaceError(f"Stored coverage differs from its bound artifact: {decision.path}")
+    return result.batch_path
+
+
+def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapping[str, object],
+                       batches: tuple[str, ...], coverage: Mapping[str, Mapping[str, object]],
+                       surfaces: list[dict[str, object]], unknowns: list[dict[str, object]]) -> None:
+    """Require evidence for every batch while refusing any damaged referenced result."""
     artifacts = {(str(row["artifact_path"]), str(row["artifact_sha256"]))
                  for row in surfaces + unknowns}
+    matched = set()
     for artifact_path, digest in sorted(artifacts):
-        path = pathlib.Path(artifact_path)
-        expected = run_dir / "artifacts/surface" / digest / "result.json"
-        if path.absolute() != expected.absolute():
-            raise SurfaceError("Surface artifact provenance is outside the current run generation")
-        for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
-            if directory.is_symlink():
-                raise SurfaceError(f"Surface artifact directory is a symlink: {directory}")
-        content, payload = results._read_json(path, bounded=True)
-        if hashlib.sha256(content).hexdigest() != digest:
-            raise SurfaceError(f"Surface artifact SHA-256 differs: {path}")
-        validated = results.validate(con, run_dir, results._parse(payload))
-        if results.canonical_bytes(validated) != content:
-            raise SurfaceError(f"Surface result artifact is not canonical: {path}")
-        assigned = set(validated.assigned_units)
-        for table_rows, field in ((surfaces, "surfaces"), (unknowns, "unknowns")):
-            actual = [{key: value for key, value in row.items() if key != "recorded_at"}
-                      for row in table_rows if row["component_path"] in assigned]
-            expected_rows = [dataclasses.asdict(row) | {"image_id": validated.result.image_id,
-                "artifact_path": artifact_path, "artifact_sha256": digest}
-                for decision in validated.result.decisions for row in getattr(decision, field)]
-            if sorted(actual, key=repr) != sorted(expected_rows, key=repr):
-                raise SurfaceError(f"Stored {field} differ from their bound surface artifact")
-        for decision in validated.result.decisions:
-            stored = coverage[decision.path]
-            reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
-            stored_reason = stored["reason"]
-            if decision.state == "not_audited" and isinstance(stored_reason, str):
-                stored_reason = stored_reason.strip()
-            if stored["state"] != decision.state or stored_reason != reason:
-                raise SurfaceError(f"Stored coverage differs from its bound artifact: {decision.path}")
+        matched.add(_matching_artifact(con, run_dir, run, batches, artifact_path, digest,
+                                       coverage, surfaces, unknowns))
+    # Claim-free batches have no SQL artifact pointer. Discover their installed
+    # evidence directly; unrelated and stale orphan files are not current claims.
+    try:
+        candidates = sorted((run_dir / "artifacts/surface").iterdir())
+    except FileNotFoundError:
+        candidates = []
+    for candidate in candidates:
+        if re.fullmatch(r"[0-9a-f]{64}", candidate.name) is None:
+            continue
+        artifact_path, digest = str(candidate / "result.json"), candidate.name
+        if (artifact_path, digest) in artifacts:
+            continue
+        try:
+            matched.add(_matching_artifact(con, run_dir, run, batches, artifact_path, digest,
+                                           coverage, surfaces, unknowns))
+        except SurfaceError as exc:
+            # Database read failures are operational failures, never stale evidence.
+            if isinstance(exc.__cause__, sqlite3.Error):
+                raise
+    missing = set(batches) - matched
+    if missing:
+        raise SurfaceError(f"No matching current surface result artifact for batch {sorted(missing)[0]}")
 
 
 def _check_inputs(con: sqlite3.Connection, image_id: str | None
@@ -396,7 +433,7 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None
     _inventory_agreement(con, manifest)
     if run["manifest_sha256"] != manifest_sha256(manifest):
         raise SurfaceError("Current and prepared surface manifest provenance differs")
-    run_dir = _checked_worklist(con, run, manifest)
+    run_dir, batches = _checked_worklist(con, run, manifest)
     paths = {str(unit["path"]) for unit in manifest}
     coverage = {str(row["unit"]): row for row in _query(con,
         "SELECT * FROM cba_coverage WHERE phase='surface'") if row["unit"] in paths}
@@ -436,7 +473,7 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None
                               ("auth_required", "auth"), ("reachability", "reachability")):
             if row[column] == "unknown" and (row["surface_id"], field) not in open_fields:
                 raise SurfaceError(f"Unknown {field} requires a matching open unknown for {row['surface_id']}")
-    _checked_artifacts(con, run_dir, coverage, surfaces, unknowns)
+    _checked_artifacts(con, run_dir, run, batches, coverage, surfaces, unknowns)
     return SurfaceCheck(selected, len(manifest),
         sum(row["state"] == "analyzed" for row in coverage.values()),
         sum(row["state"] == "not_audited" for row in coverage.values()), len(surfaces),

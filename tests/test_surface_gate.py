@@ -48,7 +48,7 @@ def question(path, identifier, surface_id, status="open"):
         "evidence": "bind selects LAN interface" if status == "resolved" else None}
 
 
-def import_batches(con, run, summary, decisions):
+def import_batches(con, run, summary, decisions, *, replace=False):
     index = json.loads(pathlib.Path(summary.worklist_path).read_bytes())
     artifacts = []
     for descriptor in index["batches"]:
@@ -59,7 +59,7 @@ def import_batches(con, run, summary, decisions):
             "decisions": [decisions[unit["path"]] for unit in batch["units"]]}
         result = run / "result.json"
         result.write_text(json.dumps(payload), encoding="utf-8")
-        artifacts.append(pathlib.Path(surface_results.record(con, run, result).artifact_path))
+        artifacts.append(pathlib.Path(surface_results.record(con, run, result, replace=replace).artifact_path))
     return artifacts
 
 
@@ -79,14 +79,25 @@ def complete_run(tmp_path):
     con.close()
 
 
+@pytest.fixture
+def claim_free_run(tmp_path):
+    con, run, root = make_run(tmp_path, ["unit-000", "unit-001"])
+    summary = surface.prepare(con, run, root, batch_size=1)
+    decisions = {path: {"path": path, "state": "analyzed", "reason": "No dispatcher in this file.",
+                       "surfaces": [], "unknowns": []} for path in ["unit-000", "unit-001"]}
+    artifacts = import_batches(con, run, summary, decisions)
+    yield con, run, summary, artifacts, decisions
+    con.close()
+
+
 def snapshot(con):
     return {table: sorted((tuple(row) for row in con.execute(f"SELECT * FROM {table}")), key=repr)
             for table in db.TABLE_SPECS}
 
 
-def refuses_unchanged(con, **kwargs):
+def refuses_unchanged(con, *, match=None, **kwargs):
     before = snapshot(con)
-    with pytest.raises(surface.SurfaceError):
+    with pytest.raises(surface.SurfaceError, match=match):
         surface.check(con, **kwargs)
     assert snapshot(con) == before
     assert not con.in_transaction
@@ -215,7 +226,7 @@ def test_deleting_the_matching_open_question_refuses(complete_run):
 
 
 @pytest.mark.parametrize("damage", ["missing", "bytes", "hash", "path", "symlink", "directory-link",
-    "valid-row-tamper", "unknown-row-tamper", "missing-surface", "coverage-tamper"])
+    "valid-row-tamper", "unknown-row-tamper", "missing-unknown", "coverage-tamper"])
 def test_artifact_integrity_and_sql_claim_binding_refuse(complete_run, damage):
     con, run, _, artifacts, _ = complete_run
     artifact = artifacts[0]
@@ -239,12 +250,14 @@ def test_artifact_integrity_and_sql_claim_binding_refuse(complete_run, damage):
         con.execute("UPDATE cba_firmware_surfaces SET handler='different' WHERE surface_id='http'")
     elif damage == "unknown-row-tamper":
         con.execute("UPDATE cba_unknowns SET question='Another valid question?' WHERE id='http-posture'")
-    elif damage == "missing-surface":
-        con.execute("DELETE FROM cba_firmware_surfaces WHERE surface_id='http'")
+    elif damage == "missing-unknown":
+        # Keep linkage and known state valid: only reverse artifact matching can
+        # detect the deleted resolved question while its surface remains.
+        con.execute("DELETE FROM cba_unknowns WHERE id='http-posture'")
     else:
         con.execute("UPDATE cba_coverage SET reason='Different unsupported explanation' WHERE unit='a/config.conf'")
     con.commit()
-    refuses_unchanged(con)
+    refuses_unchanged(con, match="Stored unknowns differ" if damage == "missing-unknown" else None)
 
 
 @pytest.mark.parametrize("damage", ["index-missing", "index-bytes", "batch-missing", "batch-bytes"])
@@ -328,10 +341,12 @@ def test_full_201_unit_denominator_is_counted_and_last_gap_refuses(tmp_path):
     # Breaks: using bounded db.rows or accepting a stored complete status on recheck.
     con, run, root = make_run(tmp_path, [f"unit-{n:03}" for n in range(201)])
     try:
-        surface.prepare(con, run, root)
-        for n in range(201):
-            db.put(con, "cba_coverage", {"unit": f"unit-{n:03}", "phase": "surface",
-                "state": "analyzed", "reason": "No dispatch surface in this file."})
+        summary = surface.prepare(con, run, root)
+        decisions = {f"unit-{n:03}": {"path": f"unit-{n:03}", "state": "analyzed",
+            "reason": "No dispatch surface in this file.", "surfaces": [], "unknowns": []}
+            for n in range(201)}
+        artifacts = import_batches(con, run, summary, decisions)
+        assert len(artifacts) == 5
         assert dataclasses.asdict(surface.check(con)) == {"image_id": "target", "manifest_units": 201,
             "analyzed": 201, "not_audited": 0, "surfaces": 0, "open_unknowns": 0,
             "resolved_unknowns": 0, "complete": True}
@@ -340,6 +355,144 @@ def test_full_201_unit_denominator_is_counted_and_last_gap_refuses(tmp_path):
         refuses_unchanged(con)
     finally:
         con.close()
+
+
+@pytest.mark.parametrize("remove_artifact", [False, True])
+@pytest.mark.parametrize("status", ["pending", "complete"])
+def test_deleting_a_batchs_final_claims_cannot_leave_certified_coverage(complete_run, remove_artifact, status):
+    # Breaks: discovering results only through surviving surface/unknown pointers.
+    con, _, _, artifacts, _ = complete_run
+    con.execute("UPDATE cba_surface_runs SET status=?,completed_at='retained'", (status,))
+    con.execute("DELETE FROM cba_unknowns WHERE id='http-posture'")
+    con.execute("DELETE FROM cba_firmware_surfaces WHERE surface_id='http'")
+    con.commit()
+    if remove_artifact:
+        artifacts[0].unlink()
+    assert tuple(con.execute("SELECT state,reason FROM cba_coverage WHERE unit='b/http'").fetchone()) == ("analyzed", None)
+    refuses_unchanged(con, match="No matching current surface result artifact for batch batch-0001.json")
+
+
+def test_truly_claim_free_batches_have_complete_artifact_backed_decisions(claim_free_run):
+    con = claim_free_run[0]
+    assert dataclasses.asdict(surface.check(con)) == {"image_id": "target", "manifest_units": 2,
+        "analyzed": 2, "not_audited": 0, "surfaces": 0, "open_unknowns": 0,
+        "resolved_unknowns": 0, "complete": True}
+
+
+def test_claim_free_batch_still_requires_its_result_artifact(claim_free_run):
+    claim_free_run[3][0].unlink()
+    refuses_unchanged(claim_free_run[0])
+
+
+def test_coverage_without_any_result_directory_cannot_complete(tmp_path):
+    con, run, root = make_run(tmp_path, ["unit-000"])
+    try:
+        surface.prepare(con, run, root)
+        db.put(con, "cba_coverage", {"unit": "unit-000", "phase": "surface", "state": "analyzed",
+                                  "reason": "No dispatch surface in this file."})
+        assert not (run / "artifacts/surface").exists()
+        refuses_unchanged(con)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("orphan", ["different-image", "old-worklist", "blank-explanation", "old-coverage",
+    "malformed", "wrong-hash", "oversized", "symlink", "noncontent-addressed"])
+def test_unrelated_or_nonmatching_orphan_does_not_fail_a_complete_run(claim_free_run, orphan):
+    con, run, _, artifacts, _ = claim_free_run
+    payload = json.loads(artifacts[0].read_bytes())
+    if orphan == "different-image":
+        payload["image_id"] = "reference"
+    elif orphan == "old-worklist":
+        payload["worklist_sha256"] = "b" * 64
+    elif orphan == "blank-explanation":
+        payload["decisions"][0]["reason"] = " \t"
+    elif orphan == "old-coverage":
+        payload["decisions"][0]["reason"] = "An outdated explanation."
+    else:
+        payload["decisions"][0]["reason"] = "An orphan explanation."
+    content = (json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    if orphan == "malformed":
+        content = b"{"
+    elif orphan == "oversized":
+        content = b" " * (8 * 1024 * 1024 + 1)
+    name = "not-a-content-address" if orphan == "noncontent-addressed" else hashlib.sha256(content).hexdigest()
+    if orphan == "wrong-hash":
+        name = "f" * 64
+    destination = run / "artifacts/surface" / name
+    destination.mkdir()
+    artifact = destination / "result.json"
+    if orphan == "symlink":
+        artifact.symlink_to(artifacts[0])
+    else:
+        artifact.write_bytes(content)
+    assert dataclasses.asdict(surface.check(con)) == {"image_id": "target", "manifest_units": 2,
+        "analyzed": 2, "not_audited": 0, "surfaces": 0, "open_unknowns": 0,
+        "resolved_unknowns": 0, "complete": True}
+
+
+@pytest.mark.parametrize("remove_current", [False, True])
+def test_claim_free_replacement_requires_a_matching_current_candidate(claim_free_run, remove_current):
+    con, run, summary, old_artifacts, decisions = claim_free_run
+    changed = copy.deepcopy(decisions)
+    changed["unit-000"]["reason"] = "Revised analysis proves no dispatcher."
+    current = import_batches(con, run, summary, changed, replace=True)
+    assert current[0] != old_artifacts[0]
+    if remove_current:
+        current[0].unlink()
+        refuses_unchanged(con)
+    else:
+        assert dataclasses.asdict(surface.check(con)) == {"image_id": "target", "manifest_units": 2,
+            "analyzed": 2, "not_audited": 0, "surfaces": 0, "open_unknowns": 0,
+            "resolved_unknowns": 0, "complete": True}
+
+
+def test_multiple_candidates_can_match_normalized_skip_decisions(claim_free_run):
+    con, run, summary, _, decisions = claim_free_run
+    changed = copy.deepcopy(decisions)
+    changed["unit-000"].update(state="not_audited", reason="generated")
+    first = import_batches(con, run, summary, changed, replace=True)
+    changed["unit-000"]["reason"] = " \tgenerated\n"
+    second = import_batches(con, run, summary, changed, replace=True)
+    assert first[0] != second[0]
+    want = {"image_id": "target", "manifest_units": 2, "analyzed": 1, "not_audited": 1,
+            "surfaces": 0, "open_unknowns": 0, "resolved_unknowns": 0, "complete": True}
+    assert dataclasses.asdict(surface.check(con)) == want
+    timestamp = con.execute("SELECT completed_at FROM cba_surface_runs").fetchone()[0]
+    second[0].unlink()
+    assert dataclasses.asdict(surface.check(con)) == want
+    assert con.execute("SELECT completed_at FROM cba_surface_runs").fetchone()[0] == timestamp
+
+
+def test_candidate_sql_failure_is_named_and_preserves_the_run(claim_free_run):
+    con, run, *_ = claim_free_run
+    before = snapshot(con)
+    class CandidateReadFailure(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if sql.startswith("SELECT surface_id,component_path FROM cba_firmware_surfaces"):
+                raise sqlite3.OperationalError("injected candidate SQL read")
+            return super().execute(sql, *args, **kwargs)
+    failing = sqlite3.connect(run / "audit.db", factory=CandidateReadFailure)
+    try:
+        with pytest.raises(surface.SurfaceError, match="injected candidate SQL read"):
+            surface.check(failing)
+        assert snapshot(con) == before and not failing.in_transaction
+    finally:
+        failing.close()
+
+
+def test_candidate_directory_read_failure_is_named_and_preserves_the_run(claim_free_run, monkeypatch):
+    con, run, *_ = claim_free_run
+    original = pathlib.Path.iterdir
+    def denied(path):
+        if path == run / "artifacts/surface":
+            raise PermissionError("injected candidate directory read")
+        return original(path)
+    monkeypatch.setattr(pathlib.Path, "iterdir", denied)
+    before = snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="injected candidate directory read"):
+        surface.check(con)
+    assert snapshot(con) == before and not con.in_transaction
 
 
 def test_explicit_target_ignores_reference_claims_and_other_phases(complete_run):
