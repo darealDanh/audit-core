@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-14
 
-**Status:** Implemented on `stage4d-surface`; integration into local `main` pending.
+**Status:** Implemented and merged into local `main` at `6eba6d6`; not pushed.
 Last implementation commit: `b14b4fb`. Documentation and measured verification:
 [`../../../SESSION_HANDOFF.md`](../../../SESSION_HANDOFF.md). Historical design
 requirements below retain their historical intent; §5.4 records the implemented

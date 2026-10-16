@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-16 · **Last implementation:** `b14b4fb` on `stage4d-surface`; Stage 4d implemented, integration pending; local `main` remains `deb3eed`, not pushed · **Tests:** 2,081 ·
+**Last updated:** 2026-10-16 · **Last implementation:** `b14b4fb`; Stage 4d merge point on local `main`: `6eba6d6`, not pushed · **Tests:** 2,081 ·
 **Gates:** 8/8 green (`make all`; `mutate` remains opt-in) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,11 +21,10 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4c are merged to local `main`.** Stage 4c
-(`diff`) was fast-forwarded into local `main`; its feature worktree and branch
-have been removed. Stage 4d (`surface`) is implemented on `stage4d-surface`
-in `.worktrees/stage4d-surface`, through `b14b4fb`; it has not been merged or
-pushed. The next feature slice is Stage 4e (`hunt`); Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4d are merged to local `main`.** Stage 4d
+(`surface`) was fast-forwarded into local `main` at `6eba6d6`; its feature
+worktree and branch have been removed. Nothing has been pushed. The next
+feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -38,7 +37,7 @@ pushed. The next feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
-| 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | branch `stage4d-surface` | **implemented**, integration pending; no audit run |
+| 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining six phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -411,11 +410,12 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** Local `main` is at `deb3eed`, 31 commits
+7. **Local changes are not pushed.** Local `main` includes the Stage 4d merge
+   and post-merge documentation reconciliation, 50 commits
    ahead of `origin/main` (checked 2026-10-16; `git rev-list --left-right
-   --count origin/main...main` reports `0 31`). Stage 4c is merged locally;
-   its former feature worktree and branch have been removed. Nothing has been
-   pushed. Stage 4d remains on `stage4d-surface`, unmerged and unpushed.
+   --count origin/main...main` reports `0 50`). Stages 4c and 4d are merged
+   locally; their former feature worktrees and branches have been removed.
+   Nothing has been pushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 

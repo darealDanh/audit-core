@@ -1,6 +1,6 @@
 # Session handoff
 
-**Written:** 2026-10-16 · **Branch:** `stage4d-surface`; last implementation `b14b4fb`; Stage 4d integration pending; local `main` remains `deb3eed`, not pushed ·
+**Written:** 2026-10-16 · **Branch:** `main`; Stage 4d merge point `6eba6d6`; last implementation `b14b4fb`; not pushed ·
 **Tests:** 2,081 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -59,12 +59,13 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4d-surface` in `.worktrees/stage4d-surface`, implemented
-  through `b14b4fb`; Stage 4d is not merged or pushed. Stage 4c is merged into
-  local `main` at `deb3eed`; its feature branch and worktree have been removed.
-- **`main` is local-only at this point.** It is at `deb3eed`, 31 commits ahead
+- **Branch:** `main`; Stage 4d's merge point is `6eba6d6` and its last implementation is `b14b4fb`.
+  Stage 4d was fast-forwarded locally and its feature branch and worktree were
+  removed. Nothing has been pushed.
+- **`main` is local-only at this point.** It includes the Stage 4d merge and
+  this post-merge reconciliation, 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
-  origin/main...main` reports `0 31`). Nothing has been pushed.
+  origin/main...main` reports `0 50`). Nothing has been pushed.
 - **Stages 4a–4d are firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
@@ -131,7 +132,7 @@ These are not style preferences. Each one has a specific, known cost.
 ### Verify the state yourself
 
 ```bash
-cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4d-surface
+cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit
 make all          # all eight gates
 ```
 
@@ -205,8 +206,8 @@ implementation commit is `b14b4fb`, independent of the documentation commit.
 
 ### Design and implement Stage 4e (`hunt`)
 
-Stage 4d is implemented and reviewed on its feature branch; integration into
-local `main` is pending. Stage 4e is next and must consume verified surface
+Stage 4d is implemented, reviewed, and merged into local `main`. Stage 4e is
+next and must consume verified surface
 evidence and unknowns with separate, non-transferable L-sink and L-dark budgets.
 It inherits image scoping, the complete target denominator, triage's upsert-only
 snapshot limitation, and the retained-orphan candidate scan performance limit.
@@ -252,7 +253,7 @@ running the gate — that is the point of them; do not "fix" them.
 
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff` into local `main`; Stage 4d
-implements `surface` on its feature branch. These five phases were built at
+shipped `surface` into local `main`. These five phases were built at
 zero audit cost. The remaining six
 firmware phases do not exist yet, nor does the separate firmware skill tree.
 
