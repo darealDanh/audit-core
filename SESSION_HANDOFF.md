@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-14 · **Branch:** `stage4d-surface` at `deb3eed` (same as local `main`); Stage 4c merged locally, not pushed ·
-**Tests:** 1,209 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
+**Written:** 2026-10-16 · **Branch:** `stage4d-surface`; last implementation `2550866`; Stage 4d integration pending; local `main` remains `deb3eed`, not pushed ·
+**Tests:** 2,060 · **Gates:** 8/8 green (`make all`; mutation remains opt-in)
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,12 +59,13 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4d-surface` at `deb3eed`. Stage 4c is merged into local
-  `main` at this same head; its feature branch and worktree have been removed.
+- **Branch:** `stage4d-surface` in `.worktrees/stage4d-surface`, implemented
+  through `2550866`; Stage 4d is not merged or pushed. Stage 4c is merged into
+  local `main` at `deb3eed`; its feature branch and worktree have been removed.
 - **`main` is local-only at this point.** It is at `deb3eed`, 31 commits ahead
-  of `origin/main` (checked 2026-10-14; `git rev-list --left-right --count
+  of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reports `0 31`). Nothing has been pushed.
-- **Stage 4c is firmware-audit behavior on the shared spine, not a separate
+- **Stages 4a–4d are firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
 - **Image isolation is implemented:** firmware facts now use `(image_id,
@@ -88,6 +89,28 @@ These are not style preferences. Each one has a specific, known cost.
   version clears only that image's
   manifest in the same transaction; diff then requires retriage. Read-side
   SQLite errors in diff reach the CLI as named errors with exit 1.
+- **Surface preparation/import/check are implemented:** all target manifest
+  units remain in scope; live-root path/kind/size/SHA-256 and target inventory
+  agreement precede preparation. Canonical worklist/batch and result hashes
+  bind every imported decision. Three tables retain runs, surfaces and unknowns;
+  every unknown state needs a settling question. Honest open unknowns pass;
+  missing decisions, budget skips and broken provenance fail. Only check marks
+  complete, after validating every batch artifact, including claim-free batches.
+  Import resets pending; replacement is batch-owned; changed target acquisition
+  or prepared generation invalidates dependent surface state atomically.
+  Failed publication preserves prior SQL and may leave orphan artifacts.
+- **Surface error behavior:** expected SQL errors print exactly
+  `surface: database operation failed`; other expected diagnostics escape
+  controls/non-ASCII and are capped at 512 ASCII characters plus a newline.
+  Unexpected programming exceptions propagate after rollback. Human/JSON
+  output contains bounded summaries and paths, never all units or evidence.
+- **Accepted performance limitation:** completion discovers claim-free batch
+  evidence by scanning retained orphan result candidates. Each result is
+  individually bounded, but runtime grows with retained generations. A future
+  durable batch receipt should avoid this scan without capping the denominator.
+- **Review gate:** the controller reviewed `deb3eed..4394621` before Task 10.
+  Both Important findings were fixed in `2550866` with regression evidence;
+  the scoped re-review was clean. Task 10 Step 2 is satisfied.
 
 ### Verify the state yourself
 
@@ -96,28 +119,33 @@ cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4d-su
 make all          # all eight gates
 ```
 
-Measured gate summary (2026-10-14, after documentation reconciliation):
+Measured gate summary (2026-10-16, after Stage 4d documentation reconciliation):
 
 ```
-PASS  tests      1209 passed
-PASS  selftest   verbs  26 declared, all dispatchable / tables 21 in schema.sql, 20 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
+PASS  tests      2060 passed
+PASS  selftest   verbs  27 declared, all dispatchable / tables 24 in schema.sql, 23 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
 PASS  lint       skill lint: clean
-PASS  eol        6 CRLF files, 175 LF
-PASS  manifest   42 features, 11 stages, 20 open items, all paths and verbs resolve
-PASS  install    100 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 3170 statements, 0 allowed
+PASS  eol        6 CRLF files, 186 LF
+PASS  manifest   43 features, 12 stages, 21 open items, all paths and verbs resolve
+PASS  install    104 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 4060 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed
 ```
 
-The real output also prints a per-gate duration; the block omits variable times.
-The residual-fix focused suite passes 133 tests; the full harness includes the
-available GL.iNet corpus check. The final review regressions cover failed
-fresh/retriage writes, acquisition replacement, unreadable traversal,
-classification and scan-iteration errors with readable siblings, and read-side
-SQLite errors. Fresh failures leave all four triage publication tables empty;
-failed retriage preserves every prior row, including timestamps.
+Variable per-gate durations are omitted; measured counts and summaries are
+preserved. The manifest's 21 open-item records include historical closed records;
+the new record names the retained-orphan candidate scan scaling limitation.
+
+The exact Task 10 focused command from the plan/brief passed **1,147 tests in
+31.34s**, with no corpus skip. It covers schema/migration/acquisition, shared
+traversal and triage/corpus, surface prepare/results/gate/CLI, and rendered brief
+contracts. Review regressions pin same-size byte changes, publication races,
+batch ownership/replacement isolation, reverse artifact provenance, honest open
+unknowns, rollback and unexpected exception identity, and bounded diagnostics.
+The full harness includes the available GL.iNet consistency check. No paid
+audit, milestone rerun, new indicator snapshot, or mutation sweep ran.
 
 If `bench` says SKIP, the measurement corpus is not on this machine. That is
 expected on any machine but the operator's, and is not a failure.
@@ -138,12 +166,12 @@ already exists.
 
 This matches spec §6.1, which runs the benchmark at milestones only and uses
 **deterministic leading indicators** in between — indicators, now built in Stage 3b
-(`audit.py indicators`). Stage 4c only rescored the existing read-only
+(`audit.py indicators`). Stage 4d only rescored the existing read-only
 benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4b are merged to local `main`. Stage 4c adds
+Stages 0 through 3c and Stages 4a-4c are merged to local `main`. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -151,20 +179,26 @@ terminal result stays bounded. The agent brief requires evidence for the
 vendor's fix and a target-only sibling search; changed bytes are not findings.
 The read-only GL.iNet check proves inventory/manifest/ELF/service consistency.
 
-### Design and implement Stage 4d (`surface`)
+Stage 4d adds `firmware_tree.py`, `surface.py`, `surface_results.py`, the
+`surface` verb, three additive tables, and `references/briefs/surface-brief.md`.
+Installed-user prepare/record/check commands, bounded output, state/unknown
+rules, and provenance/invalidation contracts are documented in `README.md`;
+`ARCHITECTURE.md` describes their implementation boundaries. The real last
+implementation commit is `2550866`, independent of the documentation commit.
 
-Stage 4c is integrated into local `main`; its whole-branch review fix wave and
-residual classification fix are applied. Stage 4d design/implementation is
-next. It inherits the need to preserve image scoping and the target-only
-coverage rule, plus triage's upsert-only snapshot limitation. The asus golden
-remains a prerequisite for the later Stage 4 milestone gate.
+### Design and implement Stage 4e (`hunt`)
 
-Stage 4d is dispatch/handler mapping, authentication boundaries, device state,
-and reachability evidence. It inherits image scoping, the target-only coverage
-rule, and triage's upsert-only snapshot limitation. Stage 4c does not fetch,
-carve, infer ports, run emulation, inspect the kernel/bootloader, or create the
-separate `firmware-audit` tree. Its semantic agent quality has not been measured
-by an audit; benchmark gates remain deferred.
+Stage 4d is implemented and reviewed on its feature branch; integration into
+local `main` is pending. Stage 4e is next and must consume verified surface
+evidence and unknowns with separate, non-transferable L-sink and L-dark budgets.
+It inherits image scoping, the complete target denominator, triage's upsert-only
+snapshot limitation, and the retained-orphan candidate scan performance limit.
+The asus golden remains a prerequisite for the later Stage 4 milestone gate.
+
+Stage 4d does not fetch/carve/modify/execute firmware, infer listeners, hunt,
+assign severity, emulate, inspect kernels/bootloaders, or create the separate
+`firmware-audit` tree. Its semantic agent quality has not been measured by an
+audit; paid benchmark gates remain deferred.
 
 ### Decide the remaining prose-string mutation survivors
 
@@ -200,8 +234,9 @@ running the gate — that is the point of them; do not "fix" them.
 ### What exists of Stage 4
 
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
-`acquire` and `triage`; Stage 4c implements `diff` on its feature branch. These
-four phases were built at zero audit cost. The remaining seven
+`acquire` and `triage`; Stage 4c shipped `diff` into local `main`; Stage 4d
+implements `surface` on its feature branch. These five phases were built at
+zero audit cost. The remaining six
 firmware phases do not exist yet, nor does the separate firmware skill tree.
 
 ### Stage 4 milestone work

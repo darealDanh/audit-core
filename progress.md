@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-14 · **HEAD:** `deb3eed` on `stage4d-surface` (same as local `main`); Stage 4c merged locally, not pushed · **Tests:** 1,209 ·
+**Last updated:** 2026-10-16 · **Last implementation:** `2550866` on `stage4d-surface`; Stage 4d implemented, integration pending; local `main` remains `deb3eed`, not pushed · **Tests:** 2,060 ·
 **Gates:** 8/8 green (`make all`; `mutate` is opt-in and not counted) · **Benchmark gates: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -23,8 +23,9 @@ benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a-4c are merged to local `main`.** Stage 4c
 (`diff`) was fast-forwarded into local `main`; its feature worktree and branch
-have been removed. Nothing has been pushed. The next feature slice is Stage 4d
-(`surface`); Stage 5 has not started.
+have been removed. Stage 4d (`surface`) is implemented on `stage4d-surface`
+in `.worktrees/stage4d-surface`, through `2550866`; it has not been merged or
+pushed. The next feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -37,7 +38,8 @@ have been removed. Nothing has been pushed. The next feature slice is Stage 4d
 | 3c | Core hardening: coverage gate and mutation harness | 41 | branch `stage3c/core-hardening` | **shipped** - gate *none - no audit run* |
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
-| 4 | `firmware-audit` + monorepo (remaining seven phases) | — | — | planned |
+| 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `2550866` | branch `stage4d-surface` | **implemented**, integration pending; no audit run |
+| 4 | `firmware-audit` + monorepo (remaining six phases) | — | — | planned |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -57,7 +59,7 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-Read-only scoring of the existing audit remains unchanged through Stage 4c.
+Read-only scoring of the existing audit remains unchanged through Stage 4d.
 This does not measure the effect of new behavior: the Stage 2/3 audit reruns
 remain deferred, so no recall, precision, or audit-cost improvement is claimed.
 
@@ -283,14 +285,16 @@ fix using both builds and search the target for surviving sibling sites,
 reusing observations, patterns, and recorded sweeps. It does not turn binary
 churn into findings or start general surface/hunt/emulation work.
 
-The residual-fix focused suite passes 133 tests. The full harness, including the
-read-only GL.iNet manifest, ELF-hash, and service consistency proof, measures
-1,209 tests, 26 verbs, and 21 schema tables (20 under contract). All eight gates pass:
+At Stage 4c completion, the residual-fix focused suite passed 133 tests. Its full
+harness, including the read-only GL.iNet manifest, ELF-hash, and service
+consistency proof, measured 1,209 tests, 26 verbs, and 21 schema tables (20
+under contract). All eight gates passed:
 42 features, 11 stages, and 20 open-item records resolve; EOL is 6 CRLF/175 LF;
 the sandbox installs 100 markdown files with zero sentinel survivors and the
 real install untouched; coverage is 0 unexecuted / 3,170 statements, 0 allowed.
 Read-only benchmark scoring remains recall 9/19, 45 findings, precision 39/40,
-and $73.15 per match. The complete gate summary is in `SESSION_HANDOFF.md`.
+and $73.15 per match. These are historical Stage 4c measurements; current
+Stage 4d measurements are in `SESSION_HANDOFF.md`.
 No paid audit or mutation sweep ran. Task-scoped implementation reviews and
 the whole-branch fix wave are complete; Stage 4c is integrated into local
 `main`.
@@ -299,9 +303,67 @@ Remaining limits: triage upserts without pruning disappeared files (use fresh
 image scopes/runs for changed carved trees), stored manifests are snapshots
 rather than live filesystem verification, semantic patch-analysis quality has
 not been measured by an audit, and there is still no separate firmware skill
-tree. Stage 4d `surface` is next and must preserve the
-target-only coverage rule while adding dispatch/handler mapping,
-authentication boundaries, device state, and reachability evidence.
+tree. Stage 4d below adds live-root verification at its preparation boundary,
+dispatch/handler mapping, authentication boundaries, device state, and
+reachability evidence while preserving the target-only coverage rule.
+
+### Stage 4d - `surface`
+
+The fifth firmware phase adds prepare/record/check modes to the 27-verb CLI.
+The shared `firmware_tree.py` scanner binds the complete target regular-file
+manifest to the live carved root by path, kind, size, and SHA-256 before
+publishing deterministic content-addressed batches. All target units remain
+in the denominator; ELF/service/component hints annotate rather than filter.
+Inventory disagreement and stale roots refuse; a final root rescan runs before
+SQL publication. Same-input preparation is idempotent.
+
+Three additive tables (`cba_surface_runs`, `cba_firmware_surfaces`, `cba_unknowns`)
+take the schema to 24 tables, 23 under contract. They retain generation
+provenance, dispatcher/handler and authentication ordering evidence, device
+lifecycle/posture/auth state, reachability evidence, and durable settling
+questions. Every unknown state needs its corresponding open question; honest
+open unknowns pass completion. The file-backed surface brief requires an
+evidence-backed decision for every assigned unit, including no-surface units,
+and leaves SQL publication to the importer.
+
+Strict result input is capped at 8 MiB and verifies image/manifest/worklist/batch
+provenance and batch ownership. Canonical artifacts install before one SQL
+transaction publishes claims and surface coverage. Duplicate imports require
+`--replace`, scoped to the assigned batch; import resets pending. Only the
+explicit gate can mark complete after checking every unit and every batch's
+canonical result evidence, including claim-free batches. Missing decisions,
+budget skips, stale provenance, and dangling unknowns refuse. Expected SQL
+diagnostics are fixed; other expected CLI errors are escaped and capped at
+512 ASCII characters plus a newline. Unexpected exceptions propagate after
+rollback. Changed worklist generations and changed target acquisition
+provenance invalidate dependent surface rows and only affected surface coverage
+atomically. Failed SQL preserves prior state; orphan artifacts may remain.
+
+The exact Task 10 focused suite passed **1,147 tests** with no corpus skip.
+Task-scoped implementation reviews and the controller's whole-branch review
+of `deb3eed..4394621` are complete. Its two Important findings (unexpected
+exception hiding and unbounded diagnostics) were fixed in `2550866` and the
+scoped re-review was clean. Fresh post-documentation `make all` passes all
+eight gates: **2,060 tests**, 27 dispatchable verbs, 24 schema tables / 23
+contracted, columns and primary keys agreeing; four migrations plus current
+schema applied to both frozen pre-Stage-3 and Stage-4b baselines, preserving
+firmware rows and accepted by `connect()`. Lint is clean; EOL is 6 CRLF / 186 LF;
+43 features / 12 stages / 21 open-item records resolve. The sandbox installs
+104 Markdown files with zero sentinel survivors and the real install untouched.
+Statement coverage is **0 unexecuted / 4,060 statements, 0 allowed**. Benchmark
+scoring remains recall 9/19, 45 findings, precision 39/40, and $73.15 per match.
+The complete current gate summary is in `SESSION_HANDOFF.md`.
+
+No audit, new indicator snapshot, paid milestone benchmark, or mutation sweep
+ran. The full harness's benchmark gate only scores the existing read-only
+baseline. This stage does not fetch/carve/modify/execute firmware, infer live
+listeners, hunt vulnerabilities, assign severity, emulate, inspect the
+kernel/bootloader, or create a separate firmware skill tree. Triage remains
+upsert-only; changed carved trees need a fresh image scope/run and retriage.
+The gate's scan of retained orphan result candidates scales with retained
+generations, an accepted local-run performance limit; a future durable batch
+receipt should remove that scan without capping completeness. Stage 4e `hunt`
+is next, with separate, non-transferable L-sink and L-dark budgets.
 
 ---
 
@@ -337,10 +399,10 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
 7. **Local changes are not pushed.** Local `main` is at `deb3eed`, 31 commits
-   ahead of `origin/main` (checked 2026-10-14; `git rev-list --left-right
+   ahead of `origin/main` (checked 2026-10-16; `git rev-list --left-right
    --count origin/main...main` reports `0 31`). Stage 4c is merged locally;
    its former feature worktree and branch have been removed. Nothing has been
-   pushed.
+   pushed. Stage 4d remains on `stage4d-surface`, unmerged and unpushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -394,7 +456,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — 1,209 tests after Stage 4c review fixes |
+| `tests` | The pytest suite — current Stage 4d measurements in `SESSION_HANDOFF.md` |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -474,12 +536,13 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Design and implement Stage 4d (`surface`)** for dispatch/handler mapping,
-   authentication boundaries, device state, and reachability evidence.
-   Preserve image scoping and the target-only coverage denominator; account
-   for triage's upsert-only snapshots. The Stage 4c design is complete; its
-   next prerequisite is Stage 4d design, with the asus golden still missing
-   ahead of the later Stage 4 milestone gate.
+1. **Design and implement Stage 4e (`hunt`)**, consuming the verified surface
+   generation and durable unknowns with separate, non-transferable L-sink and
+   L-dark budgets. Preserve image scoping, the full target denominator, and
+   evidence-based state/reachability. It inherits triage's upsert-only snapshots
+   and surface check's retained-orphan scan scaling. Stage 4d integration into
+   local `main` is still pending; the asus golden remains missing ahead of the
+   later Stage 4 milestone gate.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

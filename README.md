@@ -253,6 +253,88 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 | Reload required after install | ✅ Developer: Reload Window | ❌ picked up automatically | ✅ restart Codex (or `/skills`) |
 | File-reference syntax | `[label](path)` markdown links | `@absolute/path` | `@path` / markdown links |
 
+## Firmware surface mapping (Stage 4d)
+
+The shared CLI now has 27 verbs, including `surface`. This is the fifth firmware
+phase (`qualify`, `acquire`, `triage`, `diff`, `surface`); the separate
+`firmware-audit` skill tree is still planned. Start with an initialized run, an
+acquired `target` image, and its image-scoped triage manifest. In an installed
+copy, use that client's skill directory as the path to `audit.py`.
+
+```bash
+python3 audit.py surface --run RUN --root ROOT [--image-id ID] [--batch-size N] [--json]
+python3 audit.py surface --run RUN --record RESULT.json [--replace] [--json]
+python3 audit.py surface --run RUN --check [--image-id ID] [--json]
+```
+
+Square brackets above denote optional arguments. Prepare is the default mode;
+record and check are mutually exclusive. `--root` and `--batch-size` are prepare
+only, `--replace` is record only, and `--image-id` selects a target for prepare
+or check. The default batch size is 50 (allowed range 1–1000).
+
+Preparation verifies the entire live carved root against the stored target's
+`cba_firmware_files` manifest: relative path, kind, size, and SHA-256 must agree,
+as must the target inventory. Every regular-file manifest unit enters exactly
+one batch, including configuration, wrappers, and libraries. ELF, service, and
+component hints annotate work; they never reduce this denominator. Missing,
+ambiguous, wrong-role, legacy-unscoped, or stale inputs refuse before SQL
+publication. The shared fail-closed scanner excludes symlinks and nonregular
+entries and reports traversal/read failures. A final rescan precedes publication.
+
+Worklists live at `RUN/files/surface/<worklist-sha256>/index.json` with sibling
+`batch-0001.json` files. Their canonical UTF-8 JSON excludes host paths and
+timestamps from content identity. Render
+[`references/briefs/surface-brief.md`](references/briefs/surface-brief.md)
+through `audit.py brief`, supplying `run_dir`, `db_path`, `rootfs`, `image_id`,
+`manifest_sha256`, `worklist_index`, `batch_path`, and `result_path`; dispatch
+file paths to the worker. Its JSON result must decide every assigned unit
+exactly once and bind image, manifest, worklist, and batch digests. The strict
+schema is in `audit_core/surface_results.py`; result input is capped at 8 MiB.
+
+Three new tables hold the result: `cba_surface_runs` binds the generation and
+pending/complete state; `cba_firmware_surfaces` records dispatchers, concrete
+handlers, protocol, lifecycle, posture, authentication, and reachability
+evidence; `cba_unknowns` records unresolved questions and the observations and
+methods that would settle them. Every `unknown` state needs a matching open
+question. Resolved questions require resolution and evidence; honest open
+questions can pass completion. An analyzed unit with no surface needs a
+retained explanation or explanatory unknown. Missing decisions and budget
+skips fail the explicit check.
+
+Import installs `RUN/artifacts/surface/<sha256>/result.json` before atomically
+publishing batch-owned claims and `surface` coverage. Duplicate import refuses;
+`--replace` changes only the assigned batch. Import sets the run pending;
+only `--check` can certify the full current denominator and mark it complete,
+verifying canonical result evidence even for batches without surface claims.
+Same-input prepare is idempotent; a changed worklist generation clears that
+target's old claims and prior-unit surface coverage atomically. A changed
+target acquisition hash/version also clears its manifest and dependent surface
+state in the acquisition transaction. SQL failures preserve the prior state
+and may leave an unreferenced artifact. Triage still upserts without pruning
+vanished files; use a fresh image scope/run and retriage a changed carved tree.
+
+Terminal output stays bounded: prepare prints image/counts, digests, and index
+path; record prints batch/counts and artifact path; check prints aggregate
+coverage, surfaces, open/resolved unknowns, and status. `--json` emits the same
+summary fields. Expected domain/database errors exit 1 without a traceback;
+argparse usage errors exit 2, and success exits 0.
+SQLite-caused errors print exactly `surface: database operation failed`.
+Other expected diagnostics escape controls/non-ASCII and are capped at 512
+ASCII characters plus a newline; unexpected programming exceptions propagate.
+
+The completion gate currently scans retained orphan result candidates to find
+evidence for claim-free batches. Runtime grows with retained generations; a
+future durable batch receipt could avoid this scan. This is a local-run
+performance limitation, not a limit on the coverage denominator.
+
+Surface mapping does not fetch, carve, modify or execute firmware, infer live
+listeners, hunt vulnerabilities, assign severity, emulate, or inspect kernels
+and bootloaders. No audit, paid milestone benchmark, new indicator snapshot,
+or mutation sweep was run for this stage. Stage 4e `hunt` is next, with separate,
+non-transferable L-sink and L-dark budgets. See
+[`SESSION_HANDOFF.md`](SESSION_HANDOFF.md) for measured harness results and
+the remaining milestone/restructure prerequisites.
+
 ## Layout
 
 ```

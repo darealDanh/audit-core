@@ -2,7 +2,10 @@
 
 **Date:** 2026-10-14
 
-**Status:** Approved design; implementation not started
+**Status:** Implemented on `stage4d-surface`; integration into local `main` pending.
+Last implementation commit: `2550866`. Documentation and measured verification:
+[`../../../SESSION_HANDOFF.md`](../../../SESSION_HANDOFF.md). Historical design
+requirements below are preserved.
 
 **Parent:** [`2026-10-04-audit-suite-design.md`](2026-10-04-audit-suite-design.md), §3.4 and §4
 

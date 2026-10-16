@@ -10,8 +10,8 @@ For *how to pick the work back up*, read
 ## 1. The thing being built
 
 This repository currently ships **one skill, made of two different kinds of
-material**. Its shared core now also contains the first four vertical phases
-of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, and `diff`); the
+material**. Its shared core now also contains the first five vertical phases
+of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, `diff`, and `surface`); the
 separate firmware skill tree does not exist yet.
 
 | Material | What it is | Who executes it |
@@ -51,7 +51,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 26 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 27 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -128,7 +128,7 @@ its own.
 One SQLite database per run, at `reports/audit-<timestamp>/audit.db`, created
 by `audit.py init`.
 
-**Twenty tables under contract**, all prefixed `cba_`:
+**Twenty-three tables under contract**, all prefixed `cba_`:
 
 | Group | Tables |
 |---|---|
@@ -141,8 +141,9 @@ by `audit.py init`.
 | Stage 3 | `cba_components`, `cba_chains` |
 | Firmware | `cba_images`, `cba_binfacts`, `cba_services` |
 | Firmware diff | `cba_firmware_files`, `cba_diffs`, `cba_diff_entries` |
+| Firmware surface | `cba_surface_runs`, `cba_firmware_surfaces`, `cba_unknowns` |
 
-> `selftest` reports **21** tables in `schema.sql` against **20** under
+> `selftest` reports **24** tables in `schema.sql` against **23** under
 > contract. The extra table is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
@@ -176,7 +177,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 724 | Validated, bounded access to a run's `audit.db`. Specs, validators, column migrations and composite-key rebuilds, merge-on-replace. |
+| `db.py` | 831 | Validated, bounded access to a run's `audit.db`. Specs, validators, column migrations and composite-key rebuilds, merge-on-replace. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -187,10 +188,13 @@ databases need triage of both acquired images to populate the new manifests.
 | `indicators.py` | 264 | The four deterministic leading indicators and their dated snapshots. |
 | `rerate.py` | 191 | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
 | `qualify.py` | 369 | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
-| `elf.py` | 263 | Pure, bounded ELF facts for architecture, linkage, dependencies, and three-state mitigations. |
-| `acquire.py` | 57 | Hash and record local target or diff-reference firmware image provenance; never fetch or carve. |
-| `triage.py` | 224 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
-| `firmware_diff.py` | 220 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
+| `elf.py` | 265 | Pure, bounded ELF facts; strict I/O mode lets the shared scanner fail closed on read races. |
+| `acquire.py` | 82 | Record local firmware provenance; atomically invalidate changed-image manifests and dependent target surface state. |
+| `triage.py` | 187 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
+| `firmware_diff.py` | 223 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
+| `firmware_tree.py` | 101 | Shared fail-closed regular-file traversal, hashing, classification, and retained ELF facts for triage and surface. |
+| `surface.py` | 510 | Exact-root verification, deterministic content-addressed batches, generation invalidation, and the sole completion transition. |
+| `surface_results.py` | 413 | Strict bounded result parsing, provenance/ownership/state validation, and atomic batch-owned import. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -204,7 +208,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 54 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-six verbs
+### The twenty-seven verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -212,12 +216,12 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
-qualify  acquire  triage  diff                        firmware phases
+qualify  acquire  triage  diff  surface               firmware phases
 ```
 
-### Stage 4c's firmware boundary and Stage 4d
+### The firmware boundary through Stage 4d
 
-Stages 4b and 4c add firmware behavior to the shared core without pretending that the
+Stages 4b through 4d add firmware behavior to the shared core without pretending that the
 separate `firmware-audit` skill exists. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
 writes file, ELF, and evidenced boot-service rows; it does not infer open ports
@@ -250,9 +254,71 @@ generation but preserves the prior durable result.
 `references/briefs/diff-brief.md` assigns the semantic half: explain the known
 vendor fix with evidence from both builds, then sweep the target for surviving
 siblings using existing observation/pattern tables. Changed bytes alone are
-not vulnerabilities. General dispatch/handler mapping, authentication
-boundaries, device state, and reachability evidence belong to Stage 4d
-`surface`, the next slice; broad hunting and emulation remain later work.
+not vulnerabilities.
+
+`surface` adds prepare/record/check modes (the exact commands are in `README.md`).
+Preparation accepts only an acquired target and compares the complete live
+regular-file root against its stored manifest by path, kind, size, and SHA-256,
+with a final rescan under the SQL publication lock. Target inventory must also
+agree. Every `cba_firmware_files` target unit enters exactly one path-ordered
+batch; ELF/service/component hints never filter the denominator. Internal reads
+are uncapped, independent of the interactive 200-row limit. Batch size defaults
+to 50 (1–1000). Canonical schema-version-1 UTF-8 JSON excludes host paths and
+timestamps; index bytes determine the worklist digest. Worklists install under
+`RUN/files/surface/<worklist-sha256>/` before SQL publication.
+
+`cba_surface_runs` binds one target's manifest/worklist hashes, counts, and
+pending/complete status. `cba_firmware_surfaces` stores image-scoped surface IDs,
+entry point, protocol, dispatch path, handler, lifecycle/posture/auth requirements,
+reachability, evidence, and canonical result provenance. `cba_unknowns` stores
+globally unique questions with component/surface linkage, settling observation,
+method (`static`, `emulate`, `hardware`), open/resolved state, and provenance.
+Lifecycle is factory-fresh/provisioned/bound-to-owner/cloud-registered/post-reset;
+posture is softap-setup/sta-lan/wan-exposed/ble/cloud-tunnel-only; auth is
+pre-auth/session/admin/local-shell/physical-uart. Each also permits `unknown`;
+reachability is evidenced/refuted/unknown. Unknown state fields require a matching
+open question for that surface and field. Open questions have no resolution or
+evidence; resolved questions require both. Honest open unknowns pass completion.
+
+The worker brief requires evidence from entry point through dispatcher to
+handler and auth ordering, plus exactly one decision per assigned unit. A
+no-surface analyzed unit needs a retained explanation or explanatory unknown.
+The importer rejects extra/duplicate/missing units, foreign batch claims, extra
+keys, invalid state/linkage, and results over 8 MiB. It verifies current image,
+manifest, index, and batch provenance, installs canonical result bytes under
+`RUN/artifacts/surface/<sha256>/result.json`, then revalidates and publishes
+claims plus `phase='surface'` coverage in one transaction. Duplicate import
+requires `--replace`, which removes only assigned-batch rows. Each import sets
+pending and clears completion time; only check can certify complete.
+
+Check verifies the entire denominator, canonical worklist and result evidence
+for every batch (including claim-free ones), exact claim/coverage agreement,
+unknown linkage, and absence of budget skips. It repeats validation under the
+publication lock before setting complete. Generic per-row `put` validation
+cannot substitute for this cross-row gate. Terminal/JSON output contains only
+aggregate counts, identity/digests, and artifact paths. Expected SQL failures
+render as `surface: database operation failed`; other expected messages escape
+controls/non-ASCII and truncate to 512 ASCII characters plus a newline. Unexpected
+exceptions propagate after rollback; expected domain/database errors exit 1
+without a traceback (argparse usage errors exit 2; success exits 0).
+
+Same-input preparation preserves the generation; a changed manifest or worklist
+digest atomically clears that image's surface/unknown rows and prior-unit surface
+coverage. Changed target acquisition provenance clears its manifest and dependent
+surface state in the same transaction. Failed publication preserves prior SQL;
+artifact installation may leave an orphan generation. Triage remains upsert-only:
+stale-root disagreement requires fresh image scope/run and retriage.
+
+To verify claim-free batches, check scans retained orphan result candidates;
+each candidate is bounded, but runtime grows with retained generations. A future
+durable batch receipt is the direction for eliminating this local-run performance
+limit without capping evidence or the denominator.
+
+Stage 4d does not fetch/carve/execute firmware, infer listeners, hunt, assign
+severity, emulate, inspect kernel/bootloader, or create the separate skill tree.
+The next slice is Stage 4e `hunt`, inheriting separate non-transferable L-sink
+and L-dark budgets. Audit quality remains unmeasured until the deferred paid
+milestone runs; deterministic harness scoring is only of the existing baseline.
 
 ### Stage 3's five quality mechanisms
 
@@ -316,7 +382,7 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite (1,209 tests after Stage 4c review fixes). |
+| `tests` | yes | The pytest suite; current measured counts are in `SESSION_HANDOFF.md`. |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |
