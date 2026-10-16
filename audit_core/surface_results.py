@@ -136,7 +136,7 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
         if key in result:
-            raise SurfaceError(f"Duplicate JSON key: {key}")
+            raise SurfaceError("Duplicate JSON key")
         result[key] = value
     return result
 

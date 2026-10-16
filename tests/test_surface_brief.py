@@ -132,3 +132,15 @@ def test_surface_return_is_exactly_one_r2_line_accepted_by_lint(variables, tmp_p
     (root / "SKILL.md").write_text("# Surface contract fixture\n")
     (root / "references" / "briefs" / "surface-brief.md").write_text(rendered)
     assert skill_lint.lint(root, set(audit.HANDLERS)) == []
+
+
+@pytest.mark.parametrize("required", (
+    "Replace `<batch>` with the batch's `batch_id`",
+    "`<path>` with the required result file path",
+    "Use DONE only for a complete valid batch result",
+    "choose PARTIAL for explicit unfinished work",
+    "FAILED when a valid bound result cannot be produced",
+))
+def test_surface_return_keeps_status_meanings_and_substitution_instructions(variables, required):
+    # Breaks: losing a status meaning or leaving the worker's return placeholders ambiguous.
+    assert required in " ".join(render_surface(variables).split())

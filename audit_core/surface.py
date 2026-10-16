@@ -308,7 +308,9 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         con.commit()
     except Exception as exc:
         con.rollback()
-        raise SurfaceError(f"Cannot publish surface preparation for {selected}: {exc}") from exc
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError, firmware_tree.FirmwareTreeError)):
+            raise SurfaceError(f"Cannot publish surface preparation for {selected}: {exc}") from exc
+        raise
     return summary
 
 

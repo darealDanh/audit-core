@@ -50,6 +50,14 @@ def prepare(run, root, *args):
     return json.loads(result.stdout)
 
 
+def sql_snapshot(run):
+    con = db.connect(run / "audit.db")
+    try:
+        return tuple(con.iterdump())
+    finally:
+        con.close()
+
+
 def write_result(run, summary, *, claims=True):
     """Bind literal decisions to real work-list provenance, without core builders."""
     index = json.loads(pathlib.Path(summary["worklist_path"]).read_text())
@@ -336,6 +344,118 @@ def test_non_sql_domain_errors_retain_their_informative_message(
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == message + "\n"
+
+
+@pytest.mark.parametrize("error_type", [surface.SurfaceError, db.DbError])
+@pytest.mark.parametrize("chain", ["cause", "context", "cycle"])
+@pytest.mark.parametrize("huge", [False, True])
+def test_expected_diagnostics_escape_controls_and_bound_nested_messages(
+        target_run, monkeypatch, capsys, error_type, chain, huge):
+    # Breaks: terminal control injection, encoding failures, or unbounded wrappers.
+    run, root = target_run
+    before = sql_snapshot(run)
+    tail = "x" * 1_000_000 if huge else " end"
+    leaf = ValueError("private\n\r\t\x1b\x00\x7f\x85\u2028\u202e\ud800" + tail)
+    middle = OSError("nested: " + str(leaf))
+    failure = error_type("Surface wrapper: " + str(middle))
+    if chain == "cause":
+        failure.__cause__ = middle
+        middle.__cause__ = leaf
+    else:
+        failure.__context__ = middle
+        middle.__context__ = leaf
+        if chain == "cycle":
+            leaf.__cause__ = failure
+    safe_prefix = (r"Surface wrapper: nested: private\n\r\t\u001b\u0000\u007f"
+                   r"\u0085\u2028\u202e\ud800")
+    expected = (safe_prefix + "x" * (509 - len(safe_prefix)) + "..."
+                if huge else safe_prefix + " end")
+    con = db.connect(run / "audit.db")
+    monkeypatch.setattr(audit, "_open_db", lambda *args, **kwargs: con)
+
+    def fail_prepare(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(audit.surface_mod, "prepare", fail_prepare)
+    assert audit.main(["surface", "--run", str(run), "--root", str(root)]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert len(output.err) <= 513
+    assert output.err == expected + "\n"
+    assert all(" " <= char <= "~" for char in output.err[:-1])
+    assert output.err.count("\n") == 1
+    assert sql_snapshot(run) == before
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        con.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("message,expected", (
+    ("x" * 512, "x" * 512),
+    ("x" * 513, "x" * 509 + "..."),
+    ("x" * 510 + "\n", "x" * 510 + r"\n"),
+    ("x" * 511 + "\n", "x" * 509 + "..."),
+    ('Target "quoted" path C:\\root needs an acquired image.',
+     'Target "quoted" path C:\\root needs an acquired image.'),
+))
+def test_expected_diagnostic_limit_applies_after_escaping(message, expected):
+    assert audit._surface_error_message(surface.SurfaceError(message)) == expected
+
+
+def test_large_duplicate_key_refuses_safely_in_real_cli_and_closes_connection(
+        target_run, monkeypatch, capsys):
+    # Breaks: parser key reflection surviving the real subprocess/handler boundary.
+    run, root = target_run
+    prepare(run, root)
+    before = sql_snapshot(run)
+    key = "PRIVATE_ATTACKER_KEY\n\r\t\x1b\x00\u2028" + "K" * (3 * 1024 * 1024)
+    encoded = json.dumps(key)
+    content = ('{"nested":{' + encoded + ':0,' + encoded + ':1}}').encode()
+    assert len(content) < 8 * 1024 * 1024
+    result_path = run / "malformed-result.json"
+    result_path.write_bytes(content)
+    args = ["surface", "--run", str(run), "--record", str(result_path)]
+    result = run_cli(*args)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert len(result.stderr) <= 513
+    assert result.stderr == "Duplicate JSON key\n"
+    assert result.stderr.count("\n") == 1
+    assert all(" " <= char <= "~" for char in result.stderr[:-1])
+    assert "PRIVATE_ATTACKER_KEY" not in result.stderr
+    assert sql_snapshot(run) == before
+    con = db.connect(run / "audit.db")
+    monkeypatch.setattr(audit, "_open_db", lambda *args, **kwargs: con)
+    assert audit.main(args) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "Duplicate JSON key\n"
+    assert sql_snapshot(run) == before
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        con.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, AssertionError])
+def test_unexpected_exceptions_propagate_unsanitized_and_close_connection(
+        target_run, monkeypatch, capsys, error_type):
+    run, root = target_run
+    before = sql_snapshot(run)
+    failure = error_type("unexpected\n\x1b" + "x" * 1000)
+    failure.__cause__ = sqlite3.OperationalError("private SQL driver detail")
+    con = db.connect(run / "audit.db")
+    monkeypatch.setattr(audit, "_open_db", lambda *args, **kwargs: con)
+
+    def fail_prepare(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(audit.surface_mod, "prepare", fail_prepare)
+    with pytest.raises(error_type) as caught:
+        audit.main(["surface", "--run", str(run), "--root", str(root)])
+    assert caught.value is failure
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
+    assert sql_snapshot(run) == before
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        con.execute("SELECT 1")
 
 
 @pytest.mark.parametrize("json_output", [False, True])

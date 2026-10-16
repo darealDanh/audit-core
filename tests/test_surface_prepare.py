@@ -493,3 +493,37 @@ def test_install_and_publication_failures_preserve_previous_sql_generation(setup
     assert all(artifacts(run)[path] == content for path, content in old_files.items())
     if failure == "commit":
         con.close()
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, AssertionError])
+def test_unexpected_preparation_failure_after_writes_propagates_and_rolls_back(
+        setup, monkeypatch, error_type):
+    # Breaks: translating programming errors or retaining any partial publication.
+    con, run, root = seed(setup)
+    surface.prepare(con, run, root)
+    claims(con)
+    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    con.execute("UPDATE cba_surface_runs SET status='complete',prepared_at='prepared-kept',"
+                "completed_at='completed-kept'")
+    con.commit()
+    before = {table: rows(con, table) for table in db.TABLE_SPECS}
+    failure = error_type("unexpected error after preparation writes")
+    original = db.put
+
+    def fail_after_write(connection, table, data, **kwargs):
+        result = original(connection, table, data, **kwargs)
+        if table == "cba_surface_runs":
+            assert connection.in_transaction
+            assert connection.execute("SELECT status FROM cba_surface_runs").fetchone()[0] == "pending"
+            raise failure
+        return result
+
+    monkeypatch.setattr(db, "put", fail_after_write)
+    with pytest.raises(error_type) as caught:
+        surface.prepare(con, run, root, batch_size=1)
+    assert caught.value is failure
+    assert {table: rows(con, table) for table in before} == before
+    assert not con.in_transaction
+    with db.connect(run / "audit.db") as other:
+        other.execute("BEGIN IMMEDIATE")
+        other.rollback()

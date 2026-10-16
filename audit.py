@@ -405,7 +405,12 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
 
 def _surface_error_message(exc: BaseException) -> str:
-    """Keep SQL driver details out of the bounded surface CLI diagnostic."""
+    """Render expected errors as at most 512 printable ASCII characters.
+
+    SQL chains retain their fixed diagnostic. Other messages preserve ordinary
+    ASCII, JSON-escape controls/non-ASCII, and end in '...' when truncated.
+    The terminal newline added by the caller is outside the 512-character cap.
+    """
     pending = [exc]
     seen = set()
     while pending:
@@ -418,7 +423,12 @@ def _surface_error_message(exc: BaseException) -> str:
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 pending.append(linked)
-    return str(exc)
+    message = ""
+    for char in str(exc):
+        message += char if " " <= char <= "~" else json.dumps(char, ensure_ascii=True)[1:-1]
+        if len(message) > 512:
+            return message[:509] + "..."
+    return message
 
 
 def cmd_surface(args: argparse.Namespace) -> int:

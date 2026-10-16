@@ -158,6 +158,18 @@ def test_exact_size_limit_accepts_json_without_truncation(prepared):
     assert api().load(path).image_id == "target"
 
 
+def test_duplicate_json_key_error_never_reflects_untrusted_key(prepared):
+    # Breaks: reflecting a huge or terminal-active key in a parser diagnostic.
+    key = "PRIVATE_KEY\n\r\t\x1b\x00" + "x" * 100_000
+    encoded_key = json.dumps(key)
+    path = prepared[1] / "duplicate.json"
+    path.write_text('{"nested":{' + encoded_key + ':0,' + encoded_key + ':1}}')
+    with pytest.raises(surface.SurfaceError) as caught:
+        api().load(path)
+    assert len(str(caught.value)) < 100
+    assert str(caught.value) == "Duplicate JSON key"
+
+
 @pytest.mark.parametrize("damage", ["missing", "directory", "symlink", "unreadable", "surrogate"])
 def test_result_files_and_text_fail_closed(prepared, monkeypatch, damage):
     path = prepared[1] / "input.json"
