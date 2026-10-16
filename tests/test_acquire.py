@@ -235,7 +235,8 @@ def completed_surface_pair(con, tmp_path):
                 "artifact_sha256": "e" * 64, "recorded_at": "2026-10-02 04:05:06",
             })
             for phase in ("surface", "audit"):
-                db.put(con, "cba_coverage", {"unit": path, "phase": phase, "state": "analyzed"})
+                unit = db.firmware_unit_key(image_id, path) if phase == "surface" else path
+                db.put(con, "cba_coverage", {"unit": unit, "phase": phase, "state": "analyzed"})
     # A surface coverage unit outside either manifest must also survive.
     db.put(con, "cba_coverage", {"unit": "unrelated", "phase": "surface", "state": "analyzed"})
     return kwargs
@@ -262,7 +263,7 @@ def test_changed_target_provenance_invalidates_only_its_surface_generation(con, 
                                                 ("other|r2|target",))] == [
             row for row in before[table] if (row[1] if table == "cba_unknowns" else row[0]) == "other|r2|target"]
     assert {(row["unit"], row["phase"]) for row in db.rows(con, "cba_coverage")} == {
-        ("config", "audit"), ("bin/httpd", "audit"), ("other/config", "surface"),
+        ("config", "audit"), ("bin/httpd", "audit"), ("/firmware/15:other|r2|target:other/config", "surface"),
         ("other/config", "audit"), ("unrelated", "surface"),
     }
     assert surface_snapshot(con)["cba_inventory"] == before["cba_inventory"]

@@ -46,7 +46,7 @@ def prepared(tmp_path):
         file.write_bytes(b"hello\n")
         db.put(con, "cba_firmware_files", {"image_id": "target", "path": path,
             "kind": kind, "size": "6", "sha256": HELLO})
-        db.put(con, "cba_inventory", {"unit": path, "kind": kind, "size": "6"})
+        db.put(con, "cba_inventory", {"unit": db.firmware_unit_key("target", path), "kind": kind, "size": "6"})
     summary = surface.prepare(con, run, root, batch_size=3)
     batch = pathlib.Path(summary.worklist_path).with_name("batch-0001.json")
     replacements = {"MANIFEST": summary.manifest_sha256, "WORKLIST": summary.worklist_sha256,
@@ -384,7 +384,7 @@ def test_changed_prepared_inputs_refuse_without_writes(prepared, damage):
     sql = {"wrong-role": "UPDATE cba_images SET role='diff-reference'",
         "empty-manifest": "DELETE FROM cba_firmware_files",
         "changed-manifest": "UPDATE cba_firmware_files SET sha256='" + "b" * 64 + "'",
-        "inventory": "DELETE FROM cba_inventory WHERE unit='zzz/outside'",
+        "inventory": "DELETE FROM cba_inventory WHERE unit='/firmware/6:target:zzz/outside'",
         "no-run": "DELETE FROM cba_surface_runs",
         "run-manifest": "UPDATE cba_surface_runs SET manifest_sha256='" + "b" * 64 + "'",
         "run-count": "UPDATE cba_surface_runs SET unit_count=5"}
@@ -603,8 +603,8 @@ def test_import_derives_canonical_provenance_and_publishes_exact_rows(prepared):
         summary.unit_count = 99
     assert [tuple(row) for row in con.execute(
         "SELECT unit,phase,state,reason FROM cba_coverage ORDER BY unit")] == [
-        ("etc/settings.conf", "surface", "analyzed", "Configuration has no dispatcher."),
-        ("usr/httpd", "surface", "analyzed", None), ("usr/relay", "surface", "analyzed", None)]
+        ("/firmware/6:target:etc/settings.conf", "surface", "analyzed", "Configuration has no dispatcher."),
+        ("/firmware/6:target:usr/httpd", "surface", "analyzed", None), ("/firmware/6:target:usr/relay", "surface", "analyzed", None)]
     for decision in payload["decisions"]:
         for table, records in [("cba_firmware_surfaces", decision["surfaces"]), ("cba_unknowns", decision["unknowns"])]:
             for expected in records:
@@ -661,7 +661,8 @@ def test_replacement_reuses_owned_ids_removes_stale_rows_and_preserves_sibling(p
     assert summary.artifact_path != first.artifact_path
     after = sql_snapshot(con)
     for table, column in [("cba_firmware_surfaces", 2), ("cba_unknowns", 2), ("cba_coverage", 0)]:
-        assert [r for r in after[table] if r[column] == "zzz/outside"] == [r for r in before[table] if r[column] == "zzz/outside"]
+        unit = "/firmware/6:target:zzz/outside" if table == "cba_coverage" else "zzz/outside"
+        assert [r for r in after[table] if r[column] == unit] == [r for r in before[table] if r[column] == unit]
     assert [r for r in after["cba_coverage"] if r[1] == "audit"] == [r for r in before["cba_coverage"] if r[1] == "audit"]
     assert con.execute("SELECT surface_id,handler FROM cba_firmware_surfaces WHERE component_path='usr/relay'").fetchone()[1] == "revised-relay"
     assert con.execute("SELECT status,resolution FROM cba_unknowns WHERE id='relay-posture'").fetchone()[1] == "LAN only"
@@ -785,7 +786,7 @@ def test_inputs_changed_during_install_are_rechecked_before_sql(prepared, monkey
         original(destination, files)
         with db.connect(run / "audit.db") as other:
             if change == "duplicate":
-                db.put(other, "cba_coverage", {"unit": "usr/httpd", "phase": "surface", "state": "analyzed"})
+                db.put(other, "cba_coverage", {"unit": "/firmware/6:target:usr/httpd", "phase": "surface", "state": "analyzed"})
             elif change == "provenance":
                 other.execute("UPDATE cba_surface_runs SET worklist_sha256=?", ("b" * 64,))
                 other.commit()

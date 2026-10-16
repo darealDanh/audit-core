@@ -47,6 +47,22 @@ UNKNOWN_FIELDS = ("dispatch", "handler", "lifecycle", "posture", "auth",
 UNKNOWN_METHODS = ("static", "emulate", "hardware")
 UNKNOWN_STATES = ("open", "resolved")
 
+
+def firmware_unit_key(image_id: str, path: str) -> str:
+    """Database-only firmware unit identity; artifacts retain the raw path.
+
+    The image length (Unicode characters), colon, exact image, colon and raw
+    path frame an injective, reversible pair even when either contains colons.
+    Leading '/' separates qualified keys from valid relative manifest paths.
+    An empty path gives the exact image prefix for scoped inventory reads.
+    Legacy unscoped triage keeps its historical raw keys; callers must never
+    infer ownership of old raw rows from an acquired image's manifest.
+    """
+    if image_id == FIRMWARE_IMAGE_UNSCOPED:
+        return path
+    return f"/firmware/{len(image_id)}:{image_id}:{path}"
+
+
 # Columns added to tables that already existed when an earlier stage shipped.
 # `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
 # is already there, and SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT

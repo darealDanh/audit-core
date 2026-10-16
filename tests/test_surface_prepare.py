@@ -32,7 +32,7 @@ def image(con, image_id="target", role="target"):
 def manifest(con, path="banner", kind="file", size=6, digest=HELLO, image_id="target"):
     db.put(con, "cba_firmware_files", {"image_id": image_id, "path": path,
            "kind": kind, "size": str(size), "sha256": digest}, replace=True)
-    db.put(con, "cba_inventory", {"unit": path, "kind": kind, "size": str(size)}, replace=True)
+    db.put(con, "cba_inventory", {"unit": db.firmware_unit_key(image_id, path), "kind": kind, "size": str(size)}, replace=True)
 
 
 def seed(setup):
@@ -226,7 +226,7 @@ def test_root_and_inventory_disagreement_preserves_previous_generation(setup, mo
         con.execute("UPDATE cba_inventory SET size=5")
         con.commit()
     elif mutation == "inventory-added":
-        db.put(con, "cba_inventory", {"unit": "extra", "kind": "file", "size": "1"})
+        db.put(con, "cba_inventory", {"unit": "/firmware/6:target:extra", "kind": "file", "size": "1"})
     else:
         (root / "banner").unlink()
         (root / "banner").symlink_to(root.parent / "outside")
@@ -337,7 +337,7 @@ def test_changed_generation_invalidates_only_image_and_prior_surface_units(setup
     old = surface.prepare(con, run, root)
     claims(con)
     claims(con, "other", "elsewhere")
-    for unit, phase in [("banner", "surface"), ("banner", "audit"), ("elsewhere", "surface")]:
+    for unit, phase in [("/firmware/6:target:banner", "surface"), ("banner", "audit"), ("elsewhere", "surface")]:
         db.put(con, "cba_coverage", {"unit": unit, "phase": phase, "state": "analyzed"})
     con.execute("DELETE FROM cba_firmware_files WHERE image_id='target'")
     con.execute("DELETE FROM cba_inventory")
@@ -378,7 +378,7 @@ def test_root_changed_during_install_preserves_prior_sql(setup, monkeypatch, sam
     con, run, root = seed(setup)
     old = surface.prepare(con, run, root)
     claims(con)
-    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    db.put(con, "cba_coverage", {"unit": "/firmware/6:target:banner", "phase": "surface", "state": "analyzed"})
     con.execute("UPDATE cba_surface_runs SET status='complete', completed_at='kept'")
     con.commit()
     before = {table: rows(con, table) for table in db.TABLE_SPECS}
@@ -451,7 +451,7 @@ def test_hint_only_generation_change_invalidates_claims(setup):
     con, run, root = seed(setup)
     old = surface.prepare(con, run, root)
     claims(con)
-    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    db.put(con, "cba_coverage", {"unit": "/firmware/6:target:banner", "phase": "surface", "state": "analyzed"})
     db.put(con, "cba_components", {"path": "banner", "kind": "config",
            "asserted_identity": "new hint", "identity_evidence": "observed fixture configuration header"})
     new = surface.prepare(con, run, root)
@@ -468,7 +468,7 @@ def test_install_and_publication_failures_preserve_previous_sql_generation(setup
     con, run, root = seed(setup)
     surface.prepare(con, run, root)
     claims(con)
-    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    db.put(con, "cba_coverage", {"unit": "/firmware/6:target:banner", "phase": "surface", "state": "analyzed"})
     before = {t: rows(con, t) for t in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns", "cba_coverage")}
     old_files = artifacts(run)
     if failure == "mkdir":
@@ -502,7 +502,7 @@ def test_unexpected_preparation_failure_after_writes_propagates_and_rolls_back(
     con, run, root = seed(setup)
     surface.prepare(con, run, root)
     claims(con)
-    db.put(con, "cba_coverage", {"unit": "banner", "phase": "surface", "state": "analyzed"})
+    db.put(con, "cba_coverage", {"unit": "/firmware/6:target:banner", "phase": "surface", "state": "analyzed"})
     con.execute("UPDATE cba_surface_runs SET status='complete',prepared_at='prepared-kept',"
                 "completed_at='completed-kept'")
     con.commit()

@@ -188,7 +188,7 @@ def _assigned(con: sqlite3.Connection, run_dir: pathlib.Path, result: BatchResul
     """Re-establish assignment provenance from SQL and the prepared artifacts."""
     surface._resolve_target(surface._query(con, "SELECT id,role FROM cba_images"), result.image_id)
     manifest = surface._manifest(con, result.image_id)
-    surface._inventory_agreement(con, manifest)
+    surface._inventory_agreement(con, result.image_id, manifest)
     digest = surface.manifest_sha256(manifest)
     runs = surface._query(con, "SELECT * FROM cba_surface_runs WHERE image_id=?", (result.image_id,))
     if not runs:
@@ -354,8 +354,15 @@ def _refuse_existing(con: sqlite3.Connection, validated: ValidatedBatch) -> None
                            (validated.result.image_id, unit)).fetchone():
                 raise SurfaceError(f"Surface result already exists for {unit}; pass --replace")
         if con.execute("SELECT 1 FROM cba_coverage WHERE phase='surface' AND unit=?",
-                       (unit,)).fetchone():
+                       (db.firmware_unit_key(validated.result.image_id, unit),)).fetchone():
             raise SurfaceError(f"Surface coverage already exists for {unit}; pass --replace")
+
+
+def _refuse_unqualified(con: sqlite3.Connection, validated: ValidatedBatch) -> None:
+    """Old raw surface rows have no provable owner, even during replacement."""
+    for unit in validated.assigned_units:
+        if con.execute("SELECT 1 FROM cba_coverage WHERE phase='surface' AND unit=?", (unit,)).fetchone():
+            raise SurfaceError(f"Unqualified legacy surface coverage has unknown ownership for {unit}; use a fresh run")
 
 
 def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
@@ -366,6 +373,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
     run_dir = pathlib.Path(run_dir)
     validated = validate(con, run_dir, load(result_path))
     try:
+        _refuse_unqualified(con, validated)
         if not replace:
             _refuse_existing(con, validated)
         content = canonical_bytes(validated)
@@ -384,6 +392,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         # Artifact installation can admit another writer; recheck ownership and
         # prepared provenance under the publication lock before deleting rows.
         validate(con, run_dir, result)
+        _refuse_unqualified(con, validated)
         if not replace:
             _refuse_existing(con, validated)
         else:
@@ -391,7 +400,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                 con.executemany(f"DELETE FROM {table} WHERE image_id=? AND component_path=?",
                     [(result.image_id, unit) for unit in validated.assigned_units])
             con.executemany("DELETE FROM cba_coverage WHERE phase='surface' AND unit=?",
-                            [(unit,) for unit in validated.assigned_units])
+                            [(db.firmware_unit_key(result.image_id, unit),) for unit in validated.assigned_units])
         provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
                       "artifact_sha256": digest}
         for decision in result.decisions:
@@ -400,7 +409,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             for row in decision.unknowns:
                 db.put(con, "cba_unknowns", dataclasses.asdict(row) | provenance, commit=False)
             reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
-            db.put(con, "cba_coverage", {"unit": decision.path, "phase": "surface",
+            db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(result.image_id, decision.path), "phase": "surface",
                 "state": decision.state, "reason": reason}, commit=False)
         con.execute("UPDATE cba_surface_runs SET status='pending',completed_at=NULL WHERE image_id=?",
                     (result.image_id,))

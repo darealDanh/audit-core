@@ -32,7 +32,7 @@ def seed_run(tmp_path, paths):
             (root / path).write_bytes(b"hello\n")
             db.put(con, "cba_firmware_files", {"image_id": "target", "path": path,
                 "kind": "file", "size": "6", "sha256": HELLO})
-            db.put(con, "cba_inventory", {"unit": path, "kind": "file", "size": "6"})
+            db.put(con, "cba_inventory", {"unit": db.firmware_unit_key("target", path), "kind": "file", "size": "6"})
     finally:
         con.close()
     return run, root

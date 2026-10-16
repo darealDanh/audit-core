@@ -150,7 +150,7 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             db.put(con, "cba_firmware_files", manifest, replace=True, commit=False)
             if mirror_inventory:
                 db.put(con, "cba_inventory", {
-                    "unit": manifest["path"],
+                    "unit": db.firmware_unit_key(effective_image_id, manifest["path"]),
                     "kind": manifest["kind"],
                     "size": manifest["size"],
                 }, replace=True, commit=False)

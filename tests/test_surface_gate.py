@@ -8,7 +8,7 @@ import sqlite3
 
 import pytest
 
-from audit_core import db, surface, surface_results, workspace
+from audit_core import acquire, coverage, db, surface, surface_results, triage, workspace
 
 
 HELLO = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
@@ -27,7 +27,7 @@ def make_run(tmp_path, paths):
         kind = "file"
         db.put(con, "cba_firmware_files", {"image_id": "target", "path": path,
             "kind": kind, "size": "6", "sha256": HELLO})
-        db.put(con, "cba_inventory", {"unit": path, "kind": kind, "size": "6"})
+        db.put(con, "cba_inventory", {"unit": db.firmware_unit_key("target", path), "kind": kind, "size": "6"})
     return con, run, root
 
 
@@ -135,11 +135,11 @@ def test_refused_prerequisites_preserve_status_and_timestamp(complete_run, damag
         "wrong-role": "UPDATE cba_images SET role='diff-reference'",
         "manifest": "UPDATE cba_firmware_files SET sha256='" + "b" * 64 + "' WHERE path='d/assets'",
         "prepared-manifest": "UPDATE cba_surface_runs SET manifest_sha256='" + "b" * 64 + "'",
-        "inventory-missing": "DELETE FROM cba_inventory WHERE unit='d/assets'",
-        "inventory-extra": "INSERT INTO cba_inventory(unit,kind,size) VALUES ('extra','file',6)",
-        "inventory-content": "UPDATE cba_inventory SET size=5 WHERE unit='d/assets'",
-        "missing-decision": "DELETE FROM cba_coverage WHERE unit='d/assets' AND phase='surface'",
-        "invalid-decision": "UPDATE cba_coverage SET state='skipped' WHERE unit='d/assets'",
+        "inventory-missing": "DELETE FROM cba_inventory WHERE unit='/firmware/6:target:d/assets'",
+        "inventory-extra": "INSERT INTO cba_inventory(unit,kind,size) VALUES ('/firmware/6:target:extra','file',6)",
+        "inventory-content": "UPDATE cba_inventory SET size=5 WHERE unit='/firmware/6:target:d/assets'",
+        "missing-decision": "DELETE FROM cba_coverage WHERE unit='/firmware/6:target:d/assets' AND phase='surface'",
+        "invalid-decision": "UPDATE cba_coverage SET state='skipped' WHERE unit='/firmware/6:target:d/assets'",
         "empty-manifest": "DELETE FROM cba_firmware_files",
         "run-count": "UPDATE cba_surface_runs SET unit_count=3",
         "run-status": "UPDATE cba_surface_runs SET status='bogus'"}
@@ -151,7 +151,7 @@ def test_refused_prerequisites_preserve_status_and_timestamp(complete_run, damag
 @pytest.mark.parametrize("reason", ["budget", " \tbudget\n", "\u2003budget\u00a0"])
 def test_budget_skips_cannot_hide_in_whitespace(complete_run, reason):
     con = complete_run[0]
-    con.execute("UPDATE cba_coverage SET state='not_audited',reason=? WHERE unit='d/assets'", (reason,))
+    con.execute("UPDATE cba_coverage SET state='not_audited',reason=? WHERE unit='/firmware/6:target:d/assets'", (reason,))
     con.commit()
     refuses_unchanged(con)
 
@@ -159,7 +159,7 @@ def test_budget_skips_cannot_hide_in_whitespace(complete_run, reason):
 @pytest.mark.parametrize("reason", [None, "", " \t\n", "guess"])
 def test_not_audited_needs_a_legal_reason(complete_run, reason):
     con = complete_run[0]
-    con.execute("UPDATE cba_coverage SET state='not_audited',reason=? WHERE unit='d/assets'", (reason,))
+    con.execute("UPDATE cba_coverage SET state='not_audited',reason=? WHERE unit='/firmware/6:target:d/assets'", (reason,))
     con.commit()
     refuses_unchanged(con)
 
@@ -255,7 +255,7 @@ def test_artifact_integrity_and_sql_claim_binding_refuse(complete_run, damage):
         # detect the deleted resolved question while its surface remains.
         con.execute("DELETE FROM cba_unknowns WHERE id='http-posture'")
     else:
-        con.execute("UPDATE cba_coverage SET reason='Different unsupported explanation' WHERE unit='a/config.conf'")
+        con.execute("UPDATE cba_coverage SET reason='Different unsupported explanation' WHERE unit='/firmware/6:target:a/config.conf'")
     con.commit()
     refuses_unchanged(con, match="Stored unknowns differ" if damage == "missing-unknown" else None)
 
@@ -325,14 +325,14 @@ def test_hash_consistent_result_artifact_must_still_be_canonical(complete_run):
 
 def test_coverage_reason_cannot_be_a_sqlite_blob(complete_run):
     con = complete_run[0]
-    con.execute("UPDATE cba_coverage SET reason=? WHERE unit='d/assets'", (b"generated",))
+    con.execute("UPDATE cba_coverage SET reason=? WHERE unit='/firmware/6:target:d/assets'", (b"generated",))
     con.commit()
     refuses_unchanged(con)
 
 
 def test_a_not_audited_unit_cannot_publish_a_surface(complete_run):
     con = complete_run[0]
-    con.execute("UPDATE cba_coverage SET state='not_audited',reason='generated' WHERE unit='b/http'")
+    con.execute("UPDATE cba_coverage SET state='not_audited',reason='generated' WHERE unit='/firmware/6:target:b/http'")
     con.commit()
     refuses_unchanged(con)
 
@@ -350,7 +350,7 @@ def test_full_201_unit_denominator_is_counted_and_last_gap_refuses(tmp_path):
         assert dataclasses.asdict(surface.check(con)) == {"image_id": "target", "manifest_units": 201,
             "analyzed": 201, "not_audited": 0, "surfaces": 0, "open_unknowns": 0,
             "resolved_unknowns": 0, "complete": True}
-        con.execute("DELETE FROM cba_coverage WHERE unit='unit-200' AND phase='surface'")
+        con.execute("DELETE FROM cba_coverage WHERE unit='/firmware/6:target:unit-200' AND phase='surface'")
         con.commit()
         refuses_unchanged(con)
     finally:
@@ -368,7 +368,7 @@ def test_deleting_a_batchs_final_claims_cannot_leave_certified_coverage(complete
     con.commit()
     if remove_artifact:
         artifacts[0].unlink()
-    assert tuple(con.execute("SELECT state,reason FROM cba_coverage WHERE unit='b/http'").fetchone()) == ("analyzed", None)
+    assert tuple(con.execute("SELECT state,reason FROM cba_coverage WHERE unit='/firmware/6:target:b/http'").fetchone()) == ("analyzed", None)
     refuses_unchanged(con, match="No matching current surface result artifact for batch batch-0001.json")
 
 
@@ -388,7 +388,7 @@ def test_coverage_without_any_result_directory_cannot_complete(tmp_path):
     con, run, root = make_run(tmp_path, ["unit-000"])
     try:
         surface.prepare(con, run, root)
-        db.put(con, "cba_coverage", {"unit": "unit-000", "phase": "surface", "state": "analyzed",
+        db.put(con, "cba_coverage", {"unit": "/firmware/6:target:unit-000", "phase": "surface", "state": "analyzed",
                                   "reason": "No dispatch surface in this file."})
         assert not (run / "artifacts/surface").exists()
         refuses_unchanged(con)
@@ -566,7 +566,7 @@ def test_concurrent_inputs_are_revalidated_under_the_publication_lock(complete_r
             if sql == "BEGIN IMMEDIATE":
                 with db.connect(run / "audit.db") as other:
                     if change == "gap":
-                        other.execute("DELETE FROM cba_coverage WHERE unit='d/assets' AND phase='surface'")
+                        other.execute("DELETE FROM cba_coverage WHERE unit='/firmware/6:target:d/assets' AND phase='surface'")
                     else:
                         other.execute("UPDATE cba_surface_runs SET prepared_at='concurrent-generation'")
                     other.commit()
@@ -583,3 +583,293 @@ def test_concurrent_inputs_are_revalidated_under_the_publication_lock(complete_r
         assert not racing.in_transaction
     finally:
         racing.close()
+
+
+def scoped_key(image_id, path):
+    # Independent literal oracle: lengths count Python Unicode characters.
+    return f"/firmware/{len(image_id)}:{image_id}:{path}"
+
+
+def test_firmware_unit_keys_are_unambiguous_with_validator_accepted_delimiters():
+    # Breaks: joining identifiers/paths without framing or normalizing their text.
+    image_ids = ["a", "a:b", "a|b|target", "3:a", "/firmware/", "雪", 'a"b', "a\nb", "a%_b"]
+    paths = ["shared", "b:shared", "3:a:shared", "a|b|target", "firmware/1:a:shared", "雪", 'a"b', "a\nb", "a%_b"]
+    keys = set()
+    for image_id in image_ids:
+        for path in paths:
+            # These values really pass the existing image/manifest validators.
+            db.TABLE_SPECS["cba_images"].validate({"role": "target"})
+            surface.canonical_manifest([{"path": path, "kind": "file", "size": 1, "sha256": "a" * 64}])
+            key = db.firmware_unit_key(image_id, path)
+            assert key == scoped_key(image_id, path)
+            assert key not in keys and key not in paths
+            keys.add(key)
+            framed = key.removeprefix("/firmware/")
+            count, value = framed.split(":", 1)
+            assert (value[:int(count)], value[int(count) + 1:]) == (image_id, path)
+    assert db.firmware_unit_key(db.FIRMWARE_IMAGE_UNSCOPED, "shared") == "shared"
+
+
+@pytest.fixture
+def overlapping_targets(tmp_path):
+    run = workspace.init_run(tmp_path / "project", timestamp="20261016-000000")
+    con = db.connect(run / "audit.db")
+    targets = []
+    for model, content in (("a", b"aaaa"), ("b", b"bbbb")):
+        root = tmp_path / model
+        root.mkdir()
+        (root / "shared").write_bytes(content)
+        (root / "settings").write_bytes(b"same")
+        image = tmp_path / f"{model}.bin"
+        image.write_bytes(content)
+        args = dict(vendor="acme", model=model, version="1", role="target", path=image, source="local")
+        image_id = acquire.record(con, **args).id
+        triage.run(con, root, image_id=image_id, allow_no_elf=True)
+        targets.append((image_id, root, args))
+    yield con, run, targets
+    con.close()
+
+
+def import_target(con, run, summary, *, skip=False, replace=False):
+    index = json.loads(pathlib.Path(summary.worklist_path).read_bytes())
+    for descriptor in index["batches"]:
+        batch = json.loads(pathlib.Path(summary.worklist_path).with_name(descriptor["path"]).read_bytes())
+        decisions = [{"path": unit["path"], "state": "analyzed", "reason": "No dispatch in this file.",
+                      "surfaces": [], "unknowns": []} for unit in batch["units"]]
+        for decision in decisions:
+            if decision["path"] == "shared":
+                if skip:
+                    decision.update(state="not_audited", reason=skip if isinstance(skip, str) else "generated")
+                else:
+                    decision.update(reason=None, surfaces=[handler("shared", "http")],
+                        unknowns=[question("shared", summary.image_id.replace("|", "-") + "-posture", "http", "resolved")])
+        payload = {"schema_version": 1, "image_id": summary.image_id,
+            "manifest_sha256": summary.manifest_sha256, "worklist_sha256": summary.worklist_sha256,
+            "batch_path": descriptor["path"], "batch_sha256": descriptor["sha256"], "decisions": decisions}
+        path = run / "overlap-result.json"
+        path.write_text(json.dumps(payload))
+        surface_results.record(con, run, path, replace=replace)
+
+
+def prepare_targets(overlapping_targets):
+    con, run, targets = overlapping_targets
+    return [surface.prepare(con, run, root, image_id=image_id)
+            for image_id, root, _ in targets]
+
+
+def other_image_snapshot(con, image_id):
+    """Full rows and timestamps for everything outside one image's ownership."""
+    result = snapshot(con)
+    for table in ("cba_images", "cba_firmware_files", "cba_binfacts", "cba_services",
+                  "cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
+        column = db.TABLE_SPECS[table].columns.index("id" if table == "cba_images" else "image_id")
+        result[table] = [row for row in result[table] if row[column] != image_id]
+    for table in ("cba_inventory", "cba_coverage"):
+        result[table] = [row for row in result[table] if not row[0].startswith(scoped_key(image_id, ""))]
+    return result
+
+
+def test_explicit_triage_owns_qualified_inventory_and_retains_raw_manifest(overlapping_targets):
+    # Breaks: global path upserts collapse two image inventories into one.
+    con, _, targets = overlapping_targets
+    assert {row[0] for row in con.execute("SELECT unit FROM cba_inventory")} == {
+        scoped_key(image_id, path) for image_id, _, _ in targets for path in ("shared", "settings")}
+    manifests = [tuple(row) for row in con.execute(
+        "SELECT image_id,path,kind,size,sha256 FROM cba_firmware_files WHERE path='shared' ORDER BY image_id")]
+    assert [row[1:4] for row in manifests] == [("shared", "file", 4)] * 2
+    assert manifests[0][4] != manifests[1][4]
+    sibling = other_image_snapshot(con, targets[0][0])
+    triage.run(con, targets[0][1], image_id=targets[0][0], allow_no_elf=True)
+    assert other_image_snapshot(con, targets[0][0]) == sibling
+
+
+@pytest.mark.parametrize("different", [False, True])
+def test_overlapping_first_import_replace_and_gate_are_image_owned(overlapping_targets, different):
+    # Breaks: duplicate/refusal, replace, gate decision matching or totals use raw keys.
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    first, second = (target[0] for target in targets)
+    import_target(con, run, summaries[0])
+    surface.check(con, image_id=first)
+    before = other_image_snapshot(con, second)
+    import_target(con, run, summaries[1], skip=different)
+    assert other_image_snapshot(con, second) == before
+    checked = surface.check(con, image_id=second)
+    assert (checked.manifest_units, checked.analyzed, checked.not_audited) == (2, 1 if different else 2, int(different))
+    sibling = other_image_snapshot(con, second)
+    import_target(con, run, summaries[1], skip=not different, replace=True)
+    assert other_image_snapshot(con, second) == sibling
+    assert surface.check(con, image_id=first).analyzed == 2
+    assert surface.check(con, image_id=second).analyzed == (2 if different else 1)
+    before = snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="replace"):
+        import_target(con, run, summaries[1])
+    assert snapshot(con) == before
+    # A sibling's identical decision cannot conceal deleted selected coverage.
+    con.execute("DELETE FROM cba_coverage WHERE unit=? AND phase='surface'", (scoped_key(first, "shared"),))
+    con.commit()
+    refuses_unchanged(con, image_id=first, match="Missing surface coverage")
+    assert surface.check(con, image_id=second).complete
+
+
+@pytest.mark.parametrize("change", ["batch-size", "hint"])
+def test_reprepare_preserves_overlapping_complete_sibling(overlapping_targets, change):
+    # Breaks: worklist invalidation deletes sibling coverage on the same raw paths.
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    for summary in summaries:
+        import_target(con, run, summary)
+        surface.check(con, image_id=summary.image_id)
+    selected, root, _ = targets[1]
+    if change == "hint":
+        db.put(con, "cba_services", {"image_id": selected, "name": "service", "start_source": "settings",
+               "exec_path": "shared", "evidence": "settings starts shared"})
+    before = other_image_snapshot(con, selected)
+    new = surface.prepare(con, run, root, image_id=selected, batch_size=1 if change == "batch-size" else 50)
+    assert new.manifest_sha256 == summaries[1].manifest_sha256
+    assert new.worklist_sha256 != summaries[1].worklist_sha256
+    assert other_image_snapshot(con, selected) == before
+    assert not [row for row in con.execute("SELECT unit FROM cba_coverage WHERE phase='surface'")
+                if row[0].startswith(scoped_key(selected, ""))]
+    assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs WHERE image_id=?", (selected,)).fetchone()) == ("pending", None)
+    assert surface.check(con, image_id=targets[0][0]).complete
+
+
+@pytest.mark.parametrize("change", ["hash", "version"])
+def test_changed_acquisition_preserves_overlapping_complete_sibling(overlapping_targets, change):
+    # Breaks: acquisition's raw manifest subquery deletes another image's decisions.
+    con, run, targets = overlapping_targets
+    for summary in prepare_targets(overlapping_targets):
+        import_target(con, run, summary)
+        surface.check(con, image_id=summary.image_id)
+    selected, _, args = targets[1]
+    before = other_image_snapshot(con, selected)
+    inventory = snapshot(con)["cba_inventory"]
+    if change == "hash":
+        args["path"].write_bytes(b"new acquisition")
+    else:
+        args["version"] = "2"
+    acquire.record(con, **args, replace=True)
+    assert other_image_snapshot(con, selected) == before
+    assert snapshot(con)["cba_inventory"] == inventory
+    for table in ("cba_firmware_files", "cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
+        assert not con.execute(f"SELECT 1 FROM {table} WHERE image_id=?", (selected,)).fetchone()
+    assert not con.execute("SELECT 1 FROM cba_coverage WHERE unit=? AND phase='surface'", (scoped_key(selected, "shared"),)).fetchone()
+    assert surface.check(con, image_id=targets[0][0]).complete
+
+
+@pytest.mark.parametrize("action", ["prepare", "acquire", "replace", "retriage"])
+def test_overlapping_publication_failure_rolls_back_every_table(overlapping_targets, action):
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    for summary in summaries:
+        import_target(con, run, summary)
+        surface.check(con, image_id=summary.image_id)
+    selected, root, args = targets[1]
+    before = snapshot(con)
+    table = "cba_inventory" if action == "retriage" else "cba_coverage"
+    operation = "INSERT" if action in ("replace", "retriage") else "DELETE"
+    con.execute(f"CREATE TRIGGER fail_overlap BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT,'overlap rollback'); END")
+    con.commit()
+    with pytest.raises((surface.SurfaceError, triage.TriageError, sqlite3.Error), match="overlap rollback"):
+        if action == "prepare":
+            surface.prepare(con, run, root, image_id=selected, batch_size=1)
+        elif action == "acquire":
+            acquire.record(con, **(args | {"version": "2"}), replace=True)
+        elif action == "replace":
+            import_target(con, run, summaries[1], skip=True, replace=True)
+        else:
+            triage.run(con, root, image_id=selected, allow_no_elf=True)
+    assert snapshot(con) == before
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("damage", ["missing", "metadata", "extra"])
+def test_inventory_agreement_requires_selected_image_not_raw_or_sibling_mirror(overlapping_targets, damage):
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    first, root, _ = targets[0]
+    # A valid raw legacy mirror must never repair selected-image damage.
+    db.put(con, "cba_inventory", {"unit": "shared", "kind": "file", "size": "4"})
+    if damage == "missing":
+        con.execute("DELETE FROM cba_inventory WHERE unit=?", (scoped_key(first, "shared"),))
+    elif damage == "metadata":
+        con.execute("UPDATE cba_inventory SET size=5 WHERE unit=?", (scoped_key(first, "shared"),))
+    else:
+        db.put(con, "cba_inventory", {"unit": scoped_key(first, "extra"), "kind": "file", "size": "4"})
+    con.commit()
+    before = snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="inventory"):
+        surface.prepare(con, run, root, image_id=first)
+    assert snapshot(con) == before
+    assert surface.prepare(con, run, targets[1][1], image_id=targets[1][0]) == summaries[1]
+
+
+def test_overlapping_inventory_metadata_is_selected_per_image(overlapping_targets):
+    con, run, targets = overlapping_targets
+    first, root_a, _ = targets[0]
+    second, root_b, _ = targets[1]
+    before = other_image_snapshot(con, second)
+    (root_b / "shared").write_bytes(b"#!/bin/sh\nexit 0\n")
+    triage.run(con, root_b, image_id=second, allow_no_elf=True)
+    assert other_image_snapshot(con, second) == before
+    summary_a = surface.prepare(con, run, root_a, image_id=first)
+    summary_b = surface.prepare(con, run, root_b, image_id=second)
+    for summary, expected in ((summary_a, ("file", 4)), (summary_b, ("script", 17))):
+        batch = json.loads(pathlib.Path(summary.worklist_path).with_name("batch-0001.json").read_bytes())
+        unit = next(unit for unit in batch["units"] if unit["path"] == "shared")
+        assert (unit["kind"], unit["size"]) == expected
+        import_target(con, run, summary)
+        assert surface.check(con, image_id=summary.image_id).complete
+
+
+def test_qualified_decisions_retain_generic_budget_and_non_surface_accounting(overlapping_targets):
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    import_target(con, run, summaries[0], skip=" \tbudget\n")
+    import_target(con, run, summaries[1])
+    first = targets[0][0]
+    db.put(con, "cba_inventory", {"unit": "shared", "kind": "file"})
+    coverage.record(con, units=["shared"], phase="audit", state="analyzed")
+    report = coverage.report(con, "surface")
+    assert (report.inventoried, report.analyzed, report.not_audited, report.unrecorded, report.budget_skips) == (5, 3, 1, 1, 1)
+    assert not coverage.gate(report).ok
+    legacy = coverage.report(con, "audit")
+    assert (legacy.analyzed, legacy.budget_skips) == (1, 0)
+    refuses_unchanged(con, image_id=first, match="budget")
+    assert surface.check(con, image_id=targets[1][0]).complete
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_ambiguous_old_raw_surface_coverage_is_refused_and_preserved(overlapping_targets, replace):
+    con, run, targets = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    db.put(con, "cba_coverage", {"unit": "shared", "phase": "surface", "state": "analyzed", "reason": "Old result"})
+    before = snapshot(con)
+    with pytest.raises(surface.SurfaceError, match="unqualified|legacy|ownership"):
+        import_target(con, run, summaries[0], replace=replace)
+    assert snapshot(con) == before
+    refuses_unchanged(con, image_id=targets[0][0], match="Missing surface coverage")
+    surface.prepare(con, run, targets[0][1], image_id=targets[0][0], batch_size=1)
+    acquire.record(con, **(targets[0][2] | {"version": "2"}), replace=True)
+    assert snapshot(con)["cba_coverage"] == before["cba_coverage"]
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_unqualified_row_arriving_during_install_cannot_be_claimed(overlapping_targets, monkeypatch, replace):
+    con, run, _ = overlapping_targets
+    summaries = prepare_targets(overlapping_targets)
+    if replace:
+        import_target(con, run, summaries[0])
+    original = surface.atomic_install
+    concurrent = {}
+    def install_with_legacy_row(destination, files):
+        original(destination, files)
+        with db.connect(run / "audit.db") as other:
+            db.put(other, "cba_coverage", {"unit": "shared", "phase": "surface", "state": "analyzed"})
+            concurrent.update(snapshot(other))
+    monkeypatch.setattr(surface, "atomic_install", install_with_legacy_row)
+    with pytest.raises(surface.SurfaceError, match="Unqualified"):
+        import_target(con, run, summaries[0], skip=True, replace=replace)
+    assert snapshot(con) == concurrent
+    assert not con.in_transaction

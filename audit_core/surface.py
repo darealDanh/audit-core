@@ -140,9 +140,12 @@ def _manifest(con: sqlite3.Connection, image_id: str) -> list[dict[str, object]]
     return rows
 
 
-def _inventory_agreement(con: sqlite3.Connection, manifest: list[dict[str, object]]) -> None:
-    stored = {row["unit"]: (row["kind"], row["size"]) for row in
-              _query(con, "SELECT unit,kind,size FROM cba_inventory")}
+def _inventory_agreement(con: sqlite3.Connection, image_id: str,
+                         manifest: list[dict[str, object]]) -> None:
+    prefix = db.firmware_unit_key(image_id, "")
+    stored = {row["unit"][len(prefix):]: (row["kind"], row["size"]) for row in
+              _query(con, "SELECT unit,kind,size FROM cba_inventory")
+              if row["unit"].startswith(prefix)}
     expected = {row["path"]: (row["kind"], row["size"]) for row in manifest}
     differing = sorted(path for path in stored.keys() | expected.keys()
                        if stored.get(path) != expected.get(path))
@@ -269,7 +272,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
     try:
         selected = _resolve_target(_query(con, "SELECT id,role FROM cba_images"), image_id)
         manifest = _manifest(con, selected)
-        _inventory_agreement(con, manifest)
+        _inventory_agreement(con, selected, manifest)
         _root_agreement(root, manifest)
         digest = manifest_sha256(manifest)
         units = _units(con, selected, manifest)
@@ -291,7 +294,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
                 _manifest(con, selected) != manifest or _units(con, selected, manifest) != units or
                 _query(con, "SELECT * FROM cba_surface_runs WHERE image_id=?", (selected,)) != prior_rows):
             raise SurfaceError("Surface preparation inputs changed before publication")
-        _inventory_agreement(con, manifest)
+        _inventory_agreement(con, selected, manifest)
         _root_agreement(root, manifest)
         if same:
             con.commit()
@@ -300,7 +303,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
             con.execute("DELETE FROM cba_firmware_surfaces WHERE image_id=?", (selected,))
             con.execute("DELETE FROM cba_unknowns WHERE image_id=?", (selected,))
             con.executemany("DELETE FROM cba_coverage WHERE phase='surface' AND unit=?",
-                            [(unit,) for unit in prior_units])
+                            [(db.firmware_unit_key(selected, unit),) for unit in prior_units])
         con.execute("DELETE FROM cba_surface_runs WHERE image_id=?", (selected,))
         db.put(con, "cba_surface_runs", {
             **{key: str(value) for key, value in dataclasses.asdict(summary).items()},
@@ -432,13 +435,14 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None
     run = runs[0]
     db.TABLE_SPECS["cba_surface_runs"].validate(run)
     manifest = _manifest(con, selected)
-    _inventory_agreement(con, manifest)
+    _inventory_agreement(con, selected, manifest)
     if run["manifest_sha256"] != manifest_sha256(manifest):
         raise SurfaceError("Current and prepared surface manifest provenance differs")
     run_dir, batches = _checked_worklist(con, run, manifest)
     paths = {str(unit["path"]) for unit in manifest}
-    coverage = {str(row["unit"]): row for row in _query(con,
-        "SELECT * FROM cba_coverage WHERE phase='surface'") if row["unit"] in paths}
+    keys = {db.firmware_unit_key(selected, path): path for path in paths}
+    coverage = {keys[row["unit"]]: row | {"unit": keys[row["unit"]]} for row in _query(con,
+        "SELECT * FROM cba_coverage WHERE phase='surface'") if row["unit"] in keys}
     if set(coverage) != paths:
         missing = sorted(paths - coverage.keys())[0]
         raise SurfaceError(f"Missing surface coverage decision for {missing}")
