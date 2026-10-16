@@ -8,7 +8,7 @@ import sys
 import pytest
 
 import audit
-from audit_core import db, workspace
+from audit_core import db, surface, workspace
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -245,8 +245,9 @@ def test_missing_or_corrupt_database_is_a_named_db_error(tmp_path, mode):
     run.mkdir()
     (run / "audit.db").write_bytes(b"not a SQLite database")
     result = run_cli("surface", "--run", run, *flags)
-    assert_error(result, "not a readable SQLite database")
-    assert "DatabaseError" not in result.stderr
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "surface: database operation failed\n"
 
 
 @pytest.mark.parametrize("mode", ["prepare", "record", "check"])
@@ -256,8 +257,8 @@ def test_read_side_sqlite_failures_are_translated_at_the_module_boundary(target_
     summary = prepare(run, root)
     result_path = write_result(run, summary)
     original = audit._open_db
-    def denied_read(path):
-        con = original(path)
+    def denied_read(path, **kwargs):
+        con = original(path, **kwargs)
         con.set_authorizer(lambda action, name, column, database, source:
             sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and name == "cba_images" else sqlite3.SQLITE_OK)
         return con
@@ -266,8 +267,75 @@ def test_read_side_sqlite_failures_are_translated_at_the_module_boundary(target_
     assert audit.main(["surface", "--run", str(run), *flags]) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "Cannot" in output.err and "surface" in output.err
-    assert "Traceback" not in output.err and "sqlite3." not in output.err
+    assert output.err == "surface: database operation failed\n"
+
+
+@pytest.mark.parametrize("error_type", [surface.SurfaceError, db.DbError])
+@pytest.mark.parametrize("chain", ["cause", "context", "nested", "both", "cycle"])
+def test_sql_causes_are_sanitized_through_every_wrapper_and_connection_closes(
+        target_run, monkeypatch, capsys, error_type, chain):
+    # A wrapper's driver details must not escape even behind mixed/cyclic links.
+    run, root = target_run
+    with sqlite3.connect(":memory:") as scratch:
+        try:
+            scratch.execute("SELECT private_column FROM private_sql_identifier")
+        except sqlite3.Error as sql_error:
+            driver_error = sql_error
+    failure = error_type("Surface wrapper: " + str(driver_error))
+    if chain == "cause":
+        failure.__cause__ = driver_error
+    elif chain == "context":
+        failure.__context__ = driver_error
+    elif chain == "nested":
+        middle = RuntimeError("intermediate: " + str(driver_error))
+        middle.__context__ = driver_error
+        failure.__cause__ = middle
+    elif chain == "both":
+        failure.__cause__ = ValueError("unrelated explicit cause")
+        failure.__context__ = driver_error
+    else:
+        middle = RuntimeError("intermediate cyclic wrapper")
+        failure.__cause__ = middle
+        middle.__cause__ = failure
+        middle.__context__ = driver_error
+    opened = []
+    original = audit._open_db
+    def capture_connection(path, **kwargs):
+        con = original(path, **kwargs)
+        opened.append(con)
+        return con
+    def fail_prepare(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(audit, "_open_db", capture_connection)
+    monkeypatch.setattr(audit.surface_mod, "prepare", fail_prepare)
+    assert audit.main(["surface", "--run", str(run), "--root", str(root)]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "surface: database operation failed\n"
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")
+
+
+@pytest.mark.parametrize("error_type", [surface.SurfaceError, db.DbError])
+@pytest.mark.parametrize("chain", ["none", "nested", "cycle"])
+def test_non_sql_domain_errors_retain_their_informative_message(
+        target_run, monkeypatch, capsys, error_type, chain):
+    run, root = target_run
+    message = "Target private_sql_identifier needs an acquired image; no SQLite claim."
+    failure = error_type(message)
+    if chain != "none":
+        middle = ValueError("ordinary validation failure")
+        failure.__context__ = middle
+        if chain == "cycle":
+            middle.__cause__ = failure
+    def fail_prepare(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(audit.surface_mod, "prepare", fail_prepare)
+    assert audit.main(["surface", "--run", str(run), "--root", str(root)]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == message + "\n"
 
 
 @pytest.mark.parametrize("json_output", [False, True])

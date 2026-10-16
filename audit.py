@@ -404,6 +404,23 @@ def cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _surface_error_message(exc: BaseException) -> str:
+    """Keep SQL driver details out of the bounded surface CLI diagnostic."""
+    pending = [exc]
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, sqlite3.Error):
+            return "surface: database operation failed"
+        for linked in (current.__cause__, current.__context__):
+            if linked is not None:
+                pending.append(linked)
+    return str(exc)
+
+
 def cmd_surface(args: argparse.Namespace) -> int:
     preparing = args.record is None and not args.check
     if args.replace and args.record is None:
@@ -425,7 +442,7 @@ def cmd_surface(args: argparse.Namespace) -> int:
         return 1
 
     run_dir = pathlib.Path(args.run).expanduser()
-    con = _open_db(str(run_dir / "audit.db"))
+    con = _open_db(str(run_dir / "audit.db"), error_message=_surface_error_message)
     if con is None:
         return 1
     try:
@@ -440,7 +457,7 @@ def cmd_surface(args: argparse.Namespace) -> int:
         else:
             result = surface_mod.check(con, image_id=args.image_id)
     except (surface_mod.SurfaceError, db_mod.DbError) as exc:
-        print(str(exc), file=sys.stderr)
+        print(_surface_error_message(exc), file=sys.stderr)
         return 1
     finally:
         con.close()
@@ -639,11 +656,11 @@ def _parse_set(pairs: list[str]) -> dict[str, str] | None:
     return out
 
 
-def _open_db(path: str, read_only: bool = False):
+def _open_db(path: str, read_only: bool = False, *, error_message=str):
     try:
         return db_mod.connect(pathlib.Path(path).expanduser(), read_only=read_only)
     except db_mod.DbError as exc:
-        print(str(exc), file=sys.stderr)
+        print(error_message(exc), file=sys.stderr)
         return None
 
 
