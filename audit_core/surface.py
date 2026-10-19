@@ -449,7 +449,8 @@ def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapp
 
 
 def _check_inputs(con: sqlite3.Connection, image_id: str | None,
-                  expected_run_dir: str | pathlib.Path | None = None, *, require_complete: bool = False
+                  expected_run_dir: str | pathlib.Path | None = None, *, require_complete: bool = False,
+                  completed_snapshot: bool = False
                   ) -> tuple[SurfaceCheck, dict[str, object], SurfaceSnapshot]:
     """Read the uncapped denominator and reject inconsistent current claims."""
     from audit_core import surface_results as results
@@ -512,10 +513,15 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None,
     evidence = _checked_artifacts(con, run_dir, run, batches, coverage, surfaces, unknowns)
     # Length framing makes the boundaries explicit. Timestamps and host roots
     # are deliberately absent; canonical artifact paths are relative to RUN.
+    identity = {key: run[key] for key in ("image_id", "manifest_sha256", "worklist_sha256",
+                                        "unit_count", "batch_count", "status")}
+    if completed_snapshot:
+        # Compare evidence against existing hunts while an identical surface
+        # replacement awaits recheck; this changes only the hashed identity.
+        identity["status"] = "complete"
     digest = hashlib.sha256()
     for value in (
-            {key: run[key] for key in ("image_id", "manifest_sha256", "worklist_sha256",
-                                       "unit_count", "batch_count", "status")},
+            identity,
             [{key: (pathlib.Path(str(value)).absolute().relative_to(run_dir.absolute()).as_posix()
                     if key == "artifact_path" else value)
               for key, value in row.items() if key != "recorded_at"}

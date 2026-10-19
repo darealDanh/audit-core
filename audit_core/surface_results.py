@@ -366,8 +366,8 @@ def _refuse_unqualified(con: sqlite3.Connection, validated: ValidatedBatch) -> N
 
 
 def _same_publication(con: sqlite3.Connection, validated: ValidatedBatch,
-                      provenance: dict[str, str]) -> bool:
-    """Compare the actual owned rows, including evidence and clear-unit decisions."""
+                      provenance: dict[str, str], run_dir: pathlib.Path) -> bool:
+    """Require identical rows and the canonical evidence bound by surviving hunts."""
     for decision in validated.result.decisions:
         for table, records in (("cba_firmware_surfaces", decision.surfaces),
                                ("cba_unknowns", decision.unknowns)):
@@ -383,7 +383,14 @@ def _same_publication(con: sqlite3.Connection, validated: ValidatedBatch,
                                (db.firmware_unit_key(validated.result.image_id, decision.path),)).fetchone()
         if coverage is None or tuple(coverage) != (decision.state, reason):
             return False
-    return True
+    snapshots = {row["surface_snapshot_sha256"] for row in con.execute(
+        "SELECT surface_snapshot_sha256 FROM cba_hunt_runs WHERE image_id=?",
+        (validated.result.image_id,))}
+    if not snapshots:
+        return False
+    bound = surface._check_inputs(con, validated.result.image_id, run_dir,
+                                  completed_snapshot=True)[2]
+    return snapshots == {bound.snapshot_sha256}
 
 
 def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
@@ -401,10 +408,6 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         digest = hashlib.sha256(content).hexdigest()
         destination = run_dir / "artifacts/surface" / digest
         artifact_path = str(destination / "result.json")
-        # Claim-free results have no SQL artifact pointer. A newly installed
-        # canonical artifact changes verified snapshot evidence even when its
-        # decisions project to the same coverage rows as an older artifact.
-        artifact_existed = destination.exists()
         surface.atomic_install(destination, {"result.json": content})
     except (OSError, sqlite3.Error) as exc:
         raise SurfaceError(f"Cannot install surface result: {exc}") from exc
@@ -420,7 +423,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         _refuse_unqualified(con, validated)
         provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
                       "artifact_sha256": digest}
-        same = replace and artifact_existed and _same_publication(con, validated, provenance)
+        same = replace and _same_publication(con, validated, provenance, run_dir)
         if not replace:
             _refuse_existing(con, validated)
         else:

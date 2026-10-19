@@ -631,7 +631,7 @@ def test_surface_replacement_invalidates_hunts_only_when_durable_evidence_change
     record_payload(prepared, sibling_payload(prepared))
     surface.check(con, image_id="target")
     add_target(con, run, run.parent / "other-root", ["usr/httpd"], image_id="other")
-    seed_hunt_state(con, "target")
+    seed_hunt_state(con, "target", snapshot_sha256=surface.verified_snapshot(con, run, image_id="target").snapshot_sha256)
     seed_hunt_state(con, "other")
     if change == "damaged-row":
         con.execute("UPDATE cba_firmware_surfaces SET handler='corrupt' WHERE image_id='target' AND surface_id='http-status'")

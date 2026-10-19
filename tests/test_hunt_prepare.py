@@ -81,13 +81,13 @@ def seed_claims(con, summary):
     con.commit()
 
 
-def seed_hunt_state(con, image_id):
+def seed_hunt_state(con, image_id, *, snapshot_sha256="b" * 64):
     """Seed complete durable lanes, including claims for removed manifest paths."""
     lanes = tuple(hunt.LanePreparation(lane, "c" * 64, 2, 1, "retained/index.json")
                   for lane in db.HUNT_LANES)
     for lane in lanes:
         db.put(con, "cba_hunt_runs", {"image_id": image_id, "lane": lane.lane,
-            "manifest_sha256": "a" * 64, "surface_snapshot_sha256": "b" * 64,
+            "manifest_sha256": "a" * 64, "surface_snapshot_sha256": snapshot_sha256,
             "worklist_path": lane.worklist_path, "worklist_sha256": lane.worklist_sha256,
             "unit_count": 2, "batch_count": 1, "status": "pending"})
     seed_claims(con, hunt.PreparationSummary(image_id, "a" * 64, "b" * 64, "generation", lanes))
@@ -169,7 +169,7 @@ def test_surface_publication_refuses_ambiguous_hunt_coverage_with_full_rollback(
     assert not con.in_transaction
 
 
-@pytest.mark.parametrize("replacement", ["identical", "canonical-identical", "reversed-decisions"])
+@pytest.mark.parametrize("replacement", ["identical", "canonical-identical", "reversed-decisions", "failed-reordered-retry"])
 def test_claim_free_surface_artifact_changes_invalidate_real_completed_hunts(ready, replacement):
     # Breaks: treating equal SQL projections as equal canonical snapshot evidence.
     from tests.test_hunt_gate import fill
@@ -187,13 +187,24 @@ def test_claim_free_surface_artifact_changes_invalidate_real_completed_hunts(rea
     if replacement == "identical":
         result.write_bytes(original.read_bytes())
     else:
-        if replacement == "reversed-decisions":
+        if replacement in ("reversed-decisions", "failed-reordered-retry"):
             payload["decisions"].reverse()
         result.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     before = sql_state(con)
+    if replacement == "failed-reordered-retry":
+        con.execute("CREATE TRIGGER fail_surface_update BEFORE UPDATE ON cba_surface_runs "
+                    "BEGIN SELECT RAISE(FAIL, 'injected final update failure'); END")
+        con.commit()
+        with pytest.raises(surface.SurfaceError, match="final update failure"):
+            surface_results.record(con, run, result, replace=True)
+        assert sql_state(con) == before
+        assert not con.in_transaction
+        assert len(list((run / "artifacts/surface").glob("*/result.json"))) == 2
+        con.execute("DROP TRIGGER fail_surface_update")
+        con.commit()
     recorded = surface_results.record(con, run, result, replace=True)
     assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
-    if replacement == "reversed-decisions":
+    if replacement in ("reversed-decisions", "failed-reordered-retry"):
         assert pathlib.Path(recorded.artifact_path) != original
         assert_hunt_cleared_only(con, before, "target")
         surface.check(con)
@@ -204,6 +215,9 @@ def test_claim_free_surface_artifact_changes_invalidate_real_completed_hunts(rea
             hunt.check(con, run, root)
     else:
         assert pathlib.Path(recorded.artifact_path) == original
+        # Replacing again while surface is pending must preserve the same
+        # completed hunt identity until the explicit surface recheck.
+        surface_results.record(con, run, result, replace=True)
         for table in ("cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
             assert sql_state(con)[table] == before[table]
         surface.check(con)
