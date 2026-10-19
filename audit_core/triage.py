@@ -146,6 +146,25 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
     # mirrors. A write/commit failure must preserve any prior triage generation.
     try:
         con.execute("BEGIN")
+        if mirror_inventory and effective_image_id != db.FIRMWARE_IMAGE_UNSCOPED:
+            previous = {row["path"]: (row["kind"], row["size"], row["sha256"])
+                        for row in con.execute(
+                            "SELECT path,kind,size,sha256 FROM cba_firmware_files WHERE image_id=?",
+                            (effective_image_id,))}
+            # Triage is upsert-only: absent old paths remain durable. Invalidate
+            # only when the rows this publication actually writes change identity.
+            if any(previous.get(row["path"]) != (row["kind"], int(row["size"]), row["sha256"])
+                   for _, row in prepared):
+                from audit_core import hunt
+
+                hunt.invalidate(con, effective_image_id)
+                for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_surface_runs"):
+                    con.execute(f"DELETE FROM {table} WHERE image_id=?", (effective_image_id,))
+                prefix = db.firmware_unit_key(effective_image_id, "")
+                keys = [(row["unit"],) for row in con.execute(
+                    "SELECT unit FROM cba_coverage WHERE phase='surface'")
+                    if row["unit"].startswith(prefix)]
+                con.executemany("DELETE FROM cba_coverage WHERE phase='surface' AND unit=?", keys)
         for facts, manifest in prepared:
             db.put(con, "cba_firmware_files", manifest, replace=True, commit=False)
             if mirror_inventory:

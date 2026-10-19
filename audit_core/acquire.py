@@ -66,6 +66,12 @@ def record(con: sqlite3.Connection, *, vendor: str, model: str, version: str,
             # its qualified coverage units from the old manifest before
             # deleting it. Never infer ownership of old unqualified rows.
             if role == "target":
+                from audit_core import hunt
+
+                try:
+                    hunt.invalidate(con, image_id)
+                except hunt.HuntError as exc:
+                    raise AcquireError(str(exc)) from exc
                 for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_surface_runs"):
                     con.execute(f"DELETE FROM {table} WHERE image_id = ?", (image_id,))
                 paths = con.execute("SELECT path FROM cba_firmware_files WHERE image_id = ?",

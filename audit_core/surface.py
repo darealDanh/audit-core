@@ -308,6 +308,12 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         if same:
             con.commit()
             return summary
+        from audit_core import hunt
+
+        try:
+            hunt.invalidate(con, selected)
+        except hunt.HuntError as exc:
+            raise SurfaceError(str(exc)) from exc
         if prior is not None:
             con.execute("DELETE FROM cba_firmware_surfaces WHERE image_id=?", (selected,))
             con.execute("DELETE FROM cba_unknowns WHERE image_id=?", (selected,))

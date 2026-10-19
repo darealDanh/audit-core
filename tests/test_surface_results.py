@@ -10,6 +10,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, surface, workspace
+from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
 HELLO = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
@@ -623,6 +624,53 @@ def test_all_units_imported_still_require_the_explicit_completion_gate(prepared)
     assert tuple(prepared[0].execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
 
 
+@pytest.mark.parametrize("change", ["same", "evidence", "coverage", "damaged-row"])
+def test_surface_replacement_invalidates_hunts_only_when_durable_evidence_changes(prepared, change):
+    con, run, payload, _, _ = prepared
+    record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    surface.check(con, image_id="target")
+    add_target(con, run, run.parent / "other-root", ["usr/httpd"], image_id="other")
+    seed_hunt_state(con, "target")
+    seed_hunt_state(con, "other")
+    if change == "damaged-row":
+        con.execute("UPDATE cba_firmware_surfaces SET handler='corrupt' WHERE image_id='target' AND surface_id='http-status'")
+        con.commit()
+    before = sql_state(con)
+    changed = copy.deepcopy(payload)
+    if change == "evidence":
+        changed["decisions"][1]["surfaces"][0]["reach_evidence"] += "; verified ordering"
+    elif change == "coverage":
+        changed["decisions"][0]["reason"] = "Revised direct inspection of configuration."
+    record_payload(prepared, changed, replace=True)
+    if change == "same":
+        for table in ("cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
+            assert sql_state(con)[table] == before[table]
+        assert [row for row in sql_state(con)["cba_coverage"] if row[1].startswith("hunt-")] == [
+            row for row in before["cba_coverage"] if row[1].startswith("hunt-")]
+    else:
+        assert_hunt_cleared_only(con, before, "target")
+    assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs WHERE image_id='target'").fetchone()) == ("pending", None)
+
+
+def test_surface_result_hunt_failure_restores_all_prior_sql(prepared):
+    con = prepared[0]
+    record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    surface.check(con, image_id="target")
+    seed_hunt_state(con, "target")
+    before = sql_state(con)
+    changed = copy.deepcopy(prepared[2])
+    changed["decisions"][1]["surfaces"][0]["handler"] = "revised-handler"
+    con.execute("CREATE TRIGGER fail_hunt BEFORE DELETE ON cba_hunt_runs "
+                "BEGIN SELECT RAISE(FAIL, 'hunt delete failure'); END")
+    con.commit()
+    with pytest.raises(surface.SurfaceError, match="hunt delete failure"):
+        record_payload(prepared, changed, replace=True)
+    assert sql_state(con) == before
+    assert not con.in_transaction
+
+
 @pytest.mark.parametrize("existing", ["import", "surface", "unknown", "coverage"])
 def test_duplicate_refusal_preserves_entire_sql_generation(prepared, existing):
     # Breaks: duplicate checking coverage alone or deleting prior rows before refusing.
@@ -693,6 +741,7 @@ def test_failed_import_preserves_exact_prior_sql(prepared, monkeypatch, replace,
     record_payload(prepared, sibling_payload(prepared))
     if replace:
         record_payload(prepared)
+    seed_hunt_state(con, "target")
     completed(con)
     before = sql_snapshot(con)
     old_files = {p: p.read_bytes() for p in (run / "artifacts/surface").rglob("*.json")}
@@ -814,8 +863,10 @@ def test_unexpected_publication_exception_also_rolls_back_every_row(prepared, mo
         if table == "cba_unknowns":
             raise RuntimeError("injected unexpected error after write")
     monkeypatch.setattr(db, "put", fail_after_write)
+    changed = copy.deepcopy(prepared[2])
+    changed["decisions"][1]["surfaces"][0]["handler"] = "changed-handler"
     with pytest.raises(RuntimeError, match="unexpected"):
-        record_payload(prepared, replace=True)
+        record_payload(prepared, changed, replace=True)
     assert sql_snapshot(con) == before
     assert not con.in_transaction
 

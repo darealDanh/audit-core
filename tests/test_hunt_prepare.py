@@ -68,7 +68,7 @@ def seed_claims(con, summary):
             "worklist_sha256": lane.worklist_sha256, "batch_path": "batch-0001.json",
             "batch_sha256": "a" * 64, "result_path": "retained/result.json", "result_sha256": "b" * 64,
             "unit_count": "2", "candidate_count": "1"})
-        # Clear ownership is the behavior under test; no result importer exists yet.
+        # Seed durable claims directly so ownership tests are independent of import.
         values = {key: "retained evidence" for key in db.TABLE_SPECS["cba_hunt_candidates"].required}
         values.update(image_id=summary.image_id, lane=lane.lane, candidate_id="candidate", component_path="a",
             surface_ids="[]", blockers="[]", attacker_position="lan", lifecycle_required="provisioned",
@@ -79,6 +79,94 @@ def seed_claims(con, summary):
             db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(summary.image_id, path),
                 "phase": "hunt-" + lane.lane, "state": "analyzed"})
     con.commit()
+
+
+def seed_hunt_state(con, image_id):
+    """Seed complete durable lanes, including claims for removed manifest paths."""
+    lanes = tuple(hunt.LanePreparation(lane, "c" * 64, 2, 1, "retained/index.json")
+                  for lane in db.HUNT_LANES)
+    for lane in lanes:
+        db.put(con, "cba_hunt_runs", {"image_id": image_id, "lane": lane.lane,
+            "manifest_sha256": "a" * 64, "surface_snapshot_sha256": "b" * 64,
+            "worklist_path": lane.worklist_path, "worklist_sha256": lane.worklist_sha256,
+            "unit_count": 2, "batch_count": 1, "status": "pending"})
+    seed_claims(con, hunt.PreparationSummary(image_id, "a" * 64, "b" * 64, "generation", lanes))
+    db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(image_id, "a"),
+        "phase": "audit", "state": "analyzed"})
+
+
+def assert_hunt_cleared_only(con, before, image_id):
+    after = sql_state(con)
+    for table in ("cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
+        assert after[table] == [row for row in before[table] if row[0] != image_id]
+    prefix = db.firmware_unit_key(image_id, "")
+    assert [row for row in after["cba_coverage"] if not (row[0].startswith(prefix) and row[1] == "surface")] == [row for row in before["cba_coverage"]
+        if not (row[0].startswith(prefix) and row[1] in ("hunt-l-sink", "hunt-l-dark"))
+        and not (row[0].startswith(prefix) and row[1] == "surface")]
+    for table, column in (("cba_surface_runs", 0), ("cba_firmware_surfaces", 0), ("cba_unknowns", 1)):
+        assert [row for row in after[table] if row[column] != image_id] == [
+            row for row in before[table] if row[column] != image_id]
+
+
+@pytest.mark.parametrize("commit", [False, True])
+def test_public_invalidation_is_image_scoped_and_commit_is_opt_in(ready, commit):
+    con, run, root = ready
+    seed_hunt_state(con, "target")
+    add_target(con, run, root.parent / "other", ["a", "b"], image_id="a%_雪:other")
+    seed_hunt_state(con, "a%_雪:other")
+    before = sql_state(con)
+    hunt.invalidate(con, "target", commit=commit)
+    assert_hunt_cleared_only(con, before, "target")
+    for table in set(db.TABLE_SPECS) - {"cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates", "cba_coverage"}:
+        assert sql_state(con)[table] == before[table]
+    assert [row for row in sql_state(con)["cba_coverage"] if row[1] == "surface"] == [
+        row for row in before["cba_coverage"] if row[1] == "surface"]
+    assert con.in_transaction is not commit
+    if not commit:
+        con.rollback()
+        assert sql_state(con) == before
+
+
+def test_public_invalidation_refuses_raw_coverage_before_deleting(ready):
+    con, _, _ = ready
+    seed_hunt_state(con, "target")
+    db.put(con, "cba_coverage", {"unit": "a", "phase": "hunt-l-dark", "state": "analyzed"})
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="unqualified|legacy|ownership"):
+        hunt.invalidate(con, "target", commit=True)
+    assert sql_state(con) == before
+
+
+def test_public_invalidation_cannot_treat_legacy_scope_as_all_image_prefix(ready):
+    con, _, _ = ready
+    seed_hunt_state(con, "target")
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="legacy|unscoped|ownership"):
+        hunt.invalidate(con, db.FIRMWARE_IMAGE_UNSCOPED, commit=True)
+    assert sql_state(con) == before
+
+
+@pytest.mark.parametrize("operation", ["prepare", "record"])
+def test_surface_publication_refuses_ambiguous_hunt_coverage_with_full_rollback(ready, operation):
+    con, run, root = ready
+    seed_hunt_state(con, "target")
+    db.put(con, "cba_coverage", {"unit": "a", "phase": "hunt-l-dark", "state": "analyzed"})
+    before = sql_state(con)
+    with pytest.raises(surface.SurfaceError, match="legacy|ownership"):
+        if operation == "prepare":
+            surface.prepare(con, run, root, batch_size=1)
+        else:
+            prepared = dict(con.execute("SELECT * FROM cba_surface_runs WHERE image_id='target'").fetchone())
+            index = json.loads(pathlib.Path(prepared["worklist_path"]).read_bytes())
+            result = run / "changed-surface.json"
+            result.write_text(json.dumps({"schema_version": 1, "image_id": "target",
+                "manifest_sha256": prepared["manifest_sha256"], "worklist_sha256": prepared["worklist_sha256"],
+                "batch_path": "batch-0001.json", "batch_sha256": index["batches"][0]["sha256"],
+                "decisions": [{"path": path, "state": "analyzed", "reason": "Revised inspection.",
+                    "surfaces": [], "unknowns": []} for path in ("a", "b")]}))
+            surface_results.record(con, run, result, replace=True)
+    assert sql_state(con) == before
+    assert not con.in_transaction
 
 
 def test_unique_and_explicit_target_selection_preserves_completed_generations(ready):

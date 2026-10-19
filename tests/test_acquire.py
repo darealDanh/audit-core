@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from audit_core import acquire, db, firmware_diff, triage, workspace
+from tests.test_hunt_prepare import assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
 @pytest.fixture()
@@ -158,6 +159,8 @@ def test_identical_supplemental_replacement_keeps_manifest_and_diff_usable(con, 
 @pytest.mark.parametrize("failure", ["image-write", "manifest-delete"])
 def test_replacement_failure_rolls_back_provenance_and_manifest(con, tmp_path, monkeypatch, failure):
     kwargs = acquired_pair(con, tmp_path)
+    seed_hunt_state(con, "acme|r1|target")
+    before = sql_state(con)
     images = tuple(tuple(row) for row in con.execute("SELECT * FROM cba_images"))
     manifests = tuple(tuple(row) for row in con.execute("SELECT * FROM cba_firmware_files"))
     kwargs["target"]["path"].write_bytes(b"new firmware")
@@ -178,6 +181,7 @@ def test_replacement_failure_rolls_back_provenance_and_manifest(con, tmp_path, m
     assert not con.in_transaction
     assert tuple(tuple(row) for row in con.execute("SELECT * FROM cba_images")) == images
     assert tuple(tuple(row) for row in con.execute("SELECT * FROM cba_firmware_files")) == manifests
+    assert sql_state(con) == before
 
 
 def test_acquire_refuses_active_transaction_and_preserves_caller_work(con, tmp_path):
@@ -306,4 +310,55 @@ def test_surface_invalidation_delete_failure_rolls_back_the_whole_generation(con
     with pytest.raises(sqlite3.Error, match="surface delete failure"):
         acquire.record(con, **kwargs["target"], replace=True)
     assert surface_snapshot(con) == before
+    assert not con.in_transaction
+
+
+def test_acquisition_refuses_ambiguous_raw_hunt_coverage_atomically(con, tmp_path):
+    kwargs = completed_surface_pair(con, tmp_path)
+    seed_hunt_state(con, "acme|r1|target")
+    db.put(con, "cba_coverage", {"unit": "config", "phase": "hunt-l-sink", "state": "analyzed"})
+    before = sql_state(con)
+    kwargs["target"]["version"] = "2"
+    with pytest.raises(acquire.AcquireError, match="legacy|ownership"):
+        acquire.record(con, **kwargs["target"], replace=True)
+    assert sql_state(con) == before
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("change", ["hash", "version", "same", "reference"])
+def test_acquisition_invalidates_hunts_only_for_changed_target(con, tmp_path, change):
+    kwargs = completed_surface_pair(con, tmp_path)
+    seed_hunt_state(con, "acme|r1|target")
+    seed_hunt_state(con, "other|r2|target")
+    before = sql_state(con)
+    role = "diff-reference" if change == "reference" else "target"
+    if change in ("hash", "reference"):
+        kwargs[role]["path"].write_bytes(b"replacement image")
+    elif change == "version":
+        kwargs[role]["version"] = "2"
+    elif change == "same":
+        relocated = tmp_path / "same-provenance.bin"
+        relocated.write_bytes(b"fixed")
+        kwargs[role].update(path=relocated, source="new source")
+    acquire.record(con, **kwargs[role], replace=True)
+    if change in ("hash", "version"):
+        assert_hunt_cleared_only(con, before, "acme|r1|target")
+        assert not db.rows(con, "cba_surface_runs", where={"image_id": "acme|r1|target"})
+    else:
+        for table in ("cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates", "cba_coverage"):
+            assert sql_state(con)[table] == before[table]
+
+
+@pytest.mark.parametrize("table", ["cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"])
+def test_acquisition_hunt_delete_failure_rolls_back_all_owned_state(con, tmp_path, table):
+    kwargs = completed_surface_pair(con, tmp_path)
+    seed_hunt_state(con, "acme|r1|target")
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_hunt BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'hunt delete failure'); END")
+    con.commit()
+    kwargs["target"]["version"] = "2"
+    with pytest.raises(sqlite3.Error, match="hunt delete failure"):
+        acquire.record(con, **kwargs["target"], replace=True)
+    assert sql_state(con) == before
     assert not con.in_transaction

@@ -365,6 +365,27 @@ def _refuse_unqualified(con: sqlite3.Connection, validated: ValidatedBatch) -> N
             raise SurfaceError(f"Unqualified legacy surface coverage has unknown ownership for {unit}; use a fresh run")
 
 
+def _same_publication(con: sqlite3.Connection, validated: ValidatedBatch,
+                      provenance: dict[str, str]) -> bool:
+    """Compare the actual owned rows, including evidence and clear-unit decisions."""
+    for decision in validated.result.decisions:
+        for table, records in (("cba_firmware_surfaces", decision.surfaces),
+                               ("cba_unknowns", decision.unknowns)):
+            actual = [{key: row[key] for key in row.keys() if key != "recorded_at"}
+                      for row in con.execute(
+                          f"SELECT * FROM {table} WHERE image_id=? AND component_path=?",
+                          (validated.result.image_id, decision.path))]
+            expected = [dataclasses.asdict(row) | provenance for row in records]
+            if sorted(actual, key=repr) != sorted(expected, key=repr):
+                return False
+        reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
+        coverage = con.execute("SELECT state,reason FROM cba_coverage WHERE phase='surface' AND unit=?",
+                               (db.firmware_unit_key(validated.result.image_id, decision.path),)).fetchone()
+        if coverage is None or tuple(coverage) != (decision.state, reason):
+            return False
+    return True
+
+
 def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
            result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
     """Install immutable evidence before atomically publishing only its assigned units."""
@@ -393,6 +414,9 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         # prepared provenance under the publication lock before deleting rows.
         validate(con, run_dir, result)
         _refuse_unqualified(con, validated)
+        provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
+                      "artifact_sha256": digest}
+        same = replace and _same_publication(con, validated, provenance)
         if not replace:
             _refuse_existing(con, validated)
         else:
@@ -401,8 +425,6 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                     [(result.image_id, unit) for unit in validated.assigned_units])
             con.executemany("DELETE FROM cba_coverage WHERE phase='surface' AND unit=?",
                             [(db.firmware_unit_key(result.image_id, unit),) for unit in validated.assigned_units])
-        provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
-                      "artifact_sha256": digest}
         for decision in result.decisions:
             for row in decision.surfaces:
                 db.put(con, "cba_firmware_surfaces", dataclasses.asdict(row) | provenance, commit=False)
@@ -411,6 +433,13 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             reason = decision.reason.strip() if decision.state == "not_audited" else decision.reason
             db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(result.image_id, decision.path), "phase": "surface",
                 "state": decision.state, "reason": reason}, commit=False)
+        if not same:
+            from audit_core import hunt
+
+            try:
+                hunt.invalidate(con, result.image_id)
+            except hunt.HuntError as exc:
+                raise SurfaceError(str(exc)) from exc
         con.execute("UPDATE cba_surface_runs SET status='pending',completed_at=NULL WHERE image_id=?",
                     (result.image_id,))
         con.commit()

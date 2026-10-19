@@ -140,23 +140,27 @@ def _inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.
 
 def _refuse_unqualified_coverage(con: sqlite3.Connection) -> None:
     prefixes = tuple(db.firmware_unit_key(str(row["id"]), "")
-                     for row in surface._query(con, "SELECT id FROM cba_images")
+                     for row in con.execute("SELECT id FROM cba_images")
                      if row["id"] != db.FIRMWARE_IMAGE_UNSCOPED)
-    for row in surface._query(con, "SELECT unit FROM cba_coverage WHERE phase IN ('hunt-l-sink','hunt-l-dark')"):
+    for row in con.execute("SELECT unit FROM cba_coverage WHERE phase IN ('hunt-l-sink','hunt-l-dark')"):
         if not row["unit"].startswith(prefixes):
             raise HuntError("Ambiguous unqualified legacy hunt coverage ownership; use a fresh run")
 
 
-def _clear_image(con: sqlite3.Connection, image_id: str) -> None:
-    """Private preparation invalidator; shared upstream invalidation is a later task."""
+def invalidate(con: sqlite3.Connection, image_id: str, *, commit: bool = False) -> None:
+    """Remove only this image's dependent hunt state inside the caller's transaction."""
+    if image_id == db.FIRMWARE_IMAGE_UNSCOPED:
+        raise HuntError("Legacy unscoped hunt state has ambiguous ownership; use a fresh run")
     _refuse_unqualified_coverage(con)
     prefix = db.firmware_unit_key(image_id, "")
-    keys = [(row["unit"], row["phase"]) for row in surface._query(con,
+    keys = [(row["unit"], row["phase"]) for row in con.execute(
         "SELECT unit,phase FROM cba_coverage WHERE phase IN ('hunt-l-sink','hunt-l-dark')")
         if row["unit"].startswith(prefix)]
     con.executemany("DELETE FROM cba_coverage WHERE unit=? AND phase=?", keys)
     for table in ("cba_hunt_candidates", "cba_hunt_receipts", "cba_hunt_runs"):
         con.execute(f"DELETE FROM {table} WHERE image_id=?", (image_id,))
+    if commit:
+        con.commit()
 
 
 def _checked_install(destination: pathlib.Path, files: dict[str, bytes]) -> None:
@@ -215,7 +219,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         for lane, (files, _, _) in definitions.items():
             _checked_install(destination / lane, files)
         if not same:
-            _clear_image(con, selected)
+            invalidate(con, selected)
             for record in records:
                 db.put(con, "cba_hunt_runs", {**{key: str(value) for key, value in record.items()},
                                              "status": "pending"}, commit=False)

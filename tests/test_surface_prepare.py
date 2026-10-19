@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, surface, workspace
+from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
 HELLO = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
@@ -58,6 +59,39 @@ def test_unique_and_explicit_target_resolution(setup):
     assert first.image_id == "target"
     image(con, "other")
     assert surface.prepare(con, run, root, image_id="target") == first
+
+
+@pytest.mark.parametrize("change", ["same", "batch-size", "hints"])
+def test_surface_preparation_invalidates_hunts_only_when_generation_changes(setup, change):
+    con, run, root = setup
+    add_target(con, run, root, ["banner"])
+    add_target(con, run, root.parent / "other", ["banner"], image_id="other")
+    seed_hunt_state(con, "target")
+    seed_hunt_state(con, "other")
+    if change == "hints":
+        db.put(con, "cba_services", {"image_id": "target", "name": "service",
+            "exec_path": "banner", "start_source": "etc/inittab", "evidence": "exec /banner"})
+    before = sql_state(con)
+    surface.prepare(con, run, root, image_id="target", batch_size=1 if change == "batch-size" else 50)
+    if change == "same":
+        assert sql_state(con) == before
+    else:
+        assert_hunt_cleared_only(con, before, "target")
+        assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs WHERE image_id='target'").fetchone()) == ("pending", None)
+
+
+def test_surface_prepare_hunt_failure_restores_completed_surface_and_hunts(setup):
+    con, run, root = setup
+    add_target(con, run, root, ["banner"])
+    seed_hunt_state(con, "target")
+    before = sql_state(con)
+    con.execute("CREATE TRIGGER fail_hunt BEFORE DELETE ON cba_hunt_runs "
+                "BEGIN SELECT RAISE(FAIL, 'hunt delete failure'); END")
+    con.commit()
+    with pytest.raises(surface.SurfaceError, match="hunt delete failure"):
+        surface.prepare(con, run, root, image_id="target", batch_size=1)
+    assert sql_state(con) == before
+    assert not con.in_transaction
 
 
 @pytest.mark.parametrize("refusal, message", [
@@ -468,8 +502,9 @@ def test_install_and_publication_failures_preserve_previous_sql_generation(setup
     con, run, root = seed(setup)
     surface.prepare(con, run, root)
     claims(con)
+    seed_hunt_state(con, "target")
     db.put(con, "cba_coverage", {"unit": "/firmware/6:target:banner", "phase": "surface", "state": "analyzed"})
-    before = {t: rows(con, t) for t in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns", "cba_coverage")}
+    before = {t: rows(con, t) for t in db.TABLE_SPECS}
     old_files = artifacts(run)
     if failure == "mkdir":
         monkeypatch.setattr(pathlib.Path, "mkdir", lambda *a, **k: (_ for _ in ()).throw(OSError("injected mkdir")))

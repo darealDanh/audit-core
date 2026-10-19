@@ -1,11 +1,13 @@
 import hashlib
 import os
+import pathlib
 import sqlite3
 import struct
 
 import pytest
 
 from audit_core import db, firmware_tree, triage, workspace
+from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
 def minimal_elf():
@@ -68,6 +70,62 @@ def test_run_is_idempotent(con, tmp_path):
     assert len(db.rows(con, "cba_binfacts")) == 1
     assert len(db.rows(con, "cba_services")) == 1
     assert len(db.rows(con, "cba_firmware_files")) == 4
+
+
+@pytest.mark.parametrize("scope", ["changed", "same", "reference", "legacy"])
+def test_triage_manifest_changes_invalidate_only_target_dependencies(con, tmp_path, scope):
+    run = pathlib.Path(con.execute("PRAGMA database_list").fetchone()[2]).parent
+    root = tmp_path / "target"
+    add_target(con, run, root, ["a", "b"])
+    add_target(con, run, tmp_path / "other", ["a", "b"], image_id="other")
+    seed_hunt_state(con, "target")
+    seed_hunt_state(con, "other")
+    if scope == "reference":
+        db.put(con, "cba_images", {"id": "ref", "role": "diff-reference", "vendor": "v",
+            "model": "m", "version": "1", "path": "ref.bin", "sha256": "b" * 64})
+    before = sql_state(con)
+    if scope != "same":
+        (root / "a").write_bytes(b"world\n")
+    image_id = {"reference": "ref", "legacy": None}.get(scope, "target")
+    triage.run(con, root, image_id=image_id, allow_no_elf=True)
+    if scope == "changed":
+        assert_hunt_cleared_only(con, before, "target")
+        assert not db.rows(con, "cba_surface_runs", where={"image_id": "target"})
+        assert not [r for r in db.rows(con, "cba_coverage") if r[1] == "surface" and r[0].startswith("/firmware/6:target:")]
+    else:
+        for table in ("cba_surface_runs", "cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates", "cba_coverage"):
+            assert sql_state(con)[table] == before[table]
+
+
+@pytest.mark.parametrize("failure", ["hunt-delete", "manifest-insert", "commit", "ambiguous"])
+def test_triage_hunt_failure_rolls_back_manifest_and_dependents(con, tmp_path, failure):
+    run = pathlib.Path(con.execute("PRAGMA database_list").fetchone()[2]).parent
+    root = tmp_path / "target"
+    add_target(con, run, root, ["a", "b"])
+    seed_hunt_state(con, "target")
+    if failure == "ambiguous":
+        db.put(con, "cba_coverage", {"unit": "a", "phase": "hunt-l-sink", "state": "analyzed"})
+    elif failure != "commit":
+        event, table = ("DELETE", "cba_hunt_runs") if failure == "hunt-delete" else ("INSERT", "cba_firmware_files")
+        con.execute(f"CREATE TRIGGER fail_hunt BEFORE {event} ON {table} "
+                    "BEGIN SELECT RAISE(FAIL, 'injected publication failure'); END")
+        con.commit()
+    else:
+        class CommitFailure(sqlite3.Connection):
+            def commit(self):
+                raise sqlite3.OperationalError("injected commit failure")
+        con = sqlite3.connect(run / "audit.db", factory=CommitFailure)
+        con.row_factory = sqlite3.Row
+    before = sql_state(con)
+    (root / "a").write_bytes(b"world\n")
+    try:
+        with pytest.raises(triage.TriageError, match="legacy|failure"):
+            triage.run(con, root, image_id="target", allow_no_elf=True)
+        assert sql_state(con) == before
+        assert not con.in_transaction
+    finally:
+        if failure == "commit":
+            con.close()
 
 
 def test_manifest_records_exact_regular_file_identity(con, tmp_path):
