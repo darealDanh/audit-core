@@ -1,4 +1,4 @@
-"""Strict, read-only parsing and assignment validation for firmware hunt results."""
+"""Strict firmware hunt results and atomic, batch-owned publication."""
 from __future__ import annotations
 
 import dataclasses
@@ -74,6 +74,17 @@ class ValidatedBatch:
     result: BatchResult
     assigned_units: tuple[str, ...]
     index_path: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ImportSummary:
+    image_id: str
+    lane: str
+    batch_path: str
+    unit_count: int
+    candidate_count: int
+    blocker_count: int
+    artifact_path: str
 
 
 def _object(value: object, cls: type) -> dict:
@@ -314,3 +325,117 @@ def validate(con: sqlite3.Connection, run_dir: pathlib.Path, result: BatchResult
 def canonical_bytes(validated: ValidatedBatch) -> bytes:
     """Serialize only worker result data, excluding derived paths and metadata."""
     return surface.canonical_bytes(dataclasses.asdict(validated.result))
+
+
+def _refuse_legacy(con: sqlite3.Connection) -> None:
+    """Raw hunt coverage cannot establish image ownership, even with replace."""
+    hunt._refuse_unqualified_coverage(con)
+    prefixes = tuple(db.firmware_unit_key(str(row["id"]), "") for row in
+        surface._query(con, "SELECT id FROM cba_images") if row["id"] != db.FIRMWARE_IMAGE_UNSCOPED)
+    for row in surface._query(con, "SELECT unit FROM cba_coverage WHERE phase='hunt'"):
+        if not row["unit"].startswith(prefixes):
+            raise HuntError("Ambiguous unqualified legacy hunt coverage ownership; use a fresh run")
+
+
+def _prior_receipt(con: sqlite3.Connection, validated: ValidatedBatch, *, replace: bool) -> dict | None:
+    result = validated.result
+    receipts = surface._query(con, "SELECT * FROM cba_hunt_receipts WHERE image_id=? AND lane=? "
+        "AND worklist_sha256=? AND batch_path=?",
+        (result.image_id, result.lane, result.worklist_sha256, result.batch_path))
+    receipt = receipts[0] if receipts else None
+    if receipt is not None:
+        if not replace:
+            raise HuntError("Hunt batch receipt already exists; pass --replace")
+        db.TABLE_SPECS["cba_hunt_receipts"].validate(receipt)
+        if receipt["batch_sha256"] != result.batch_sha256:
+            raise HuntError("Existing hunt receipt has different batch ownership")
+    else:
+        # Without a receipt, replacement must not guess which generation owns
+        # pre-existing claims. A fresh batch has no SQL rows to remove.
+        for unit in validated.assigned_units:
+            if (con.execute("SELECT 1 FROM cba_coverage WHERE unit=? AND phase=?",
+                    (db.firmware_unit_key(result.image_id, unit), "hunt-" + result.lane)).fetchone() or
+                    con.execute("SELECT 1 FROM cba_hunt_candidates WHERE image_id=? AND lane=? AND component_path=?",
+                        (result.image_id, result.lane, unit)).fetchone()):
+                raise HuntError("Hunt claims have no owning batch receipt; use a fresh run")
+    return receipt
+
+
+def _artifact_directories(run_dir: pathlib.Path, destination: pathlib.Path) -> None:
+    parts = destination.relative_to(run_dir).parts
+    for depth in range(len(parts) + 1):
+        directory = run_dir.joinpath(*parts[:depth])
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            raise HuntError("Invalid hunt artifact directory")
+
+
+def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+           result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
+    """Install canonical evidence, then publish one batch in a single transaction."""
+    if con.in_transaction:
+        raise HuntError("Hunt import requires a connection without an active transaction")
+    run_dir = pathlib.Path(run_dir)
+    started = False
+    try:
+        validated = validate(con, run_dir, load(result_path))
+        result = validated.result
+        _refuse_legacy(con)
+        _prior_receipt(con, validated, replace=replace)
+        content = canonical_bytes(validated)
+        digest = hashlib.sha256(content).hexdigest()
+        generation = pathlib.Path(validated.index_path).parent.parent.name
+        destination = run_dir / "artifacts/hunt" / generation / result.lane / digest
+        artifact_path = str(destination / "result.json")
+        _artifact_directories(run_dir, destination)
+        surface.atomic_install(destination, {"result.json": content})
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        if validate(con, run_dir, result) != validated:
+            raise HuntError("Hunt result inputs changed before publication")
+        _refuse_legacy(con)
+        receipt = _prior_receipt(con, validated, replace=replace)
+        _artifact_directories(run_dir, destination)
+        hunt._checked_install(destination, {"result.json": content})
+        ownership = (result.image_id, result.lane, result.worklist_sha256, result.batch_path)
+        if receipt is not None:
+            # Candidates do not carry a generation column: the durable receipt
+            # binds their canonical evidence to this exact generation and batch.
+            con.executemany("DELETE FROM cba_hunt_candidates WHERE image_id=? AND lane=? "
+                "AND artifact_path=? AND artifact_sha256=? AND component_path=?",
+                [(result.image_id, result.lane, receipt["result_path"], receipt["result_sha256"], unit)
+                 for unit in validated.assigned_units])
+            con.executemany("DELETE FROM cba_coverage WHERE unit=? AND phase=?",
+                [(db.firmware_unit_key(result.image_id, unit), "hunt-" + result.lane)
+                 for unit in validated.assigned_units])
+            con.execute("DELETE FROM cba_hunt_receipts WHERE image_id=? AND lane=? "
+                        "AND worklist_sha256=? AND batch_path=?", ownership)
+        candidate_count = sum(len(unit.candidates) for unit in result.decisions)
+        blocker_count = sum(len(row.blockers) for unit in result.decisions for row in unit.candidates)
+        db.put(con, "cba_hunt_receipts", {"image_id": result.image_id, "lane": result.lane,
+            "worklist_sha256": result.worklist_sha256, "batch_path": result.batch_path,
+            "batch_sha256": result.batch_sha256, "result_path": artifact_path, "result_sha256": digest,
+            "unit_count": str(len(validated.assigned_units)), "candidate_count": str(candidate_count)}, commit=False)
+        provenance = {"image_id": result.image_id, "lane": result.lane,
+                      "artifact_path": artifact_path, "artifact_sha256": digest}
+        for decision in result.decisions:
+            db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(result.image_id, decision.path),
+                "phase": "hunt-" + result.lane,
+                "state": "not_audited" if decision.disposition == "not_audited" else "analyzed",
+                "reason": decision.reason}, commit=False)
+            for candidate in decision.candidates:
+                row = dataclasses.asdict(candidate)
+                for column in ("surface_ids", "blockers"):
+                    row[column] = surface.canonical_bytes(row[column]).decode("utf-8").removesuffix("\n")
+                row["confidence"] = str(row["confidence"])
+                db.put(con, "cba_hunt_candidates", row | provenance, commit=False)
+        con.execute("UPDATE cba_hunt_runs SET status='pending',completed_at=NULL WHERE image_id=? AND lane=?",
+                    (result.image_id, result.lane))
+        con.commit()
+        return ImportSummary(result.image_id, result.lane, result.batch_path, len(validated.assigned_units),
+                             candidate_count, blocker_count, artifact_path)
+    except Exception as exc:
+        if started:
+            con.rollback()
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError, surface.SurfaceError)):
+            raise HuntError("Cannot publish hunt batch") from exc
+        raise
