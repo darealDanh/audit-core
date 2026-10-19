@@ -255,3 +255,59 @@ CREATE TABLE IF NOT EXISTS cba_unknowns (
     artifact_path TEXT NOT NULL,
     artifact_sha256 TEXT NOT NULL,
     recorded_at TEXT DEFAULT (datetime('now')));
+
+-- Stage 4e keeps independent lane generations and candidate-free receipts.
+CREATE TABLE IF NOT EXISTS cba_hunt_runs (
+    image_id TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    surface_snapshot_sha256 TEXT NOT NULL,
+    worklist_path TEXT NOT NULL,
+    worklist_sha256 TEXT NOT NULL,
+    unit_count INTEGER NOT NULL,
+    batch_count INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    prepared_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    PRIMARY KEY (image_id, lane));
+
+CREATE TABLE IF NOT EXISTS cba_hunt_receipts (
+    image_id TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    worklist_sha256 TEXT NOT NULL,
+    batch_path TEXT NOT NULL,
+    batch_sha256 TEXT NOT NULL,
+    result_path TEXT NOT NULL,
+    result_sha256 TEXT NOT NULL,
+    unit_count INTEGER NOT NULL,
+    candidate_count INTEGER NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, lane, worklist_sha256, batch_path));
+
+CREATE TABLE IF NOT EXISTS cba_hunt_candidates (
+    image_id TEXT NOT NULL,
+    lane TEXT NOT NULL,
+    candidate_id TEXT NOT NULL,
+    component_path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    bug_class TEXT NOT NULL,
+    surface_ids TEXT NOT NULL,
+    surface_context TEXT NOT NULL,
+    attacker_position TEXT NOT NULL,
+    input_evidence TEXT NOT NULL,
+    data_flow TEXT NOT NULL,
+    dangerous_operation TEXT NOT NULL,
+    operation_evidence TEXT NOT NULL,
+    mitigations_checked TEXT NOT NULL,
+    lifecycle_required TEXT NOT NULL,
+    posture_required TEXT NOT NULL,
+    auth_required TEXT NOT NULL,
+    reachability TEXT NOT NULL,
+    state_evidence TEXT NOT NULL,
+    confidence INTEGER NOT NULL,
+    impact_hypothesis TEXT NOT NULL,
+    blockers TEXT NOT NULL,
+    artifact_path TEXT NOT NULL,
+    artifact_sha256 TEXT NOT NULL,
+    recorded_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (image_id, lane, candidate_id));

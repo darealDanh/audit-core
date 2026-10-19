@@ -6,6 +6,237 @@ import pytest
 from audit_core import db, workspace
 
 
+HUNT_CONTRACTS = [
+    ("cba_hunt_runs",
+     ("image_id", "lane", "manifest_sha256", "surface_snapshot_sha256",
+      "worklist_path", "worklist_sha256", "unit_count", "batch_count", "status",
+      "prepared_at", "completed_at"),
+     ("image_id", "lane", "manifest_sha256", "surface_snapshot_sha256",
+      "worklist_path", "worklist_sha256", "unit_count", "batch_count", "status"),
+     ("image_id", "lane")),
+    ("cba_hunt_receipts",
+     ("image_id", "lane", "worklist_sha256", "batch_path", "batch_sha256",
+      "result_path", "result_sha256", "unit_count", "candidate_count", "recorded_at"),
+     ("image_id", "lane", "worklist_sha256", "batch_path", "batch_sha256",
+      "result_path", "result_sha256", "unit_count", "candidate_count"),
+     ("image_id", "lane", "worklist_sha256", "batch_path")),
+    ("cba_hunt_candidates",
+     ("image_id", "lane", "candidate_id", "component_path", "title", "bug_class",
+      "surface_ids", "surface_context", "attacker_position", "input_evidence",
+      "data_flow", "dangerous_operation", "operation_evidence", "mitigations_checked",
+      "lifecycle_required", "posture_required", "auth_required", "reachability",
+      "state_evidence", "confidence", "impact_hypothesis", "blockers", "artifact_path",
+      "artifact_sha256", "recorded_at"),
+     ("image_id", "lane", "candidate_id", "component_path", "title", "bug_class",
+      "surface_ids", "surface_context", "attacker_position", "input_evidence",
+      "data_flow", "dangerous_operation", "operation_evidence", "mitigations_checked",
+      "lifecycle_required", "posture_required", "auth_required", "reachability",
+      "state_evidence", "confidence", "impact_hypothesis", "blockers", "artifact_path",
+      "artifact_sha256"),
+     ("image_id", "lane", "candidate_id")),
+]
+
+HUNT_RUN = {
+    "image_id": "acme|r1|target", "lane": "l-sink", "manifest_sha256": "a" * 64,
+    "surface_snapshot_sha256": "b" * 64, "worklist_path": "files/hunt/l-sink/index.json",
+    "worklist_sha256": "c" * 64, "unit_count": 2, "batch_count": 1, "status": "pending",
+}
+HUNT_RECEIPT = {
+    "image_id": "acme|r1|target", "lane": "l-dark", "worklist_sha256": "c" * 64,
+    "batch_path": "files/hunt/l-dark/batch-001.json", "batch_sha256": "d" * 64,
+    "result_path": "artifacts/hunt/result.json", "result_sha256": "e" * 64,
+    "unit_count": 2, "candidate_count": 0,
+}
+HUNT_CANDIDATE = {
+    "image_id": "acme|r1|target", "lane": "l-sink", "candidate_id": "sink.1",
+    "component_path": "bin/httpd", "title": "Unchecked command argument",
+    "bug_class": "command injection", "surface_ids": '["http.login:1"]',
+    "surface_context": "Login route reaches the configuration writer",
+    "attacker_position": "LAN client", "input_evidence": "route.c:42 reads user field",
+    "data_flow": "user field -> cfg value -> shell argument",
+    "dangerous_operation": "system", "operation_evidence": "cfg.c:76 invokes system",
+    "mitigations_checked": "length is bounded but shell metacharacters survive",
+    "lifecycle_required": "provisioned", "posture_required": "sta-lan",
+    "auth_required": "pre-auth", "reachability": "evidenced",
+    "state_evidence": "route table orders handler before the authentication guard",
+    "confidence": 8, "impact_hypothesis": "Commands may execute as the daemon user",
+    "blockers": '[]', "artifact_path": "artifacts/hunt/result.json",
+    "artifact_sha256": "e" * 64,
+}
+HUNT_ROWS = [("cba_hunt_runs", HUNT_RUN), ("cba_hunt_receipts", HUNT_RECEIPT),
+             ("cba_hunt_candidates", HUNT_CANDIDATE)]
+
+
+@pytest.mark.parametrize("table,row,column", [
+    (table, row, column) for (table, _, required, _), (_, row) in zip(HUNT_CONTRACTS, HUNT_ROWS)
+    for column in required
+])
+@pytest.mark.parametrize("value", ["omit", "", " \t ", None, True])
+def test_hunt_contract_requires_every_evidence_and_identity_field(con, table, row, column, value):
+    invalid = row | {column: value}
+    if value == "omit":
+        invalid.pop(column)
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, invalid)
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+HUNT_ENUMS = [
+    *[(table, row, "lane", ("l-sink", "l-dark")) for table, row in HUNT_ROWS],
+    ("cba_hunt_runs", HUNT_RUN, "status", ("pending", "complete")),
+    ("cba_hunt_candidates", HUNT_CANDIDATE, "lifecycle_required",
+     ("factory-fresh", "provisioned", "bound-to-owner", "cloud-registered", "post-reset", "unknown")),
+    ("cba_hunt_candidates", HUNT_CANDIDATE, "posture_required",
+     ("softap-setup", "sta-lan", "wan-exposed", "ble", "cloud-tunnel-only", "unknown")),
+    ("cba_hunt_candidates", HUNT_CANDIDATE, "auth_required",
+     ("pre-auth", "session", "admin", "local-shell", "physical-uart", "unknown")),
+    ("cba_hunt_candidates", HUNT_CANDIDATE, "reachability", ("evidenced", "refuted", "unknown")),
+]
+
+
+@pytest.mark.parametrize("table,row,column,allowed", HUNT_ENUMS)
+@pytest.mark.parametrize("value", ["invalid", "UNKNOWN", " unknown "])
+def test_hunt_contract_rejects_foreign_enums(con, table, row, column, allowed, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("table,row,column,value", [
+    (table, row, column, value) for table, row, column, allowed in HUNT_ENUMS for value in allowed
+])
+def test_hunt_contract_accepts_all_canonical_enums(con, table, row, column, value):
+    db.put(con, table, row | {column: value})
+    assert db.rows(con, table)[0][column] == value
+
+
+HUNT_COUNTS = [("cba_hunt_runs", HUNT_RUN, "unit_count"),
+               ("cba_hunt_runs", HUNT_RUN, "batch_count"),
+               ("cba_hunt_receipts", HUNT_RECEIPT, "unit_count"),
+               ("cba_hunt_receipts", HUNT_RECEIPT, "candidate_count")]
+
+
+@pytest.mark.parametrize("table,row,column", HUNT_COUNTS + [
+    ("cba_hunt_candidates", HUNT_CANDIDATE, "confidence")])
+@pytest.mark.parametrize("value", [-1, "-1", 1.0, "1.5", False, True, "１", "1_0",
+                                    "\u00a01\u00a0", 9223372036854775808,
+                                    "9223372036854775808"])
+def test_hunt_contract_rejects_noninteger_or_overflow_numbers(con, table, row, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("table,row,column", HUNT_COUNTS)
+@pytest.mark.parametrize("value,expected", [(0, 0), ("0", 0), (9223372036854775807, 9223372036854775807)])
+def test_hunt_counts_persist_at_sqlite_integer_boundaries(con, table, row, column, value, expected):
+    db.put(con, table, row | {column: value})
+    assert tuple(con.execute(f"SELECT {column}, typeof({column}) FROM {table}").fetchone()) == (expected, "integer")
+
+
+@pytest.mark.parametrize("value", [11, "11", 9223372036854775807])
+def test_hunt_confidence_cannot_exceed_ten(con, value):
+    with pytest.raises(db.DbError, match="confidence"):
+        db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {"confidence": value})
+    assert db.rows(con, "cba_hunt_candidates") == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("value", [0, "0", 10, "10"])
+def test_hunt_confidence_accepts_zero_and_ten(con, value):
+    db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {"confidence": value})
+    assert db.rows(con, "cba_hunt_candidates")[0]["confidence"] == int(value)
+
+
+@pytest.mark.parametrize("table,row,column", [
+    (table, row, column) for table, row in HUNT_ROWS for column in row if column.endswith("sha256")
+])
+@pytest.mark.parametrize("value", ["a" * 63, "a" * 65, "A" * 64, "g" * 64, 123])
+def test_hunt_contract_rejects_invalid_hashes(con, table, row, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, table, row | {column: value})
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("column,value", [
+    (column, value) for column in ("surface_ids", "blockers")
+    for value in ('[', '{}', 'null', '[NaN]', ' []', '[ ]', '[]\n', [])
+] + [
+    ("surface_ids", '["http.login:1","http.login:1"]'),
+    ("surface_ids", '[1]'), ("surface_ids", '[""]'),
+    ("surface_ids", '["bad id"]'), ("surface_ids", '["\\u00e9"]'),
+    ("blockers", '["pending"]'), ("blockers", '[{}]'),
+    ("blockers", '[{"id":"b1","id":"b2"}]'),
+])
+def test_hunt_candidate_rejects_malformed_or_noncanonical_json(con, column, value):
+    with pytest.raises(db.DbError, match=column):
+        db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {column: value})
+    assert db.rows(con, "cba_hunt_candidates") == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("field", ["id", "question", "settling_observation", "method"])
+@pytest.mark.parametrize("value", ["omit", "", "  ", None, True])
+def test_hunt_blockers_require_complete_settling_contract(con, field, value):
+    import json
+    blocker = {"id": "b1", "question": "Is the wrapper enabled?",
+               "settling_observation": "Trace dispatch to wrapper", "method": "static"}
+    if value == "omit":
+        blocker.pop(field)
+    else:
+        blocker[field] = value
+    encoded = json.dumps([blocker], sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    with pytest.raises(db.DbError, match="blockers"):
+        db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {"blockers": encoded})
+    assert db.rows(con, "cba_hunt_candidates") == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("method", ["static", "emulate", "hardware"])
+def test_hunt_candidate_retains_canonical_blocker_evidence(con, method):
+    encoded = ('[{"id":"b1","method":"' + method + '","question":"Enabled on café model?",'
+               '"settling_observation":"Trace dispatch to wrapper"}]')
+    db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {"blockers": encoded, "surface_ids": '[]'})
+    assert db.rows(con, "cba_hunt_candidates")[0]["blockers"] == encoded
+
+
+@pytest.mark.parametrize("value", [
+    '[{"id":"b1","method":"remote","question":"Enabled?","settling_observation":"Trace"}]',
+    '[{"extra":"x","id":"b1","method":"static","question":"Enabled?","settling_observation":"Trace"}]',
+    '[{"id":"b1","method":"static","question":"Enabled?","settling_observation":"Trace"},'
+    '{"id":"b1","method":"static","question":"Other?","settling_observation":"Read"}]',
+])
+def test_hunt_candidate_rejects_foreign_or_duplicate_blockers(con, value):
+    with pytest.raises(db.DbError, match="blockers"):
+        db.put(con, "cba_hunt_candidates", HUNT_CANDIDATE | {"blockers": value})
+    assert db.rows(con, "cba_hunt_candidates") == []
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize("table,row", HUNT_ROWS)
+def test_hunt_rows_support_caller_owned_transactions(con, table, row):
+    db.put(con, table, row, commit=False)
+    assert con.in_transaction
+    assert len(db.rows(con, table)) == 1
+    con.rollback()
+    assert db.rows(con, table) == []
+
+
+@pytest.mark.parametrize("table,columns,required,key", HUNT_CONTRACTS)
+def test_hunt_tables_have_the_exact_durable_contract(con, table, columns, required, key):
+    info = list(con.execute(f"PRAGMA table_info({table})"))
+    assert tuple(row[1] for row in info) == columns
+    assert tuple(row[1] for row in info if row[3] or row[5]) == required
+    assert tuple(name for _, name in sorted(
+        (row[5], row[1]) for row in info if row[5])) == key
+    spec = db.TABLE_SPECS[table]
+    assert (spec.columns, spec.required, spec.primary_key) == (columns, required, key)
+
+
 @pytest.fixture()
 def con(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20261009-000000")
@@ -17,13 +248,14 @@ def con(tmp_path):
 def test_schema_and_contract_expose_all_firmware_tables(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20261009-000000")
     result = workspace.apply_schema(run / "audit.db")
-    assert len(result.tables) == 24
-    assert len(db.TABLE_SPECS) == 23
+    assert len(result.tables) == 27
+    assert len(db.TABLE_SPECS) == 26
     con = sqlite3.connect(run / "audit.db")
     try:
         for table in ("cba_images", "cba_binfacts", "cba_services",
                       "cba_firmware_files", "cba_diffs", "cba_diff_entries",
-                      "cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
+                      "cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",
+                      "cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
             schema_columns = tuple(
                 row[1] for row in con.execute(f"PRAGMA table_info({table})"))
             assert schema_columns == db.TABLE_SPECS[table].columns

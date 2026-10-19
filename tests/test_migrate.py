@@ -37,7 +37,7 @@ FULL_PRE_STAGE3_SQL = workspace.BASELINE_PATH.read_text()
 
 
 @pytest.mark.parametrize("baseline", ["baseline-pre-stage3.sql", "baseline-stage4b.sql"])
-def test_surface_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_path, baseline):
+def test_hunt_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_path, baseline):
     path = tmp_path / "old.db"
     con = sqlite3.connect(path)
     con.executescript((workspace.SCHEMA_PATH.parent / baseline).read_text())
@@ -54,10 +54,11 @@ def test_surface_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_p
                    for table in old_rows}
     con.close()
     result = workspace.apply_schema(path)
-    assert len(result.tables) == 24
+    assert len(result.tables) == 27
     con = db.connect(path)
     try:
-        for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns"):
+        for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",
+                      "cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
             assert db.rows(con, table) == []
         for table in old_rows:
             assert [tuple(row) for row in con.execute(
@@ -66,8 +67,15 @@ def test_surface_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_p
     finally:
         con.close()
     second = workspace.apply_schema(path)
+    assert second.tables == result.tables
     assert second.migrated == []
-    db.connect(path).close()
+    con = db.connect(path)
+    try:
+        for table in old_rows:
+            assert [tuple(row) for row in con.execute(
+                f"SELECT {', '.join(old_columns[table])} FROM {table}")] == old_rows[table]
+    finally:
+        con.close()
 
 
 def columns(con, table):

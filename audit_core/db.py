@@ -9,6 +9,7 @@ typo fails loudly instead of writing a row nothing reads.
 """
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 import sqlite3
@@ -35,6 +36,9 @@ RELRO_STATES = ("full", "partial", "none", "unknown")
 FIRMWARE_IMAGE_UNSCOPED = "legacy-unscoped"
 DIFF_CHANGES = ("added", "removed", "modified")
 SURFACE_RUN_STATES = ("pending", "complete")
+HUNT_LANES = ("l-sink", "l-dark")
+HUNT_RUN_STATES = ("pending", "complete")
+HUNT_DISPOSITIONS = ("analyzed", "not_applicable", "not_audited")
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -348,6 +352,84 @@ def _validate_unknown(row: dict[str, str]) -> None:
             raise DbError(f"a resolved unknown requires non-empty {column}")
 
 
+def _validate_hunt_run(row: dict[str, str]) -> None:
+    counts = ("unit_count", "batch_count")
+    _validate_surface_text(row, "cba_hunt_runs", counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    one_of("lane", HUNT_LANES)(row)
+    one_of("status", HUNT_RUN_STATES)(row)
+    for column in ("manifest_sha256", "surface_snapshot_sha256", "worklist_sha256"):
+        _validate_sha256(row, column)
+
+
+def _validate_hunt_receipt(row: dict[str, str]) -> None:
+    counts = ("unit_count", "candidate_count")
+    _validate_surface_text(row, "cba_hunt_receipts", counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    one_of("lane", HUNT_LANES)(row)
+    for column in ("worklist_sha256", "batch_sha256", "result_sha256"):
+        _validate_sha256(row, column)
+
+
+def _hunt_json_array(row: dict[str, str], column: str) -> list:
+    """Cells are compact canonical UTF-8 JSON, without an artifact newline.
+
+    Re-encoding also rejects duplicate object keys: no canonical encoding of
+    the parsed object can reproduce a source that names a key twice.
+    """
+    raw = row[column]
+    try:
+        parsed = json.loads(raw)
+        canonical = json.dumps(parsed, sort_keys=True, ensure_ascii=False,
+                               allow_nan=False, separators=(",", ":"))
+        canonical.encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise DbError(f"{column} requires canonical UTF-8 JSON") from exc
+    if not isinstance(parsed, list) or raw != canonical:
+        raise DbError(f"{column} requires a canonical JSON array")
+    return parsed
+
+
+def _validate_hunt_candidate(row: dict[str, str]) -> None:
+    _validate_surface_text(row, "cba_hunt_candidates", counts=("confidence",))
+    _validate_nonnegative_integers(row, ("confidence",))
+    if int(row["confidence"]) > 10:
+        raise DbError("confidence must be an integer 0-10")
+    _validate_surface_identifier(row, "candidate_id")
+    _validate_sha256(row, "artifact_sha256")
+    for column, allowed in (("lane", HUNT_LANES),
+                            ("lifecycle_required", LIFECYCLE_STATES),
+                            ("posture_required", POSTURE_STATES),
+                            ("auth_required", AUTH_STATES),
+                            ("reachability", REACHABILITY_STATES)):
+        one_of(column, allowed)(row)
+    surface_ids = _hunt_json_array(row, "surface_ids")
+    seen: set[str] = set()
+    for identifier in surface_ids:
+        _validate_surface_identifier({"surface_ids": identifier}, "surface_ids")
+        if identifier in seen:
+            raise DbError("surface_ids must not repeat an identifier")
+        seen.add(identifier)
+    blockers = _hunt_json_array(row, "blockers")
+    seen.clear()
+    fields = {"id", "question", "settling_observation", "method"}
+    for blocker in blockers:
+        if not isinstance(blocker, dict) or set(blocker) != fields:
+            raise DbError("blockers require exactly id, question, settling_observation, method")
+        if any(not isinstance(blocker[field], str) or not blocker[field].strip()
+               for field in fields):
+            raise DbError("blockers require non-empty string fields")
+        try:
+            _validate_surface_identifier(blocker, "id")
+        except DbError as exc:
+            raise DbError(f"blockers: {exc}") from exc
+        if blocker["method"] not in UNKNOWN_METHODS:
+            raise DbError("blockers method must be static, emulate, or hardware")
+        if blocker["id"] in seen:
+            raise DbError("blockers must not repeat an id")
+        seen.add(blocker["id"])
+
+
 def _validate_diff_entry(row: dict[str, str]) -> None:
     change = row.get("change")
     if change not in DIFF_CHANGES:
@@ -499,6 +581,34 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "settling_observation", "method", "status", "artifact_path",
                   "artifact_sha256"),
         primary_key=("id",), validate=_validate_unknown),
+    "cba_hunt_runs": TableSpec(
+        columns=("image_id", "lane", "manifest_sha256", "surface_snapshot_sha256",
+                 "worklist_path", "worklist_sha256", "unit_count", "batch_count",
+                 "status", "prepared_at", "completed_at"),
+        required=("image_id", "lane", "manifest_sha256", "surface_snapshot_sha256",
+                  "worklist_path", "worklist_sha256", "unit_count", "batch_count", "status"),
+        primary_key=("image_id", "lane"), validate=_validate_hunt_run),
+    "cba_hunt_receipts": TableSpec(
+        columns=("image_id", "lane", "worklist_sha256", "batch_path", "batch_sha256",
+                 "result_path", "result_sha256", "unit_count", "candidate_count", "recorded_at"),
+        required=("image_id", "lane", "worklist_sha256", "batch_path", "batch_sha256",
+                  "result_path", "result_sha256", "unit_count", "candidate_count"),
+        primary_key=("image_id", "lane", "worklist_sha256", "batch_path"),
+        validate=_validate_hunt_receipt),
+    "cba_hunt_candidates": TableSpec(
+        columns=("image_id", "lane", "candidate_id", "component_path", "title", "bug_class",
+                 "surface_ids", "surface_context", "attacker_position", "input_evidence",
+                 "data_flow", "dangerous_operation", "operation_evidence", "mitigations_checked",
+                 "lifecycle_required", "posture_required", "auth_required", "reachability",
+                 "state_evidence", "confidence", "impact_hypothesis", "blockers", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "lane", "candidate_id", "component_path", "title", "bug_class",
+                  "surface_ids", "surface_context", "attacker_position", "input_evidence",
+                  "data_flow", "dangerous_operation", "operation_evidence", "mitigations_checked",
+                  "lifecycle_required", "posture_required", "auth_required", "reachability",
+                  "state_evidence", "confidence", "impact_hypothesis", "blockers", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("image_id", "lane", "candidate_id"), validate=_validate_hunt_candidate),
 }
 
 
