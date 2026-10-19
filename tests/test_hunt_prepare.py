@@ -169,6 +169,49 @@ def test_surface_publication_refuses_ambiguous_hunt_coverage_with_full_rollback(
     assert not con.in_transaction
 
 
+@pytest.mark.parametrize("replacement", ["identical", "canonical-identical", "reversed-decisions"])
+def test_claim_free_surface_artifact_changes_invalidate_real_completed_hunts(ready, replacement):
+    # Breaks: treating equal SQL projections as equal canonical snapshot evidence.
+    from tests.test_hunt_gate import fill
+
+    con, run, root = ready
+    prepared = hunt.prepare(con, run, root)
+    fill(con, run, prepared)
+    for lane in db.HUNT_LANES:
+        assert hunt.check(con, run, root, lane=lane).complete
+    assert hunt.check(con, run, root).complete
+    bound = surface.verified_snapshot(con, run)
+    original = run / bound.result_evidence[0][0]
+    payload = json.loads(original.read_bytes())
+    result = run / "surface-replacement.json"
+    if replacement == "identical":
+        result.write_bytes(original.read_bytes())
+    else:
+        if replacement == "reversed-decisions":
+            payload["decisions"].reverse()
+        result.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    before = sql_state(con)
+    recorded = surface_results.record(con, run, result, replace=True)
+    assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
+    if replacement == "reversed-decisions":
+        assert pathlib.Path(recorded.artifact_path) != original
+        assert_hunt_cleared_only(con, before, "target")
+        surface.check(con)
+        changed = surface.verified_snapshot(con, run)
+        assert changed.snapshot_sha256 != bound.snapshot_sha256
+        assert len(changed.result_evidence) == 2
+        with pytest.raises(hunt.HuntError):
+            hunt.check(con, run, root)
+    else:
+        assert pathlib.Path(recorded.artifact_path) == original
+        for table in ("cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates"):
+            assert sql_state(con)[table] == before[table]
+        surface.check(con)
+        assert surface.verified_snapshot(con, run) == bound
+        assert hunt.check(con, run, root).complete
+        assert sql_state(con)["cba_hunt_runs"] == before["cba_hunt_runs"]
+
+
 def test_unique_and_explicit_target_selection_preserves_completed_generations(ready):
     # Breaks: resetting completion on same inputs or failing explicit multi-target selection.
     con, run, root = ready

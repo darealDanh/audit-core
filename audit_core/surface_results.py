@@ -401,6 +401,10 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         digest = hashlib.sha256(content).hexdigest()
         destination = run_dir / "artifacts/surface" / digest
         artifact_path = str(destination / "result.json")
+        # Claim-free results have no SQL artifact pointer. A newly installed
+        # canonical artifact changes verified snapshot evidence even when its
+        # decisions project to the same coverage rows as an older artifact.
+        artifact_existed = destination.exists()
         surface.atomic_install(destination, {"result.json": content})
     except (OSError, sqlite3.Error) as exc:
         raise SurfaceError(f"Cannot install surface result: {exc}") from exc
@@ -416,7 +420,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         _refuse_unqualified(con, validated)
         provenance = {"image_id": result.image_id, "artifact_path": artifact_path,
                       "artifact_sha256": digest}
-        same = replace and _same_publication(con, validated, provenance)
+        same = replace and artifact_existed and _same_publication(con, validated, provenance)
         if not replace:
             _refuse_existing(con, validated)
         else:
