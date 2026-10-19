@@ -376,13 +376,16 @@ python3 audit.py hunt --run RUN --root ROOT [--image-id ID]
 
 python3 audit.py hunt --run RUN --record RESULT.json [--replace] [--json]
 
-python3 audit.py hunt --run RUN --check [--image-id ID]
+python3 audit.py hunt --run RUN --check --root ROOT [--image-id ID]
     [--lane l-sink|l-dark] [--json]
 ```
 
-Prepare is the default mode and requires `--root`. `--record` and `--check`
-are mutually exclusive with preparation-only arguments. Argparse usage errors
-exit 2; expected domain/database errors exit 1; success exits 0.
+Prepare is the default mode and requires `--root`. Check also requires `--root`
+so the completion transition can reverify the carved tree instead of trusting
+the preparation-time snapshot. Record does not accept `--root`; it validates
+only the bound assignment and current durable provenance. `--record` and
+`--check` are mutually exclusive with preparation-only arguments. Argparse
+usage errors exit 2; expected domain/database errors exit 1; success exits 0.
 
 Terminal and JSON output are bounded aggregates: image, lane/generation
 identity, manifest/surface/worklist digests, paths, units, batches, receipts,
