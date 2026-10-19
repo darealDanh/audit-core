@@ -91,6 +91,28 @@ def test_final_gate_requires_prior_independent_lane_completion(ready):
     assert state(con) == before and con.total_changes == writes
 
 
+@pytest.mark.parametrize("import_absolute", [True, False], ids=["absolute-to-relative", "relative-to-absolute"])
+def test_equivalent_run_path_spellings_can_complete_and_recheck_both_lanes(prepared, tmp_path, monkeypatch, import_absolute):
+    # Breaks: comparing normalized paths but checking ancestry with mixed absolute/relative spellings.
+    con, run, payload, _, summary = prepared
+    root = tmp_path / "root"
+    monkeypatch.chdir(tmp_path)
+    relative_run = run.relative_to(tmp_path)
+    if import_absolute:
+        import_run, check_run = run, relative_run
+    else:
+        import_run, check_run = relative_run, run
+        summary = hunt.prepare(con, import_run, root)
+    fill(con, import_run, summary, example=candidate(payload))
+    provenance = [dict(row) for row in con.execute("SELECT * FROM cba_hunt_candidates")]
+    for lane in db.HUNT_LANES:
+        assert hunt.check(con, check_run, root, lane=lane).complete
+    before, writes = state(con), con.total_changes
+    assert hunt.check(con, check_run, root).complete
+    assert state(con) == before and con.total_changes == writes and not con.in_transaction
+    assert [dict(row) for row in con.execute("SELECT * FROM cba_hunt_candidates")] == provenance
+
+
 @pytest.mark.parametrize("damage", ["surface-absent", "surface-pending", "surface-stale", "manifest", "snapshot",
     "index", "batch", "worklist-digest", "worklist-path", "run-count", "receipt-missing", "receipt-duplicate",
     "receipt-foreign-generation", "receipt-foreign-lane", "receipt-foreign-image", "receipt-batch-hash",

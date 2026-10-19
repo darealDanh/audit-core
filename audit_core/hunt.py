@@ -268,7 +268,7 @@ def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str,
         if (content != results.canonical_bytes(validated) or digest != receipt["result_sha256"] or
                 path.absolute() != expected_path.absolute()):
             raise HuntError("Hunt receipt does not name its canonical result")
-        results._artifact_directories(run_dir, path.parent)
+        results._artifact_directories(run_dir.absolute(), path.parent.absolute())
         count = sum(len(unit.candidates) for unit in result.decisions)
         if receipt["unit_count"] != len(result.decisions) or receipt["candidate_count"] != count:
             raise HuntError("Hunt receipt counts disagree with its result")
