@@ -553,9 +553,9 @@ parked defects) shipped as Stage 3b and are recorded in §2.
    generation and durable unknowns with separate, non-transferable L-sink and
    L-dark budgets. Preserve image scoping, the full target denominator, and
    evidence-based state/reachability. It inherits triage's upsert-only snapshots
-   and surface check's retained-orphan scan scaling. Stage 4d integration into
-   local `main` is still pending; the asus golden remains missing ahead of the
-   later Stage 4 milestone gate.
+   and surface check's retained-orphan scan scaling. Stage 4d is merged into
+   local `main`; the asus golden remains missing ahead of the later Stage 4
+   milestone gate.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.
