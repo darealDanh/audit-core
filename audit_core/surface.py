@@ -41,6 +41,15 @@ class SurfaceCheck:
     complete: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class SurfaceSnapshot:
+    image_id: str
+    manifest_sha256: str
+    worklist_sha256: str
+    snapshot_sha256: str
+    result_evidence: tuple[tuple[str, str], ...]
+
+
 def canonical_bytes(value: object) -> bytes:
     """Canonical UTF-8 JSON shared by preparation and result publication."""
     return (json.dumps(value, sort_keys=True, ensure_ascii=False,
@@ -327,7 +336,9 @@ def _checked_worklist(con: sqlite3.Connection, run: Mapping[str, object],
     if len(index_path.parents) < 4:
         raise SurfaceError("Invalid prepared worklist path")
     run_dir = index_path.parents[3]
-    _, index = results._read_json(index_path)
+    content, index = results._read_json(index_path)
+    if canonical_bytes(index) != content:
+        raise SurfaceError("Prepared surface index is not canonical")
     index = results._object(index, ("schema_version", "image_id", "manifest_sha256",
         "batch_size", "unit_count", "batches"), "index")
     descriptors = results._array(index["batches"], "batches")
@@ -339,6 +350,9 @@ def _checked_worklist(con: sqlite3.Connection, run: Mapping[str, object],
         result = results.BatchResult(1, str(run["image_id"]), str(run["manifest_sha256"]),
             str(run["worklist_sha256"]), descriptor["path"], descriptor["sha256"], ())
         units, _ = results._assigned(con, run_dir, result)
+        content, batch = results._read_json(index_path.with_name(descriptor["path"]))
+        if canonical_bytes(batch) != content:
+            raise SurfaceError("Prepared surface batch is not canonical")
         assigned.extend(units)
     if sorted(assigned) != [unit["path"] for unit in manifest]:
         raise SurfaceError("Prepared assignments must cover each current manifest unit exactly once")
@@ -391,11 +405,13 @@ def _matching_artifact(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapp
 
 def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapping[str, object],
                        batches: tuple[str, ...], coverage: Mapping[str, Mapping[str, object]],
-                       surfaces: list[dict[str, object]], unknowns: list[dict[str, object]]) -> None:
+                       surfaces: list[dict[str, object]], unknowns: list[dict[str, object]]
+                       ) -> tuple[tuple[str, str], ...]:
     """Require evidence for every batch while refusing any damaged referenced result."""
     artifacts = {(str(row["artifact_path"]), str(row["artifact_sha256"]))
                  for row in surfaces + unknowns}
     matched = set()
+    evidence = set(artifacts)
     for artifact_path, digest in sorted(artifacts):
         matched.add(_matching_artifact(con, run_dir, run, batches, artifact_path, digest,
                                        coverage, surfaces, unknowns))
@@ -414,6 +430,7 @@ def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapp
         try:
             matched.add(_matching_artifact(con, run_dir, run, batches, artifact_path, digest,
                                            coverage, surfaces, unknowns))
+            evidence.add((artifact_path, digest))
         except SurfaceError as exc:
             # Database read failures are operational failures, never stale evidence.
             if isinstance(exc.__cause__, sqlite3.Error):
@@ -421,10 +438,13 @@ def _checked_artifacts(con: sqlite3.Connection, run_dir: pathlib.Path, run: Mapp
     missing = set(batches) - matched
     if missing:
         raise SurfaceError(f"No matching current surface result artifact for batch {sorted(missing)[0]}")
+    return tuple(sorted((pathlib.Path(path).absolute().relative_to(run_dir.absolute()).as_posix(), digest)
+                        for path, digest in evidence))
 
 
-def _check_inputs(con: sqlite3.Connection, image_id: str | None
-                  ) -> tuple[SurfaceCheck, dict[str, object]]:
+def _check_inputs(con: sqlite3.Connection, image_id: str | None,
+                  expected_run_dir: str | pathlib.Path | None = None, *, require_complete: bool = False
+                  ) -> tuple[SurfaceCheck, dict[str, object], SurfaceSnapshot]:
     """Read the uncapped denominator and reject inconsistent current claims."""
     from audit_core import surface_results as results
 
@@ -434,11 +454,15 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None
         raise SurfaceError("No prepared surface run for target")
     run = runs[0]
     db.TABLE_SPECS["cba_surface_runs"].validate(run)
+    if require_complete and run["status"] != "complete":
+        raise SurfaceError("Surface run must be complete before binding its snapshot")
     manifest = _manifest(con, selected)
     _inventory_agreement(con, selected, manifest)
     if run["manifest_sha256"] != manifest_sha256(manifest):
         raise SurfaceError("Current and prepared surface manifest provenance differs")
     run_dir, batches = _checked_worklist(con, run, manifest)
+    if expected_run_dir is not None and run_dir.absolute() != pathlib.Path(expected_run_dir).absolute():
+        raise SurfaceError("Surface worklist does not belong to the requested run")
     paths = {str(unit["path"]) for unit in manifest}
     keys = {db.firmware_unit_key(selected, path): path for path in paths}
     coverage = {keys[row["unit"]]: row | {"unit": keys[row["unit"]]} for row in _query(con,
@@ -479,12 +503,44 @@ def _check_inputs(con: sqlite3.Connection, image_id: str | None
                               ("auth_required", "auth"), ("reachability", "reachability")):
             if row[column] == "unknown" and (row["surface_id"], field) not in open_fields:
                 raise SurfaceError(f"Unknown {field} requires a matching open unknown for {row['surface_id']}")
-    _checked_artifacts(con, run_dir, run, batches, coverage, surfaces, unknowns)
+    evidence = _checked_artifacts(con, run_dir, run, batches, coverage, surfaces, unknowns)
+    # Length framing makes the boundaries explicit. Timestamps and host roots
+    # are deliberately absent; canonical artifact paths are relative to RUN.
+    digest = hashlib.sha256()
+    for value in (
+            {key: run[key] for key in ("image_id", "manifest_sha256", "worklist_sha256",
+                                       "unit_count", "batch_count", "status")},
+            [{key: (pathlib.Path(str(value)).absolute().relative_to(run_dir.absolute()).as_posix()
+                    if key == "artifact_path" else value)
+              for key, value in row.items() if key != "recorded_at"}
+             for row in sorted(surfaces, key=lambda row: str(row["surface_id"]))],
+            [{key: (pathlib.Path(str(value)).absolute().relative_to(run_dir.absolute()).as_posix()
+                    if key == "artifact_path" else value)
+              for key, value in row.items() if key != "recorded_at"}
+             for row in sorted(unknowns, key=lambda row: str(row["id"]))], evidence):
+        content = canonical_bytes(value)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    bound = SurfaceSnapshot(selected, str(run["manifest_sha256"]), str(run["worklist_sha256"]),
+                            digest.hexdigest(), evidence)
     return SurfaceCheck(selected, len(manifest),
         sum(row["state"] == "analyzed" for row in coverage.values()),
         sum(row["state"] == "not_audited" for row in coverage.values()), len(surfaces),
         sum(row["status"] == "open" for row in unknowns),
-        sum(row["status"] == "resolved" for row in unknowns), True), run
+        sum(row["status"] == "resolved" for row in unknowns), True), run, bound
+
+
+def verified_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.Path, *,
+                      image_id: str | None = None, require_complete: bool = True) -> SurfaceSnapshot:
+    """Verify current surface evidence without changing status or completion time.
+
+    This read-only contract can also run inside a caller's publication lock.
+    Only :func:`check` may promote a pending Stage 4d generation.
+    """
+    try:
+        return _check_inputs(con, image_id, run_dir, require_complete=require_complete)[2]
+    except (sqlite3.Error, OSError, db.DbError) as exc:
+        raise SurfaceError(f"Cannot verify surface snapshot: {exc}") from exc
 
 
 def check(con: sqlite3.Connection, *, image_id: str | None = None) -> SurfaceCheck:
@@ -493,13 +549,13 @@ def check(con: sqlite3.Connection, *, image_id: str | None = None) -> SurfaceChe
     try:
         if con.in_transaction:
             raise SurfaceError("Surface check requires a connection without an active transaction")
-        summary, run = _check_inputs(con, image_id)
+        summary, run, bound = _check_inputs(con, image_id)
         con.execute("BEGIN IMMEDIATE")
         started = True
         # Validation before locking is diagnostic only. All SQL and file evidence
         # is re-read while other SQL writers cannot publish another generation.
-        current, current_run = _check_inputs(con, image_id)
-        if current != summary or current_run != run:
+        current, current_run, current_bound = _check_inputs(con, image_id)
+        if current != summary or current_run != run or current_bound != bound:
             raise SurfaceError("Surface check inputs changed before completion")
         if run["status"] != "complete":
             con.execute("UPDATE cba_surface_runs SET status='complete',completed_at=datetime('now') WHERE image_id=?",

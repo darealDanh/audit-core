@@ -4,6 +4,7 @@ import dataclasses
 import hashlib
 import json
 import pathlib
+import shutil
 import sqlite3
 
 import pytest
@@ -120,6 +121,115 @@ def test_complete_two_batches_accept_honest_open_unknown_and_are_idempotent(comp
     assert surface.check(con, image_id="target") == result
     assert snapshot(con) == before
     assert con.total_changes == writes
+
+
+def test_verified_snapshot_is_read_only_order_independent_and_binds_results(complete_run):
+    # Breaks: hashing row order, omitting claim-free evidence, or writing completion.
+    con, run, summary, artifacts, _ = complete_run
+    surface.check(con)
+    before, writes = snapshot(con), con.total_changes
+    result = surface.verified_snapshot(con, run)
+    assert isinstance(result, surface.SurfaceSnapshot)
+    assert (result.image_id, result.manifest_sha256, result.worklist_sha256) == (
+        "target", summary.manifest_sha256, summary.worklist_sha256)
+    assert result.result_evidence == tuple(sorted(
+        (artifact.relative_to(run).as_posix(), hashlib.sha256(artifact.read_bytes()).hexdigest())
+        for artifact in artifacts))
+    assert len(result.snapshot_sha256) == 64
+    con.execute("PRAGMA reverse_unordered_selects=ON")
+    assert surface.verified_snapshot(con, run) == result
+    assert snapshot(con) == before and con.total_changes == writes
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        result.image_id = "changed"
+
+
+def test_verified_snapshot_ignores_timestamps_and_host_run_roots(complete_run, tmp_path):
+    # Breaks: allowing host paths or volatile SQL timestamps into snapshot identity.
+    con, run, *_ = complete_run
+    surface.check(con)
+    expected = surface.verified_snapshot(con, run)
+    for table in ("cba_firmware_surfaces", "cba_unknowns"):
+        con.execute(f"UPDATE {table} SET recorded_at='different time'")
+    con.execute("UPDATE cba_surface_runs SET prepared_at='later',completed_at='later'")
+    con.commit()
+    assert surface.verified_snapshot(con, run) == expected
+    relocated = tmp_path / "relocated-run"
+    shutil.copytree(run, relocated)
+    with db.connect(relocated / "audit.db") as moved:
+        moved.execute("UPDATE cba_surface_runs SET worklist_path=replace(worklist_path,?,?)",
+                      (str(run), str(relocated)))
+        for table in ("cba_firmware_surfaces", "cba_unknowns"):
+            moved.execute(f"UPDATE {table} SET artifact_path=replace(artifact_path,?,?)",
+                          (str(run), str(relocated)))
+        moved.commit()
+        assert surface.verified_snapshot(moved, relocated) == expected
+
+
+def test_verified_snapshot_changes_when_rechecked_result_evidence_changes(complete_run):
+    # Breaks: binding only the surface worklist rather than the analyzed evidence.
+    con, run, summary, _, decisions = complete_run
+    surface.check(con)
+    before = surface.verified_snapshot(con, run)
+    changed = copy.deepcopy(decisions)
+    changed["a/config.conf"]["reason"] = "Configuration read directly; no dispatcher exists."
+    import_batches(con, run, summary, changed, replace=True)
+    surface.check(con)
+    after = surface.verified_snapshot(con, run)
+    assert before.worklist_sha256 == after.worklist_sha256
+    assert before.result_evidence != after.result_evidence
+    assert before.snapshot_sha256 != after.snapshot_sha256
+
+
+@pytest.mark.parametrize("damage", ["pending", "manifest", "result", "worklist", "wrong-run"])
+def test_verified_snapshot_refuses_pending_stale_or_noncanonical_without_writes(complete_run, damage):
+    # Breaks: promoting pending surface state or trusting a damaged completed run.
+    con, run, summary, artifacts, _ = complete_run
+    if damage != "pending":
+        surface.check(con)
+    if damage == "manifest":
+        con.execute("UPDATE cba_firmware_files SET sha256=? WHERE path='d/assets'", ("b" * 64,))
+        con.commit()
+    elif damage == "result":
+        artifacts[0].write_bytes(artifacts[0].read_bytes() + b" ")
+    elif damage == "worklist":
+        pathlib.Path(summary.worklist_path).write_bytes(b"{}")
+    before, writes = snapshot(con), con.total_changes
+    with pytest.raises(surface.SurfaceError):
+        surface.verified_snapshot(con, run / "elsewhere" if damage == "wrong-run" else run)
+    assert snapshot(con) == before and con.total_changes == writes
+    if damage == "pending":
+        assert surface.verified_snapshot(con, run, require_complete=False).image_id == "target"
+        assert tuple(con.execute("SELECT status,completed_at FROM cba_surface_runs").fetchone()) == ("pending", None)
+
+
+@pytest.mark.parametrize("artifact", ["index", "batch"])
+def test_verified_snapshot_refuses_hash_consistent_noncanonical_worklists(complete_run, artifact):
+    # Breaks: treating valid hashes and structure as proof of canonical assignment bytes.
+    con, run, summary, _, decisions = complete_run
+    surface.check(con)
+    old_index = pathlib.Path(summary.worklist_path)
+    index = json.loads(old_index.read_bytes())
+    files = {row["path"]: old_index.with_name(row["path"]).read_bytes() for row in index["batches"]}
+    if artifact == "batch":
+        name = index["batches"][0]["path"]
+        files[name] = json.dumps(json.loads(files[name]), indent=2).encode()
+        index["batches"][0]["sha256"] = hashlib.sha256(files[name]).hexdigest()
+    files["index.json"] = (json.dumps(index, indent=2).encode() if artifact == "index"
+                           else surface.canonical_bytes(index))
+    digest = hashlib.sha256(files["index.json"]).hexdigest()
+    destination = run / "files/surface" / digest
+    surface.atomic_install(destination, files)
+    con.execute("UPDATE cba_surface_runs SET worklist_path=?,worklist_sha256=?",
+                (str(destination / "index.json"), digest))
+    con.commit()
+    import_batches(con, run, dataclasses.replace(summary, worklist_path=str(destination / "index.json"),
+                   worklist_sha256=digest), decisions, replace=True)
+    con.execute("UPDATE cba_surface_runs SET status='complete',completed_at='retained'")
+    con.commit()
+    before = snapshot(con)
+    with pytest.raises(surface.SurfaceError):
+        surface.verified_snapshot(con, run)
+    assert snapshot(con) == before
 
 
 @pytest.mark.parametrize("damage", ["no-run", "wrong-role", "manifest", "prepared-manifest",
