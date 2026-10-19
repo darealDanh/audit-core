@@ -37,7 +37,7 @@
 
 - [ ] Read the approved spec and this plan from local `main`.
 - [ ] Use `superpowers:using-git-worktrees` to create `.worktrees/stage4e-firmware-hunt` on branch `stage4e-firmware-hunt`; verify `.worktrees` is ignored before creation.
-- [ ] Run `make all` in the new worktree. Expect the current eight-gate baseline: 2,081 tests, 27 verbs, 24 schema tables / 23 contracted tables, 4 migrations plus both baselines, 6 CRLF / 188 LF after this plan, 43 features / 12 stages / 21 open items, 105 Markdown installs, 0/4,074 uncovered statements, and benchmark 9/19 recall with 39/40 precision. If measured documentation-only counts differ, record the actual baseline instead of copying these estimates.
+- [ ] Run `make all` in the new worktree. Expect the current eight-gate baseline: 2,081 tests, 27 verbs, 24 schema tables / 23 contracted tables, 4 migrations plus both baselines, 6 CRLF / 188 LF after this plan, 43 features / 12 stages / 21 open items, 104 Markdown installs, 0/4,074 uncovered statements, and benchmark 9/19 recall with 39/40 precision. If measured documentation-only counts differ, record the actual baseline instead of copying these estimates.
 
 ### Task 1: Add the durable hunt schema and row contracts
 
