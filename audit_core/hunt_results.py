@@ -288,7 +288,7 @@ def _semantics(con: sqlite3.Connection, result: BatchResult) -> None:
                     raise HuntError("L-sink requires a named operation in the trace and operation evidence")
                 if not re.search(r"attacker|untrusted|external|cross[- ]trust|user[- ]controlled", row.data_flow, re.I):
                     raise HuntError("L-sink requires documented attacker influence")
-            elif not re.search(r"upnp|ssdp|mdns|tr-?069|cwmp|cloud|p2p|discovery|unix.{0,12}(socket|ipc)|ota|heap|trust boundary",
+            elif not re.search(r"\b(?:upnp|ssdp|mdns|tr-?069|cwmp|cloud|p2p|discovery|unix.{0,12}(socket|ipc)|ota|heap|trust boundary)\b",
                                row.dangerous_operation, re.I):
                 raise HuntError("L-dark requires a named protocol, trust boundary, OTA decision or heap mechanism")
 

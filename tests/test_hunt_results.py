@@ -330,6 +330,16 @@ def test_dark_lane_rejects_generic_interesting_binary_observation(prepared):
         validate_payload(prepared, payload)
 
 
+@pytest.mark.parametrize("operation", ["cheap integer comparison", "total byte count"])
+def test_dark_lane_rejects_mechanism_substrings_in_unrelated_words(prepared, operation):
+    # Breaks: accepting heap/OTA fragments rather than a named lane mechanism.
+    payload = dark_payload(prepared)
+    candidate(payload).update(dangerous_operation=operation,
+        data_flow="Attacker parameter at c:10 reaches an integer comparison at c:20.")
+    with pytest.raises(hunt.HuntError, match="L-dark requires a named"):
+        validate_payload(prepared, payload)
+
+
 def test_direct_typed_call_cannot_bypass_loading_checks(prepared):
     result = load_payload(prepared, prepared[2])
     row = result.decisions[2].candidates[0]
