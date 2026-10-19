@@ -31,6 +31,29 @@ class PreparationSummary:
     lanes: tuple[LanePreparation, ...]
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class LaneCheck:
+    image_id: str
+    lane: str
+    manifest_units: int
+    analyzed: int
+    not_applicable: int
+    not_audited: int
+    receipts: int
+    candidates: int
+    blockers: int
+    complete: bool
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class HuntCheck:
+    image_id: str
+    manifest_sha256: str
+    surface_snapshot_sha256: str
+    lanes: tuple[LaneCheck, ...]
+    complete: bool
+
+
 def _units(con: sqlite3.Connection, image_id: str,
            manifest: list[dict[str, object]]) -> list[dict[str, object]]:
     """Advisory context never changes the manifest denominator or carries host metadata."""
@@ -203,4 +226,146 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
             con.rollback()
         if isinstance(exc, (sqlite3.Error, OSError, db.DbError, firmware_tree.FirmwareTreeError, surface.SurfaceError)):
             raise HuntError(f"Cannot prepare firmware hunt: {exc}") from exc
+        raise
+
+
+def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str, object],
+                  manifest: list[dict[str, object]]) -> tuple[LaneCheck, tuple]:
+    """Receipts, rather than artifact discovery, enumerate all evidence to verify."""
+    from audit_core import hunt_results as results
+
+    image_id, lane = str(run["image_id"]), str(run["lane"])
+    db.TABLE_SPECS["cba_hunt_runs"].validate(run)
+    if (run["status"] == "complete") != (run["completed_at"] is not None):
+        raise HuntError("Hunt completion status and timestamp disagree")
+    index_path = pathlib.Path(str(run["worklist_path"]))
+    _, index = results._read_json(index_path)
+    if not isinstance(index, dict) or not isinstance(index.get("batches"), list):
+        raise HuntError("Invalid prepared hunt index")
+    receipts = surface._query(con, "SELECT * FROM cba_hunt_receipts WHERE image_id=? AND lane=? "
+                              "ORDER BY worklist_sha256,batch_path", (image_id, lane))
+    descriptors = index["batches"]
+    if any(not isinstance(row, dict) or not isinstance(row.get("path"), str) for row in descriptors):
+        raise HuntError("Invalid prepared hunt batch descriptor")
+    if (len(receipts) != run["batch_count"] or
+            any(row["worklist_sha256"] != run["worklist_sha256"] for row in receipts) or
+            {row["batch_path"] for row in receipts} != {row["path"] for row in descriptors}):
+        raise HuntError("Every hunt batch requires exactly one current owned receipt")
+    decisions = {}
+    expected_candidates = {}
+    blockers = 0
+    for receipt in receipts:
+        db.TABLE_SPECS["cba_hunt_receipts"].validate(receipt)
+        path = pathlib.Path(receipt["result_path"])
+        content, raw = results._read_json(path, bounded=True)
+        validated = results.validate(con, run_dir, results._parse(raw))
+        result = validated.result
+        if (result.image_id, result.lane, result.worklist_sha256, result.batch_path, result.batch_sha256) != (
+                image_id, lane, run["worklist_sha256"], receipt["batch_path"], receipt["batch_sha256"]):
+            raise HuntError("Hunt receipt and result ownership differ")
+        digest = hashlib.sha256(content).hexdigest()
+        expected_path = (run_dir / "artifacts/hunt" / index_path.parent.parent.name / lane / digest / "result.json")
+        if (content != results.canonical_bytes(validated) or digest != receipt["result_sha256"] or
+                path.absolute() != expected_path.absolute()):
+            raise HuntError("Hunt receipt does not name its canonical result")
+        results._artifact_directories(run_dir, path.parent)
+        count = sum(len(unit.candidates) for unit in result.decisions)
+        if receipt["unit_count"] != len(result.decisions) or receipt["candidate_count"] != count:
+            raise HuntError("Hunt receipt counts disagree with its result")
+        for decision in result.decisions:
+            if decision.path in decisions:
+                raise HuntError("Duplicate hunt decision ownership")
+            if decision.disposition == "not_audited" and decision.reason == "budget":
+                raise HuntError("Hunt lane has a budget skip")
+            decisions[decision.path] = decision
+            for candidate in decision.candidates:
+                if candidate.candidate_id in expected_candidates:
+                    raise HuntError("Duplicate hunt candidate ownership")
+                row = dataclasses.asdict(candidate)
+                for column in ("surface_ids", "blockers"):
+                    row[column] = surface.canonical_bytes(row[column]).decode("utf-8").removesuffix("\n")
+                expected_candidates[candidate.candidate_id] = row | {
+                    "image_id": image_id, "lane": lane, "artifact_path": str(path), "artifact_sha256": digest}
+                blockers += len(candidate.blockers)
+    if set(decisions) != {unit["path"] for unit in manifest}:
+        raise HuntError("Hunt decisions do not cover the complete manifest")
+    prefix = db.firmware_unit_key(image_id, "")
+    coverage = [row for row in surface._query(con,
+        "SELECT * FROM cba_coverage WHERE phase=? ORDER BY unit", ("hunt-" + lane,))
+        if row["unit"].startswith(prefix)]
+    expected_coverage = {db.firmware_unit_key(image_id, unit.path): (
+        "not_audited" if unit.disposition == "not_audited" else "analyzed", unit.reason)
+        for unit in decisions.values()}
+    if {row["unit"] for row in coverage} != set(expected_coverage):
+        raise HuntError("Hunt coverage does not match the complete lane denominator")
+    for row in coverage:
+        db.TABLE_SPECS["cba_coverage"].validate(row)
+        if (row["state"], row["reason"]) != expected_coverage[row["unit"]]:
+            raise HuntError("Hunt coverage differs from its owning decision")
+    candidates = surface._query(con, "SELECT * FROM cba_hunt_candidates WHERE image_id=? AND lane=? "
+                                "ORDER BY candidate_id", (image_id, lane))
+    actual_candidates = {}
+    for row in candidates:
+        db.TABLE_SPECS["cba_hunt_candidates"].validate(row)
+        actual_candidates[row["candidate_id"]] = {key: value for key, value in row.items() if key != "recorded_at"}
+    if actual_candidates != expected_candidates:
+        raise HuntError("Hunt candidates differ from their owning canonical results")
+    summary = LaneCheck(image_id, lane, len(manifest),
+        sum(unit.disposition == "analyzed" for unit in decisions.values()),
+        sum(unit.disposition == "not_applicable" for unit in decisions.values()),
+        sum(unit.disposition == "not_audited" for unit in decisions.values()),
+        len(receipts), len(candidates), blockers, True)
+    return summary, (receipts, coverage, candidates)
+
+
+def _check_inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path,
+                  image_id: str | None, lane: str | None) -> tuple[HuntCheck, tuple]:
+    selected = surface._resolve_target(surface._query(con, "SELECT id,role FROM cba_images"), image_id)
+    bound = surface.verified_snapshot(con, run_dir, image_id=selected, require_complete=True)
+    manifest = surface._manifest(con, selected)
+    surface._inventory_agreement(con, selected, manifest)
+    surface._root_agreement(root, manifest)
+    _refuse_unqualified_coverage(con)
+    runs = surface._query(con, "SELECT * FROM cba_hunt_runs WHERE image_id=? ORDER BY lane", (selected,))
+    if len(runs) != 2 or {row["lane"] for row in runs} != set(db.HUNT_LANES):
+        raise HuntError("Both prepared hunt lanes are required")
+    for row in runs:
+        db.TABLE_SPECS["cba_hunt_runs"].validate(row)
+        if (row["manifest_sha256"], row["surface_snapshot_sha256"]) != (bound.manifest_sha256, bound.snapshot_sha256):
+            raise HuntError("Prepared hunt manifest or surface snapshot differs")
+    if lane is None and any(row["status"] != "complete" for row in runs):
+        raise HuntError("Both hunt lanes must already be complete before the final check")
+    by_lane = {row["lane"]: row for row in runs}
+    checked = [_checked_lane(con, run_dir, by_lane[name], manifest)
+               for name in (db.HUNT_LANES if lane is None else (lane,))]
+    summary = HuntCheck(selected, bound.manifest_sha256, bound.snapshot_sha256,
+                        tuple(value[0] for value in checked), True)
+    return summary, (bound, manifest, runs, tuple(value[1] for value in checked))
+
+
+def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
+          *, image_id: str | None = None, lane: str | None = None) -> HuntCheck:
+    """Complete one evidence-bound lane, or read-only certify two completed lanes."""
+    started = False
+    try:
+        if con.in_transaction:
+            raise HuntError("Hunt check requires a connection without an active transaction")
+        if lane is not None and lane not in db.HUNT_LANES:
+            raise HuntError("Invalid hunt lane")
+        inputs = _check_inputs(con, pathlib.Path(run_dir), root, image_id, lane)
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        if _check_inputs(con, pathlib.Path(run_dir), root, image_id, lane) != inputs:
+            raise HuntError("Hunt check inputs changed before completion")
+        summary = inputs[0]
+        if lane is not None:
+            con.execute("UPDATE cba_hunt_runs SET status='complete',completed_at=datetime('now') "
+                        "WHERE image_id=? AND lane=? AND status='pending'", (summary.image_id, lane))
+        con.commit()
+        return summary
+    except Exception as exc:
+        if started:
+            con.rollback()
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError, firmware_tree.FirmwareTreeError, surface.SurfaceError)):
+            raise HuntError("Cannot check firmware hunt completeness") from exc
         raise
