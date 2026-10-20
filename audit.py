@@ -562,8 +562,12 @@ def cmd_hunt(args: argparse.Namespace) -> int:
 
     run_dir = pathlib.Path(args.run).expanduser()
     root = pathlib.Path(args.root).expanduser() if args.root is not None else None
-    con = _open_db(str(run_dir / "audit.db"),
-                   error_message=lambda exc: _hunt_error_message(exc, root))
+    try:
+        con = _open_db(str(run_dir / "audit.db"),
+                       error_message=lambda exc: _hunt_error_message(exc, root))
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(_hunt_error_message(exc, root), file=sys.stderr)
+        return 1
     if con is None:
         return 1
     try:

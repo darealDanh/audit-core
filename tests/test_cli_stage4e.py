@@ -244,6 +244,30 @@ def test_read_sqlite_failure_is_fixed_diagnostic_and_preserves_state(target_run,
     assert snapshot(run) == before
 
 
+def test_open_time_sqlite_failure_is_fixed_diagnostic(monkeypatch, capsys, tmp_path):
+    failure = sqlite3.OperationalError("PRIVATE_SQL_DETAIL")
+    monkeypatch.setattr(db, "connect", lambda *args, **kwargs: (_ for _ in ()).throw(failure))
+    args = audit.build_parser().parse_args([
+        "hunt", "--run", str(tmp_path / "run"), "--root", str(tmp_path / "root")])
+
+    assert audit.cmd_hunt(args) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "hunt: database operation failed\n"
+
+
+def test_unexpected_open_time_error_propagates(monkeypatch, capsys, tmp_path):
+    failure = RuntimeError("unexpected connection defect")
+    monkeypatch.setattr(db, "connect", lambda *args, **kwargs: (_ for _ in ()).throw(failure))
+    args = audit.build_parser().parse_args([
+        "hunt", "--run", str(tmp_path / "run"), "--root", str(tmp_path / "root")])
+
+    with pytest.raises(RuntimeError) as caught:
+        audit.cmd_hunt(args)
+    assert caught.value is failure
+    assert capsys.readouterr() == ("", "")
+
+
 @pytest.mark.parametrize("error_type", [hunt.HuntError, db.DbError, OSError, sqlite3.OperationalError])
 @pytest.mark.parametrize("chain", ["none", "cause", "context", "cycle"])
 def test_expected_errors_are_escaped_capped_redacted_and_rollback(target_run, monkeypatch, capsys, error_type, chain):
