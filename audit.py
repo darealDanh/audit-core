@@ -41,6 +41,8 @@ from audit_core import triage as triage_mod  # noqa: E402
 from audit_core import firmware_diff as firmware_diff_mod  # noqa: E402
 from audit_core import surface as surface_mod  # noqa: E402
 from audit_core import surface_results as surface_results_mod  # noqa: E402
+from audit_core import hunt as hunt_mod  # noqa: E402
+from audit_core import hunt_results as hunt_results_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -490,6 +492,139 @@ def cmd_surface(args: argparse.Namespace) -> int:
               f"{result.analyzed} analyzed, {result.not_audited} not audited, "
               f"{result.surfaces} surface(s), {result.open_unknowns} open unknown(s), "
               f"{result.resolved_unknowns} resolved unknown(s), {status}")
+    return 0
+
+
+def _hunt_error_message(exc: BaseException, root: str | pathlib.Path | None = None) -> str:
+    """Render expected hunt errors without exposing SQL details or control text."""
+    pending = [exc]
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, sqlite3.Error):
+            return "hunt: database operation failed"
+        for linked in (current.__cause__, current.__context__):
+            if linked is not None:
+                pending.append(linked)
+
+    message = str(exc)
+    if root is not None:
+        root_path = pathlib.Path(root).expanduser()
+        for private_path in sorted({str(root_path), str(root_path.resolve(strict=False))},
+                                   key=len, reverse=True):
+            if private_path:
+                message = message.replace(private_path, "<root>")
+    escaped = ""
+    for char in message:
+        escaped += char if " " <= char <= "~" else json.dumps(char, ensure_ascii=True)[1:-1]
+        if len(escaped) > 512:
+            return escaped[:509] + "..."
+    return escaped
+
+
+def cmd_hunt(args: argparse.Namespace) -> int:
+    """Prepare, import, or check evidence-bound firmware hunt lanes."""
+    preparing = args.record is None and not args.check
+    if args.replace and args.record is None:
+        error = "--replace requires --record"
+    elif args.record is not None and args.root is not None:
+        error = "--root is only valid for prepare or check"
+    elif args.record is not None and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    elif args.record is not None and args.lane is not None:
+        error = "--lane is not valid with --record"
+    elif args.record is not None and args.sink_batch_size is not None:
+        error = "--sink-batch-size is not valid with --record"
+    elif args.record is not None and args.dark_batch_size is not None:
+        error = "--dark-batch-size is not valid with --record"
+    elif args.check and args.sink_batch_size is not None:
+        error = "--sink-batch-size is only valid for prepare"
+    elif args.check and args.dark_batch_size is not None:
+        error = "--dark-batch-size is only valid for prepare"
+    elif args.lane is not None and not args.check:
+        error = "--lane requires --check"
+    elif preparing and args.root is None:
+        error = "--root is required for hunt prepare"
+    elif args.check and args.root is None:
+        error = "--root is required for hunt check"
+    elif args.sink_batch_size is not None and not 1 <= args.sink_batch_size <= 1000:
+        error = "sink_batch_size must be an integer from 1 to 1000"
+    elif args.dark_batch_size is not None and not 1 <= args.dark_batch_size <= 1000:
+        error = "dark_batch_size must be an integer from 1 to 1000"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    con = _open_db(str(run_dir / "audit.db"),
+                   error_message=lambda exc: _hunt_error_message(exc, root))
+    if con is None:
+        return 1
+    try:
+        if preparing:
+            result = hunt_mod.prepare(
+                con, run_dir, root, image_id=args.image_id,
+                sink_batch_size=50 if args.sink_batch_size is None else args.sink_batch_size,
+                dark_batch_size=50 if args.dark_batch_size is None else args.dark_batch_size)
+        elif args.record is not None:
+            result = hunt_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace)
+        else:
+            result = hunt_mod.check(
+                con, run_dir, root, image_id=args.image_id, lane=args.lane)
+    except Exception as exc:
+        if con.in_transaction:
+            con.rollback()
+        if isinstance(exc, (hunt_mod.HuntError, hunt_results_mod.HuntError,
+                            db_mod.DbError, OSError, sqlite3.Error)):
+            print(_hunt_error_message(exc, root), file=sys.stderr)
+            return 1
+        raise
+    finally:
+        con.close()
+
+    if args.json:
+        if preparing:
+            payload = {
+                "image_id": result.image_id,
+                "manifest_sha256": result.manifest_sha256,
+                "surface_snapshot_sha256": result.surface_snapshot_sha256,
+                "generation": result.generation,
+                "lanes": [dataclasses.asdict(lane) for lane in result.lanes],
+            }
+        elif args.record is not None:
+            payload = dataclasses.asdict(result)
+        else:
+            payload = dataclasses.asdict(result)
+        print(json.dumps(payload, indent=2))
+    elif preparing:
+        print(f"hunt prepared {result.image_id}: generation {result.generation}")
+        print(f"manifest sha256 {result.manifest_sha256}")
+        print(f"surface snapshot sha256 {result.surface_snapshot_sha256}")
+        for lane in result.lanes:
+            print(f"{lane.lane}: {lane.unit_count} unit(s), {lane.batch_count} batch(es)")
+            print(f"worklist sha256 {lane.worklist_sha256}")
+            print(lane.worklist_path)
+    elif args.record is not None:
+        print(f"hunt recorded {result.image_id} {result.lane} {result.batch_path}: "
+              f"{result.unit_count} unit(s), {result.candidate_count} candidate(s), "
+              f"{result.blocker_count} blocker(s)")
+        print(result.artifact_path)
+    else:
+        for lane in result.lanes:
+            count = "complete" if lane.complete else "pending"
+            print(f"hunt {lane.image_id} {lane.lane}: {lane.manifest_units} manifest unit(s), "
+                  f"{lane.analyzed} analyzed, {lane.not_applicable} not applicable, "
+                  f"{lane.not_audited} not audited, {lane.receipts} receipt(s), "
+                  f"{lane.candidates} candidate(s), {lane.blockers} blocker(s), {count}")
+        if args.lane is None:
+            print(f"hunt {result.image_id}: both lanes complete")
     return 0
 
 
@@ -1107,6 +1242,7 @@ HANDLERS = {
     "triage": cmd_triage,
     "diff": cmd_diff,
     "surface": cmd_surface,
+    "hunt": cmd_hunt,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1207,6 +1343,23 @@ def build_parser() -> argparse.ArgumentParser:
     srf.add_argument("--replace", action="store_true",
                      help="replace assigned batch results with --record")
     srf.add_argument("--json", action="store_true")
+    hnt = sub.add_parser("hunt", help="prepare, record, or check firmware hunt lanes")
+    hnt.add_argument("--run", required=True, metavar="RUN_DIR")
+    hnt.add_argument("--root", default=None, metavar="CARVED_ROOTFS",
+                     help="required for prepare and check")
+    hnt.add_argument("--image-id", default=None, metavar="ID")
+    hnt.add_argument("--sink-batch-size", type=int, default=None, metavar="N",
+                     help="L-sink units per batch, 1..1000 (default: 50)")
+    hnt.add_argument("--dark-batch-size", type=int, default=None, metavar="N",
+                     help="L-dark units per batch, 1..1000 (default: 50)")
+    hnt_mode = hnt.add_mutually_exclusive_group()
+    hnt_mode.add_argument("--record", metavar="RESULT_JSON")
+    hnt_mode.add_argument("--check", action="store_true")
+    hnt.add_argument("--replace", action="store_true",
+                     help="replace an imported batch with --record")
+    hnt.add_argument("--lane", choices=db_mod.HUNT_LANES,
+                     help="check one completed lane instead of both")
+    hnt.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
