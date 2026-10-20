@@ -209,8 +209,11 @@ checkpoint resumes the same assignments and returns PARTIAL. See the rendered
 worker contract in `references/briefs/hunt-brief.md` for the exact categories,
 evidence, result schema, and boundaries.
 
-Run `python3 __SKILL_DIR__/audit.py hunt` to prepare the two lane worklists,
-then record each result and check each lane through the same verb. Render one
+Prepare the two lane worklists with the required run and carved-root paths:
+
+    python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS}
+
+Record each result and check each lane through the same verb. Render one
 file-backed assignment with the existing brief command, supplying all ten
 required variables. The dispatched task carries the resulting brief path plus
 only context the template cannot know:
