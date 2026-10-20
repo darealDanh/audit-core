@@ -1,6 +1,7 @@
 # tests/test_install.py
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -32,11 +33,57 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
     assert (target / "audit.py").is_file()
     assert (target / "audit_core" / "__init__.py").is_file()
     assert (target / "audit_core" / "schema.sql").is_file()
+    assert (target / "audit_core" / "hunt_results.py").is_file()
+    assert (target / "references" / "briefs" / "hunt-brief.md").is_file()
 
     s = subprocess.run([sys.executable, str(target / "audit.py"), "selftest"],
                        capture_output=True, text=True)
     assert s.returncode == 0, s.stderr
     assert "audit_core" in s.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_installed_hunt_brief_resolves_schema_and_renders_from_installed_tree(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
+    install = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), "claude"],
+        capture_output=True, text=True, env=env, cwd=str(ROOT),
+    )
+    assert install.returncode == 0, install.stdout + install.stderr
+    target = home / ".claude" / "skills" / "codebase-audit"
+    template = target / "references" / "briefs" / "hunt-brief.md"
+    template_text = template.read_text()
+    assert "__SKILL_DIR__" not in template_text
+    assert str(target) in template_text
+    assert (target / "audit_core" / "hunt_results.py").is_file()
+
+    run = tmp_path / "run"
+    generation = run / "files" / "hunt" / ("a" * 64) / "l-dark"
+    variables = {
+        "run_dir": str(run), "db_path": str(run / "audit.db"),
+        "rootfs": str(tmp_path / "rootfs"), "image_id": "target",
+        "lane": "l-dark", "manifest_sha256": "b" * 64,
+        "surface_snapshot_sha256": "c" * 64,
+        "worklist_index": str(generation / "index.json"),
+        "batch_path": str(generation / "batch-0001.json"),
+        "result_path": str(run / "files" / "result.json"),
+    }
+    command = [sys.executable, str(target / "audit.py"), "brief", "--phase",
+               "hunt", "--unit", "l-dark-batch-0001", "--run", str(run)]
+    for name, value in variables.items():
+        command.extend(["--var", f"{name}={value}"])
+    rendered = subprocess.run(command, capture_output=True, text=True)
+    assert rendered.returncode == 0, rendered.stderr
+    output = run / "briefs" / "hunt-l-dark-batch-0001-brief.md"
+    assert rendered.stdout == f"{output}\n"
+    text = output.read_text()
+    assert str(target / "audit_core" / "hunt_results.py") in text
+    assert "__SKILL_DIR__" not in text
+    assert str(target) in text
+    assert not re.search(r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_]*\}", text)
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")

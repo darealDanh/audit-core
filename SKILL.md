@@ -168,7 +168,7 @@ phases' summaries into a dispatch.
 
 ## Sub-Command Router
 
-The skill supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans.
+The application workflow supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans. Stage 4e firmware hunt is a separate, file-backed route described below.
 
 ### Phase → workflow mapping
 
@@ -196,6 +196,39 @@ The skill supports six phases (invoke them individually after the prior phase co
 | **Free-text** (any) | "audit this app" | "run the codebase-audit recon phase" |
 
 **Automated source-only run:** invoke the **`source`** command (Claude `/codebase-audit:source`; Copilot `/codebase-audit source`; Codex `$codebase-audit source`; or free-text "run the automated source-only audit") to chain recon → audit → fpcheck → report **unattended** with no live instance — see [workflows/source.md](workflows/source.md).
+
+### Stage 4e firmware hunt
+
+After acquisition, triage, and a complete Stage 4d surface check, `hunt` prepares
+two complete, independent worklists for the selected target image. L-sink traces
+attacker-controlled data into shell, memory, configuration, and format-string
+operations. L-dark directly assesses proprietary protocols, helper IPC, OTA
+trust decisions, and heap corruption. Each lane assesses every assigned file,
+including files without hints. The lane budgets cannot be transferred; a budget
+checkpoint resumes the same assignments and returns PARTIAL. See the rendered
+worker contract in `references/briefs/hunt-brief.md` for the exact categories,
+evidence, result schema, and boundaries.
+
+Run `python3 __SKILL_DIR__/audit.py hunt` to prepare the two lane worklists,
+then record each result and check each lane through the same verb. Render one
+file-backed assignment with the existing brief command, supplying all ten
+required variables. The dispatched task carries the resulting brief path plus
+only context the template cannot know:
+
+    python3 __SKILL_DIR__/audit.py brief --phase hunt \
+      --unit l-sink-batch-0001 --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var db_path=${AUDIT_DIR}/audit.db \
+      --var rootfs=${ROOTFS} --var image_id=${IMAGE_ID} --var lane=l-sink \
+      --var manifest_sha256=${MANIFEST_SHA256} \
+      --var surface_snapshot_sha256=${SURFACE_SNAPSHOT_SHA256} \
+      --var worklist_index=${INDEX_PATH} --var batch_path=${BATCH_PATH} \
+      --var result_path=${RESULT_PATH}
+
+Repeat independently for each `l-sink` and `l-dark` batch. The worker writes
+one strict result artifact and returns only
+`hunt-<lane>-<batch> <DONE|PARTIAL|FAILED> rows=<n> artifact=<path> [flags=<csv>]`.
+The orchestrator records results and runs the lane checks; only the final
+two-lane `hunt --check` certifies Stage 4e completion.
 
 ### Cross-client tool mapping
 
