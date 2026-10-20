@@ -107,9 +107,12 @@ The lane budgets are separate and non-transferable. A context or time budget
 does not permit dropping units, shrinking the denominator, or marking work
 complete. Do not turn a budget checkpoint into not_audited(reason='budget');
 that decision fails the lane gate. If the budget prevents complete assessment,
-checkpoint the same lane with `audit.py checkpoint`, leave the assignment
-intact, and return PARTIAL. Record any explicit unfinished work in the result.
-Do not manufacture a clear decision to avoid a checkpoint.
+do not manufacture clear decisions or publish a database checkpoint. Return
+PARTIAL and include checkpoint information in the return flags: completed and
+total row counts plus the exact remaining unit paths. Preserve completed
+evidence in the result artifact without inventing decisions for unfinished
+units. The orchestrator publishes the checkpoint and owns resumption of the
+same lane; it alone may run the database-writing `audit.py checkpoint` command.
 
 ## Return contract
 

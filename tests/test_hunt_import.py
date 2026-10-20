@@ -291,6 +291,40 @@ def test_invalid_result_is_rejected_before_installation(prepared):
     assert not (prepared[1] / "artifacts/hunt").exists()
 
 
+@pytest.mark.parametrize("replace", [False, True])
+def test_canonical_result_over_limit_is_rejected_before_publication(prepared, replace):
+    # Breaks: accepting an 8 MiB input whose canonical trailing newline makes
+    # the installed artifact one byte too large for the lane checker.
+    con, run, payload, *_ = prepared
+    if replace:
+        record(prepared)
+    before = sql_state(con)
+    artifact_root = run / "artifacts/hunt"
+    old_files = ({path.relative_to(artifact_root): path.read_bytes()
+                  for path in artifact_root.rglob("*") if path.is_file()}
+                 if artifact_root.exists() else {})
+
+    oversized = copy.deepcopy(payload)
+    oversized["decisions"][0]["reason"] = ""
+    base = json.dumps(oversized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    oversized["decisions"][0]["reason"] = "x" * (hunt_results.MAX_RESULT_BYTES - len(base))
+    raw = json.dumps(oversized, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    assert len(raw) == hunt_results.MAX_RESULT_BYTES
+    path = run / "hunt-result.json"
+    path.write_bytes(raw)
+    validated = hunt_results.validate(con, run, hunt_results.load(path))
+    assert len(hunt_results.canonical_bytes(validated)) == hunt_results.MAX_RESULT_BYTES + 1
+
+    with pytest.raises(hunt.HuntError, match="(?i)canonical.*size|size.*canonical|Result size"):
+        hunt_results.record(con, run, path, replace=replace)
+
+    assert sql_state(con) == before
+    new_files = ({item.relative_to(artifact_root): item.read_bytes()
+                  for item in artifact_root.rglob("*") if item.is_file()}
+                 if artifact_root.exists() else {})
+    assert new_files == old_files
+
+
 def test_not_audited_retains_its_permitted_reason(prepared):
     payload = prepared[2]
     payload["decisions"][0].update(disposition="not_audited", reason="budget")

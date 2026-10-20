@@ -117,6 +117,12 @@ budget skip is one of the three things that fails it. The answer is
 | Report drafting | mid tier | low to medium |
 | Feature mapping, FP-check batches | strongest tier, effort tiered down | low to medium |
 | Deep audit, chain reasoning, final severity calls, adversarial review | strongest tier | high |
+| Broad Stage 4e L-sink batches | economical tier | low to medium |
+| Stage 4e L-dark batches | strongest available tier | medium to high |
+
+For Stage 4e dispatch, use the economical tier for broad L-sink coverage and
+reserve the strongest available tier for L-dark's proprietary protocol, trust,
+OTA, and heap reasoning. Keep the two lane budgets independent.
 
 Reasoning effort is tiered with the model: retained thinking is the largest
 single component of accumulated context, so only the strongest-tier work runs

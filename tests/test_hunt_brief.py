@@ -87,7 +87,10 @@ def test_hunt_brief_carries_both_lane_contracts(variables, lane):
         "impact hypothesis", "candidate blockers",
         "audit_core/hunt_results.py", "The deterministic importer owns SQL",
         "Do not write to the database", "Only the orchestrator", "Keep all raw evidence",
-        "budget", "audit.py checkpoint", "PARTIAL",
+        "budget", "PARTIAL", "orchestrator publishes the checkpoint",
+        "do not manufacture clear decisions or publish a database checkpoint",
+        "database-writing `audit.py checkpoint` command",
+        "remaining unit paths", "resumption of the same lane",
         "Do not turn a budget checkpoint into not_audited(reason='budget')",
         "Do not execute binaries", "Do not emulate firmware", "Do not exploit",
         "weaponize", "assign severity",
@@ -119,10 +122,12 @@ def test_hunt_return_is_the_exact_one_line_contract(variables):
 
 
 def test_skill_router_exposes_firmware_hunt_without_inline_dispatch_content():
-    skill = (ROOT / "SKILL.md").read_text()
+    skill = (ROOT / "SKILL.md").read_bytes().decode("utf-8")
     assert "Stage 4e firmware hunt" in skill
     assert "hunt-brief.md" in skill
     assert "python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS}" in skill
     assert "python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS} --check" in skill
     assert re.search(r"audit\.py brief --phase hunt\s*\\?\s*--unit", skill)
     assert "l-sink" in skill and "l-dark" in skill
+    assert "economical tier" in skill
+    assert "strongest available tier" in skill

@@ -382,6 +382,8 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         _refuse_legacy(con)
         _prior_receipt(con, validated, replace=replace)
         content = canonical_bytes(validated)
+        if len(content) > MAX_RESULT_BYTES:
+            raise HuntError(f"Canonical result size exceeds {MAX_RESULT_BYTES} bytes")
         digest = hashlib.sha256(content).hexdigest()
         generation = pathlib.Path(validated.index_path).parent.parent.name
         destination = run_dir / "artifacts/hunt" / generation / result.lane / digest
