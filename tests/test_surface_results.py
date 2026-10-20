@@ -473,6 +473,39 @@ def rebind_generation(prepared, index, batch):
     return payload | {"worklist_sha256": worklist_sha, "batch_sha256": batch_sha}
 
 
+@pytest.mark.parametrize("damage,match", [
+    ("empty", "no batches"),
+    ("duplicate-assignment", "cover each current manifest unit exactly once"),
+])
+def test_prepared_worklist_rejects_empty_or_overlapping_assignments(prepared, damage, match):
+    con, run, _, _, summary = prepared
+    index_path = pathlib.Path(summary.worklist_path)
+    index = json.loads(index_path.read_bytes())
+    if damage == "empty":
+        index["batches"] = []
+        index_path.write_bytes(surface.canonical_bytes(index))
+    else:
+        second_path = index_path.with_name("batch-0002.json")
+        second = json.loads(second_path.read_bytes())
+        first = json.loads(index_path.with_name("batch-0001.json").read_bytes())
+        second["units"][0] = first["units"][0]
+        second_bytes = surface.canonical_bytes(second)
+        index["batches"][1]["sha256"] = hashlib.sha256(second_bytes).hexdigest()
+        index_bytes = surface.canonical_bytes(index)
+        digest = hashlib.sha256(index_bytes).hexdigest()
+        destination = run / "files/surface" / digest
+        destination.mkdir()
+        (destination / "index.json").write_bytes(index_bytes)
+        (destination / "batch-0001.json").write_bytes(index_path.with_name("batch-0001.json").read_bytes())
+        (destination / "batch-0002.json").write_bytes(second_bytes)
+        con.execute("UPDATE cba_surface_runs SET worklist_path=?,worklist_sha256=?",
+                    (str(destination / "index.json"), digest))
+        con.commit()
+    run_row = dict(con.execute("SELECT * FROM cba_surface_runs").fetchone())
+    with pytest.raises(surface.SurfaceError, match=match):
+        surface._checked_worklist(con, run_row, surface._manifest(con, "target"))
+
+
 @pytest.mark.parametrize("damage", ["index-array", "index-extra", "index-schema", "index-image",
     "index-manifest", "batch-size", "unit-count-bool", "unit-count", "batches-object", "batches-empty",
     "descriptor-null", "descriptor-path", "descriptor-duplicate", "descriptor-digest", "descriptor-count",

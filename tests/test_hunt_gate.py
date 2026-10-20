@@ -46,6 +46,97 @@ def ready(prepared, tmp_path):
     return con, run, tmp_path / "root", summary
 
 
+def test_lane_check_rejects_status_timestamp_disagreement_without_writes(ready):
+    con, run, root, _ = ready
+    con.execute("UPDATE cba_hunt_runs SET completed_at='orphan' WHERE lane='l-sink'")
+    con.commit()
+    before = state(con)
+    with pytest.raises(hunt.HuntError, match="status and timestamp disagree"):
+        hunt.check(con, run, root, lane="l-sink")
+    assert state(con) == before and not con.in_transaction
+
+
+def test_lane_check_rejects_invalid_lane_without_writes(ready):
+    con, run, root, _ = ready
+    before = state(con)
+    with pytest.raises(hunt.HuntError, match="Invalid hunt lane"):
+        hunt.check(con, run, root, lane="unknown")
+    assert state(con) == before and not con.in_transaction
+
+
+def test_lane_check_rolls_back_if_inputs_change_after_preflight(ready, monkeypatch):
+    con, run, root, _ = ready
+    original = hunt._check_inputs
+    calls = 0
+
+    def drift_on_recheck(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        result = original(*args, **kwargs)
+        return result if calls == 1 else result + ("changed",)
+
+    monkeypatch.setattr(hunt, "_check_inputs", drift_on_recheck)
+    before = state(con)
+    with pytest.raises(hunt.HuntError, match="inputs changed before completion"):
+        hunt.check(con, run, root, lane="l-sink")
+    assert calls == 2
+    assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize("damage,match", [
+    ("duplicate-decision", "Duplicate hunt decision ownership"),
+    ("duplicate-candidate", "Duplicate hunt candidate ownership"),
+    ("incomplete-denominator", "do not cover the complete manifest"),
+])
+def test_lane_aggregator_rejects_impossible_overlaps_at_its_boundary(ready, monkeypatch, damage, match):
+    # Breaks: accepting overlapping/collapsed batch output if an upstream
+    # validator ever violates its exact-worklist contract.
+    con, run, _, _ = ready
+    original_validate = hunt_results.validate
+    original_canonical = hunt_results.canonical_bytes
+    cached_bytes = {}
+    first_decision = None
+    first_candidate = None
+
+    def inject_overlap(connection, run_dir, result):
+        nonlocal first_decision, first_candidate
+        validated = original_validate(connection, run_dir, result)
+        raw_canonical = original_canonical(validated)
+        if result.batch_path == "batch-0001.json":
+            first_decision = validated.result.decisions[-1]
+            if first_decision.candidates:
+                first_candidate = first_decision.candidates[0]
+        elif damage == "duplicate-decision":
+            changed_result = dataclasses.replace(validated.result, decisions=(first_decision,))
+            validated = dataclasses.replace(validated, result=changed_result)
+        elif damage == "duplicate-candidate":
+            decision = validated.result.decisions[0]
+            duplicate = dataclasses.replace(first_candidate, component_path=decision.path,
+                surface_ids=(), surface_context="Unmapped parser at d:10.")
+            changed_result = dataclasses.replace(validated.result,
+                decisions=(dataclasses.replace(decision, candidates=(duplicate,)),))
+            validated = dataclasses.replace(validated, result=changed_result)
+        else:
+            validated = dataclasses.replace(validated,
+                result=dataclasses.replace(validated.result, decisions=()))
+        cached_bytes[id(validated)] = raw_canonical
+        return validated
+
+    def original_artifact_bytes(validated):
+        return cached_bytes.get(id(validated), original_canonical(validated))
+
+    monkeypatch.setattr(hunt_results, "validate", inject_overlap)
+    monkeypatch.setattr(hunt_results, "canonical_bytes", original_artifact_bytes)
+    if damage in ("duplicate-decision", "duplicate-candidate"):
+        con.execute("UPDATE cba_hunt_receipts SET candidate_count=1 WHERE lane='l-sink' AND batch_path='batch-0002.json'")
+    if damage == "incomplete-denominator":
+        con.execute("UPDATE cba_hunt_receipts SET unit_count=0 WHERE lane='l-sink' AND batch_path='batch-0002.json'")
+    con.commit()
+    with pytest.raises(hunt.HuntError, match=match):
+        hunt._checked_lane(con, run, dict(con.execute("SELECT * FROM cba_hunt_runs WHERE lane='l-sink'").fetchone()),
+                           surface._manifest(con, "target"))
+
+
 @pytest.mark.parametrize("lane,candidates,blockers", [("l-sink", 1, 1), ("l-dark", 0, 0)])
 def test_lane_check_completes_only_selected_lane_and_rechecks_idempotently(ready, monkeypatch, lane, candidates, blockers):
     # Breaks: treating candidate-free receipts as absent, scanning orphans, or completing the sibling lane.

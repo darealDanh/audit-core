@@ -90,6 +90,40 @@ def validate_payload(prepared, payload):
     return api().validate(prepared[0], prepared[1], load_payload(prepared, payload))
 
 
+@pytest.mark.parametrize("damage,match", [
+    ("snapshot", "snapshot differs"),
+    ("index-shape", "index must be an object"),
+    ("index-path", "outside the current generation"),
+])
+def test_validation_rejects_drifted_prepared_hunt_lane_before_writes(prepared, damage, match):
+    con, run, payload, *_ = prepared
+    if damage == "snapshot":
+        con.execute("UPDATE cba_hunt_runs SET surface_snapshot_sha256=? WHERE lane='l-sink'", ("0" * 64,))
+        con.commit()
+    elif damage == "index-shape":
+        index = pathlib.Path(prepared[4].lanes[0].worklist_path)
+        index.write_text("[]")
+    else:
+        index = pathlib.Path(prepared[4].lanes[0].worklist_path)
+        replacement = run / "alternate-index.json"
+        replacement.write_bytes(index.read_bytes())
+        con.execute("UPDATE cba_hunt_runs SET worklist_path=? WHERE lane='l-sink'", (str(replacement),))
+        con.commit()
+    before = con.total_changes
+    with pytest.raises(hunt.HuntError, match=match):
+        validate_payload(prepared, payload)
+    assert con.total_changes == before
+    assert not con.in_transaction
+
+
+def test_validation_rejects_non_batch_result_objects(prepared):
+    con, run, *_ = prepared
+    before = con.total_changes
+    with pytest.raises(hunt.HuntError, match="Expected a BatchResult"):
+        api().validate(con, run, object())
+    assert con.total_changes == before and not con.in_transaction
+
+
 def candidate(payload):
     return payload["decisions"][2]["candidates"][0]
 

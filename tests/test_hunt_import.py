@@ -1,5 +1,6 @@
 """Batch receipts own atomic, image-qualified publication in independent lanes."""
 import copy
+import dataclasses
 import hashlib
 import json
 import os
@@ -289,6 +290,62 @@ def test_invalid_result_is_rejected_before_installation(prepared):
         record(prepared, payload)
     assert sql_state(prepared[0]) == before
     assert not (prepared[1] / "artifacts/hunt").exists()
+
+
+def test_import_rejects_extra_installed_worklist_artifacts_without_publication(prepared):
+    con, run, payload, *_ = prepared
+    index = pathlib.Path(prepared[4].lanes[0].worklist_path)
+    (index.parent / "unexpected.json").write_text("{}")
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="different artifacts"):
+        record(prepared)
+    assert sql_state(con) == before
+    assert not (run / "artifacts/hunt").exists()
+
+
+def test_replacement_rejects_existing_receipt_with_different_batch_owner(prepared):
+    con = prepared[0]
+    record(prepared)
+    con.execute("UPDATE cba_hunt_receipts SET batch_sha256=? WHERE lane='l-sink'", ("f" * 64,))
+    con.commit()
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="different batch ownership"):
+        record(prepared, replace=True)
+    assert sql_state(con) == before
+
+
+def test_replacement_refuses_hunt_claims_without_their_batch_receipt(prepared):
+    con = prepared[0]
+    record(prepared)
+    con.execute("DELETE FROM cba_hunt_receipts WHERE lane='l-sink'")
+    con.commit()
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="no owning batch receipt"):
+        record(prepared, replace=True)
+    assert sql_state(con) == before
+
+
+def test_publication_rolls_back_when_result_changes_inside_sql_transaction(prepared, monkeypatch):
+    con, run, *_ = prepared
+    original_validate = hunt_results.validate
+    calls = 0
+
+    def drift_on_recheck(connection, run_dir, result):
+        nonlocal calls
+        calls += 1
+        validated = original_validate(connection, run_dir, result)
+        if calls == 2:
+            return dataclasses.replace(validated, assigned_units=validated.assigned_units + ("drift",))
+        return validated
+
+    monkeypatch.setattr(hunt_results, "validate", drift_on_recheck)
+    before = sql_state(con)
+    with pytest.raises(hunt.HuntError, match="changed before publication"):
+        record(prepared)
+    assert calls == 2
+    assert sql_state(con) == before
+    assert not con.in_transaction
+    assert list((run / "artifacts/hunt").rglob("result.json"))
 
 
 @pytest.mark.parametrize("replace", [False, True])

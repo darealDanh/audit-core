@@ -205,6 +205,7 @@ def test_hunt_candidate_retains_canonical_blocker_evidence(con, method):
 
 
 @pytest.mark.parametrize("value", [
+    '[{"id":"bad/id","method":"static","question":"Enabled?","settling_observation":"Trace"}]',
     '[{"id":"b1","method":"remote","question":"Enabled?","settling_observation":"Trace"}]',
     '[{"extra":"x","id":"b1","method":"static","question":"Enabled?","settling_observation":"Trace"}]',
     '[{"id":"b1","method":"static","question":"Enabled?","settling_observation":"Trace"},'
