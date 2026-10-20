@@ -230,8 +230,12 @@ only context the template cannot know:
 Repeat independently for each `l-sink` and `l-dark` batch. The worker writes
 one strict result artifact and returns only
 `hunt-<lane>-<batch> <DONE|PARTIAL|FAILED> rows=<n> artifact=<path> [flags=<csv>]`.
-The orchestrator records results and runs the lane checks; only the final
-two-lane `hunt --check` certifies Stage 4e completion.
+The orchestrator records results and checks each lane. After both pass, run the
+final two-lane gate with:
+
+    python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+This command certifies Stage 4e completion.
 
 ### Cross-client tool mapping
 

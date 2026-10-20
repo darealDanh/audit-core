@@ -123,5 +123,6 @@ def test_skill_router_exposes_firmware_hunt_without_inline_dispatch_content():
     assert "Stage 4e firmware hunt" in skill
     assert "hunt-brief.md" in skill
     assert "python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS}" in skill
+    assert "python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS} --check" in skill
     assert re.search(r"audit\.py brief --phase hunt\s*\\?\s*--unit", skill)
     assert "l-sink" in skill and "l-dark" in skill
