@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-16 · **Last implementation:** `b14b4fb`; Stage 4d merge point on local `main`: `6eba6d6`, not pushed · **Tests:** 2,081 ·
-**Gates:** 8/8 green (`make all`; `mutate` remains opt-in) · **Benchmark gates: deferred on cost — see §7**
+**Last updated:** 2026-10-20 · **Branch:** `stage4e-firmware-hunt`; Stage 4e implemented and whole-branch reviewed; integration pending, not pushed ·
+**Current verification:** `make all` passed all 8 gates; 2,925 tests, 0/4,946 uncovered statements · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -21,10 +21,10 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4d are merged to local `main`.** Stage 4d
-(`surface`) was fast-forwarded into local `main` at `6eba6d6`; its feature
-worktree and branch have been removed. Nothing has been pushed. The next
-feature slice is Stage 4e (`hunt`); Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4d are merged to local `main`.** Stage 4e
+(`hunt`) is implemented and whole-branch reviewed on the `stage4e-firmware-hunt`
+feature branch; integration is pending and nothing has been
+pushed. Firmware `fpcheck` is the next vertical slice. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -38,7 +38,8 @@ feature slice is Stage 4e (`hunt`); Stage 5 has not started.
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
-| 4 | `firmware-audit` + monorepo (remaining six phases) | — | — | planned |
+| 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | feature branch | `stage4e-firmware-hunt` | **implemented and whole-branch reviewed**; `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; integration pending, not pushed |
+| 4 | `firmware-audit` + monorepo (remaining five firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -58,7 +59,7 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-Read-only scoring of the existing audit remains unchanged through Stage 4d.
+Read-only scoring of the existing audit remains unchanged through Stage 4e.
 This does not measure the effect of new behavior: the Stage 2/3 audit reruns
 remain deferred, so no recall, precision, or audit-cost improvement is claimed.
 
@@ -308,7 +309,8 @@ reachability evidence while preserving the target-only coverage rule.
 
 ### Stage 4d - `surface`
 
-The fifth firmware phase adds prepare/record/check modes to the 27-verb CLI.
+The fifth firmware phase adds prepare/record/check modes; Stage 4e later brings
+the shared CLI to 28 verbs.
 The shared `firmware_tree.py` scanner binds the complete target regular-file
 manifest to the live carved root by path, kind, size, and SHA-256 before
 publishing deterministic content-addressed batches. All target units remain
@@ -368,14 +370,61 @@ closeout counts; the complete summary is in `SESSION_HANDOFF.md`.
 
 No audit, new indicator snapshot, paid milestone benchmark, or mutation sweep
 ran. The full harness's benchmark gate only scores the existing read-only
-baseline. This stage does not fetch/carve/modify/execute firmware, infer live
+baseline. Stage 4d itself does not fetch/carve/modify/execute firmware, infer live
 listeners, hunt vulnerabilities, assign severity, emulate, inspect the
 kernel/bootloader, or create a separate firmware skill tree. Triage remains
 upsert-only; changed carved trees need a fresh image scope/run and retriage.
 The gate's scan of retained orphan result candidates scales with retained
 generations, an accepted local-run performance limit; a future durable batch
 receipt should remove that scan without capping completeness. Stage 4e `hunt`
-is next, with separate, non-transferable L-sink and L-dark budgets.
+is implemented below with separate, non-transferable L-sink and L-dark budgets.
+
+### Stage 4e - `hunt`
+
+Stage 4e implements evidence-bound firmware candidate analysis after a
+complete, current Stage 4d surface generation. It remains firmware-audit
+functionality housed in the shared `codebase-audit` repository; the separate
+firmware skill tree and monorepo/submodule decision remain open. Preparation
+and checking verify an acquired target's complete live regular-file root
+against its image-scoped manifest. Both L-sink and L-dark assign every target
+unit exactly once, with independent worklists, receipts, coverage phases, and
+completion states. Hints never reduce either denominator.
+
+Workers write strict bounded batch JSON. The importer validates image, lane,
+manifest, surface snapshot, worklist, batch, and exact assigned-unit ownership,
+installs canonical results, then atomically publishes a durable receipt,
+image-qualified coverage decisions, and candidate rows. Receipts make
+candidate-free batches auditable without scanning retained artifacts. A
+`not_applicable` result maps to shared coverage `state='analyzed'`, with its
+evidence-backed reason retained; `not_audited` stays distinct and budget skips
+fail the lane gate. Batch replacement is ownership-scoped and resets only its
+lane. Acquisition, target triage, and changed surface evidence invalidate the
+same image's hunt state in their publication transaction. Ambiguous raw legacy
+coverage is preserved and refused because its image ownership is unknown.
+
+Task-scoped implementation reviews through Task 8 were clean after recorded
+fix rounds. Whole-branch review then found and closed the canonical result size
+boundary, ignored inventory dependency, worker checkpoint ownership, and lane
+dispatch tiering issues. The canonical-size regression proves an exactly 8 MiB
+raw result that would serialize to 8 MiB + 1 is rejected before install or SQL,
+including replacement rollback. Inventory and brief regressions protect
+clean-checkout manifest resolution and orchestrator-owned checkpoint publication.
+
+The final `make all` passed all eight gates: 2,925 tests in 168.94 seconds;
+28 dispatchable verbs; 27 schema tables / 26 contracted; four migrations plus
+the current schema applied to the frozen pre-Stage-3 and Stage-4b baselines,
+firmware rows preserved and results accepted by `connect()`; clean lint; 6
+CRLF / 197 LF; 44 features / 13 stages / 21 open-item records; 108 Markdown
+files installed, zero sentinels, real install untouched; 0 unexecuted / 4,946
+statements, 0 allowed; benchmark recall 9/19 over 45 findings, precision
+39/40, $73.15 per matched finding. Plain `python3 -m pytest -q` passed 2,925
+tests in 140.33 seconds. These benchmark figures score the existing baseline;
+no firmware audit, paid milestone run, or quality improvement is claimed.
+
+No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
+and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
+`fpcheck` is next; the Asus golden remains required for the overall Stage 4
+milestone, and the monorepo/submodule decision remains required for restructure.
 
 ---
 
@@ -410,12 +459,12 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** Local `main` includes the Stage 4d merge
-   and post-merge documentation reconciliation, 50 commits
-   ahead of `origin/main` (checked 2026-10-16; `git rev-list --left-right
-   --count origin/main...main` reports `0 50`). Stages 4c and 4d are merged
-   locally; their former feature worktrees and branches have been removed.
-   Nothing has been pushed.
+7. **Local changes are not pushed.** `main` includes the Stage 4d merge and
+   post-merge documentation reconciliation, 50 commits ahead of `origin/main`
+   at the last check on 2026-10-16 (`git rev-list --left-right --count
+   origin/main...main` reported `0 50`). Stage 4e is on the separate
+   `stage4e-firmware-hunt` feature branch and awaits integration. Nothing has
+   been pushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -469,7 +518,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — current Stage 4d measurements in `SESSION_HANDOFF.md` |
+| `tests` | The pytest suite — current implementation measured 2,925 tests; current harness summary is in `SESSION_HANDOFF.md` |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -549,13 +598,12 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Design and implement Stage 4e (`hunt`)**, consuming the verified surface
-   generation and durable unknowns with separate, non-transferable L-sink and
-   L-dark budgets. Preserve image scoping, the full target denominator, and
-   evidence-based state/reachability. It inherits triage's upsert-only snapshots
-   and surface check's retained-orphan scan scaling. Stage 4d is merged into
-   local `main`; the asus golden remains missing ahead of the later Stage 4
-   milestone gate.
+1. **Design and implement firmware `fpcheck`**, consuming Stage 4e candidates
+   for static adversarial review, cross-lane/root-cause deduplication, pivot
+   preservation, and promotion into a reviewed finding model. It inherits
+   triage's upsert-only snapshots and Stage 4d's retained-orphan scan scaling.
+   Stage 4e is implemented on its feature branch pending integration; nothing
+   has been pushed.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

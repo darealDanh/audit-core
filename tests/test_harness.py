@@ -151,3 +151,28 @@ def test_selftest_reports_every_verb_the_parser_declares():
         capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert "28 declared, all dispatchable" in proc.stdout
+
+
+def test_manifest_records_stage4e_hunt_implementation_and_contracts():
+    """The shipped hunt slice must remain discoverable from the inventory."""
+    import json
+
+    data = json.loads((ROOT / "feature_lists.json").read_text())
+    stage = next((row for row in data["stages"] if row["id"] == "stage4e"), None)
+    assert stage is not None
+    assert stage["status"] == "shipped"
+    feature = next((row for row in data["features"] if row["id"] == "firmware-hunt"), None)
+    assert feature is not None
+    assert feature["status"] == "shipped"
+    assert {"hunt", "brief", "init"}.issubset(feature["verbs"])
+    assert not any(path.startswith(".superpowers/sdd/") for path in feature["docs"])
+    for path in (
+        "audit_core/hunt.py", "audit_core/hunt_results.py",
+        "tests/test_hunt_prepare.py", "tests/test_hunt_results.py",
+        "tests/test_hunt_import.py", "tests/test_hunt_gate.py",
+        "tests/test_cli_stage4e.py", "tests/test_hunt_brief.py",
+        "references/briefs/hunt-brief.md",
+        "docs/superpowers/specs/2026-10-19-stage4e-firmware-hunt-design.md",
+        "docs/superpowers/plans/2026-10-19-stage4e-firmware-hunt.md",
+    ):
+        assert path in feature["modules"] + feature["tests"] + feature["docs"]

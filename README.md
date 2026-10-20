@@ -255,10 +255,10 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 
 ## Firmware surface mapping (Stage 4d)
 
-The shared CLI now has 27 verbs, including `surface`. This is the fifth firmware
-phase (`qualify`, `acquire`, `triage`, `diff`, `surface`); the separate
-`firmware-audit` skill tree is still planned. Start with an initialized run, an
-acquired `target` image, and its image-scoped triage manifest. In an installed
+The shared CLI has 28 verbs, including `surface` and `hunt`. Stage 4d is the
+fifth firmware phase (`qualify`, `acquire`, `triage`, `diff`, `surface`); the
+separate `firmware-audit` skill tree is still planned. Start with an initialized
+run, an acquired `target` image, and its image-scoped triage manifest. In an installed
 copy, use that client's skill directory as the path to `audit.py`.
 
 ```bash
@@ -348,12 +348,73 @@ future durable batch receipt could avoid this scan. This is a local-run
 performance limitation, not a limit on the coverage denominator.
 
 Surface mapping does not fetch, carve, modify or execute firmware, infer live
-listeners, hunt vulnerabilities, assign severity, emulate, or inspect kernels
-and bootloaders. No audit, paid milestone benchmark, new indicator snapshot,
-or mutation sweep was run for this stage. Stage 4e `hunt` is next, with separate,
-non-transferable L-sink and L-dark budgets. See
+listeners, assign severity, emulate, or inspect kernels and bootloaders. No
+audit, paid milestone benchmark, new indicator snapshot, or mutation sweep was
+run for Stage 4d. The Stage 4d completion check still scans retained orphan
+result candidates for claim-free batches; runtime grows with retained
+generations. See
 [`SESSION_HANDOFF.md`](SESSION_HANDOFF.md) for measured harness results and
 the remaining milestone/restructure prerequisites.
+
+## Firmware candidate hunting (Stage 4e)
+
+Stage 4e adds firmware `hunt` to the shared `codebase-audit` CLI. It is
+firmware-audit functionality on the shared repository; a separately packaged
+`firmware-audit` skill tree and the monorepo/submodule decision remain open.
+Prepare requires an acquired target, its image-scoped triage manifest, a
+completed current Stage 4d surface generation, and the live carved root. Both
+independent lanes assign every target regular file exactly once: L-sink traces
+attacker-controlled input to dangerous operations, while L-dark assesses the
+specified protocol, IPC, OTA, trust, and heap-corruption surfaces. Hints never
+shrink either denominator.
+
+```bash
+python3 audit.py hunt --run "$AUDIT_DIR" --root "$ROOTFS" --image-id "$IMAGE_ID" \
+  [--sink-batch-size N] [--dark-batch-size N] [--json]
+python3 audit.py hunt --run "$AUDIT_DIR" --record "$RESULT_PATH" [--replace] [--json]
+python3 audit.py hunt --run "$AUDIT_DIR" --check --root "$ROOTFS" --image-id "$IMAGE_ID" --lane l-sink
+python3 audit.py hunt --run "$AUDIT_DIR" --check --root "$ROOTFS" --image-id "$IMAGE_ID" --lane l-dark
+python3 audit.py hunt --run "$AUDIT_DIR" --check --root "$ROOTFS" --image-id "$IMAGE_ID"  # final two-lane check
+```
+
+Prepare and check require `--root`; both compare the live root to the target
+manifest by path, kind, size, and SHA-256, and check repeats that verification
+before completion. Record accepts a worker result and does not accept `--root`.
+The default batch size is 50 in each lane; the two sizes can be set separately
+from 1 through 1000. Omit `--lane` from check for the final gate, which passes
+only when both lanes are complete against the same manifest and surface
+snapshot.
+
+The worker reads immutable lane indexes and batches below
+`RUN/files/hunt/<generation>/<lane>/`, then writes one bounded strict JSON
+result per batch. `--record` validates ownership, installs canonical evidence
+under `RUN/artifacts/hunt/<generation>/<lane>/<result-sha256>/result.json`, and
+atomically publishes a durable receipt, one image-qualified coverage decision
+per unit, and any candidates. Receipts make candidate-free batches explicit.
+Candidates belong to one image, lane, assigned component, result, and batch;
+the CLI returns bounded aggregates and never prints candidate evidence.
+
+Each lane's denominator is the complete selected target manifest, with its own
+worklist, receipts, coverage phase, pending/complete state, and completion
+time. A result disposition of `not_applicable` is stored as `state='analyzed'`
+in shared coverage, with its evidence-backed explanation retained as the
+reason; `not_audited` remains `not_audited`, and a budget skip fails the gate.
+Replacing a batch requires `--replace`, removes only that batch's owned rows,
+and returns only its lane to pending. Changed acquisition, target triage, or
+surface evidence invalidates dependent hunt state for that image. Ambiguous
+legacy raw hunt coverage is preserved and refused because its image ownership
+cannot be proven.
+
+Expected SQLite failures print exactly `hunt: database operation failed`;
+other expected diagnostics are escaped and capped at 512 ASCII characters plus
+a newline. Usage errors exit 2, expected domain/database errors exit 1, and
+success exits 0. Stage 4e records candidates for later firmware `fpcheck`; it
+does not adjudicate false positives, set final severity, execute or emulate
+firmware, exploit candidates, or promote them into generic findings. It
+inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
+scan scaling. The next firmware slice is `fpcheck`. The Asus golden and the
+monorepo/submodule decision remain prerequisites for the later overall Stage 4
+milestone and restructure.
 
 ## Layout
 
