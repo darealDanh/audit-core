@@ -382,7 +382,7 @@ Recording performs this sequence:
 
 1. bounded strict parse;
 2. validate identity, exact batch membership, verdict semantics, Stage 4e
-   candidate ownership, and current pending Stage 4f generation;
+   candidate ownership, and the current Stage 4f generation;
 3. canonicalize and content-address the result;
 4. install it beneath
    `RUN/artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json`;
@@ -390,7 +390,8 @@ Recording performs this sequence:
 6. repeat all mutable provenance and ownership checks;
 7. for replacement, delete only the selected image/generation/batch's receipt,
    verdicts, and pivots;
-8. insert the receipt, verdicts, and pivots and leave the run pending;
+8. insert the receipt, verdicts, and pivots, remove the selected image's derived
+   findings if replacing a completed batch, and leave the run pending;
 9. commit.
 
 A duplicate import refuses unless `replace=True`. Replacement never changes
