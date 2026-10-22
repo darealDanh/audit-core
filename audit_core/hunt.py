@@ -54,6 +54,59 @@ class HuntCheck:
     complete: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedHuntBlocker:
+    id: str
+    question: str
+    settling_observation: str
+    method: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedHuntLane:
+    lane: str
+    worklist_path: str
+    worklist_sha256: str
+    unit_count: int
+    batch_count: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedHuntCandidate:
+    lane: str
+    candidate_id: str
+    component_path: str
+    title: str
+    bug_class: str
+    surface_ids: tuple[str, ...]
+    surface_context: str
+    attacker_position: str
+    input_evidence: str
+    data_flow: str
+    dangerous_operation: str
+    operation_evidence: str
+    mitigations_checked: str
+    lifecycle_required: str
+    posture_required: str
+    auth_required: str
+    reachability: str
+    state_evidence: str
+    confidence: int
+    impact_hypothesis: str
+    blockers: tuple[VerifiedHuntBlocker, ...]
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedHuntSnapshot:
+    image_id: str
+    manifest_sha256: str
+    surface_snapshot_sha256: str
+    lanes: tuple[VerifiedHuntLane, ...]
+    candidates: tuple[VerifiedHuntCandidate, ...]
+
+
 def _units(con: sqlite3.Connection, image_id: str,
            manifest: list[dict[str, object]]) -> list[dict[str, object]]:
     """Advisory context never changes the manifest denominator or carries host metadata."""
@@ -234,7 +287,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
 
 
 def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str, object],
-                  manifest: list[dict[str, object]]) -> tuple[LaneCheck, tuple]:
+                  manifest: list[dict[str, object]]) -> tuple[LaneCheck, tuple, tuple[VerifiedHuntCandidate, ...]]:
     """Receipts, rather than artifact discovery, enumerate all evidence to verify."""
     from audit_core import hunt_results as results
 
@@ -257,6 +310,7 @@ def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str,
         raise HuntError("Every hunt batch requires exactly one current owned receipt")
     decisions = {}
     expected_candidates = {}
+    verified_candidates = {}
     blockers = 0
     for receipt in receipts:
         db.TABLE_SPECS["cba_hunt_receipts"].validate(receipt)
@@ -286,6 +340,12 @@ def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str,
                 if candidate.candidate_id in expected_candidates:
                     raise HuntError("Duplicate hunt candidate ownership")
                 row = dataclasses.asdict(candidate)
+                verified_candidates[candidate.candidate_id] = VerifiedHuntCandidate(**(row | {
+                    "lane": lane,
+                    "blockers": tuple(VerifiedHuntBlocker(**dataclasses.asdict(blocker))
+                                      for blocker in candidate.blockers),
+                    "artifact_path": path.absolute().relative_to(run_dir.absolute()).as_posix(),
+                    "artifact_sha256": digest}))
                 for column in ("surface_ids", "blockers"):
                     row[column] = surface.canonical_bytes(row[column]).decode("utf-8").removesuffix("\n")
                 expected_candidates[candidate.candidate_id] = row | {
@@ -319,11 +379,12 @@ def _checked_lane(con: sqlite3.Connection, run_dir: pathlib.Path, run: dict[str,
         sum(unit.disposition == "not_applicable" for unit in decisions.values()),
         sum(unit.disposition == "not_audited" for unit in decisions.values()),
         len(receipts), len(candidates), blockers, True)
-    return summary, (receipts, coverage, candidates)
+    return summary, (receipts, coverage, candidates), tuple(
+        verified_candidates[key] for key in sorted(verified_candidates))
 
 
 def _check_inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path,
-                  image_id: str | None, lane: str | None) -> tuple[HuntCheck, tuple]:
+                  image_id: str | None, lane: str | None) -> tuple[HuntCheck, tuple, VerifiedHuntSnapshot]:
     selected = surface._resolve_target(surface._query(con, "SELECT id,role FROM cba_images"), image_id)
     bound = surface.verified_snapshot(con, run_dir, image_id=selected, require_complete=True)
     manifest = surface._manifest(con, selected)
@@ -340,11 +401,30 @@ def _check_inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pa
     if lane is None and any(row["status"] != "complete" for row in runs):
         raise HuntError("Both hunt lanes must already be complete before the final check")
     by_lane = {row["lane"]: row for row in runs}
-    checked = [_checked_lane(con, run_dir, by_lane[name], manifest)
-               for name in (db.HUNT_LANES if lane is None else (lane,))]
+    lane_names = db.HUNT_LANES if lane is None else (lane,)
+    checked = [_checked_lane(con, run_dir, by_lane[name], manifest) for name in lane_names]
     summary = HuntCheck(selected, bound.manifest_sha256, bound.snapshot_sha256,
                         tuple(value[0] for value in checked), True)
-    return summary, (bound, manifest, runs, tuple(value[1] for value in checked))
+    snapshot = VerifiedHuntSnapshot(selected, bound.manifest_sha256, bound.snapshot_sha256,
+        tuple(VerifiedHuntLane(name, str(by_lane[name]["worklist_path"]),
+            str(by_lane[name]["worklist_sha256"]), int(by_lane[name]["unit_count"]),
+            int(by_lane[name]["batch_count"])) for name in lane_names),
+        tuple(candidate for value in checked for candidate in value[2]))
+    return summary, (bound, manifest, runs, tuple(value[1] for value in checked)), snapshot
+
+
+def verified_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
+                      *, image_id: str | None = None) -> VerifiedHuntSnapshot:
+    """Read complete Stage 4e evidence without changing status or timestamps.
+
+    Both lanes must already be complete. This also works inside a caller's
+    publication transaction; only :func:`check` may promote pending lanes.
+    Candidate artifact paths are verified run descendants and returned relative.
+    """
+    try:
+        return _check_inputs(con, pathlib.Path(run_dir), root, image_id, None)[2]
+    except (sqlite3.Error, OSError, db.DbError, firmware_tree.FirmwareTreeError, surface.SurfaceError) as exc:
+        raise HuntError("Cannot verify firmware hunt snapshot") from exc
 
 
 def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,

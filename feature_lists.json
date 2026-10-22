@@ -95,14 +95,14 @@
       "name": "hunt - evidence-bound two-lane firmware candidate analysis",
       "status": "shipped",
       "gate": "make all: 8/8 gates; 2,925 tests; 0/4,946 uncovered statements; merged locally at 8119af1, not pushed",
-      "summary": "Merged into local main at 8119af1, not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Stage 4f firmware fpcheck is in progress: its five-table schema foundation and row contracts are implemented; the verified completed-hunt snapshot helper is next."
+      "summary": "Merged into local main at 8119af1, not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Stage 4f firmware fpcheck is in progress: its five-table schema foundation, row contracts and verified completed-hunt snapshot are implemented; deterministic review-batch preparation is next."
     },
     {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices: qualify shipped as stage4a, acquire plus triage as stage4b, diff as stage4c, surface as stage4d, and hunt merged into local main at 8119af1 as stage4e, not pushed. Stage 4f firmware fpcheck is in progress with its five-table schema foundation implemented; the verified completed-hunt snapshot helper is next. The required asus golden is still missing; the monorepo/submodule decision and separate skill tree remain open."
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices: qualify shipped as stage4a, acquire plus triage as stage4b, diff as stage4c, surface as stage4d, and hunt merged into local main at 8119af1 as stage4e, not pushed. Stage 4f firmware fpcheck is in progress with its five-table schema foundation and verified completed-hunt snapshot implemented; deterministic review-batch preparation is next. The required asus golden is still missing; the monorepo/submodule decision and separate skill tree remain open."
     },
     {
       "id": "stage5",
@@ -933,7 +933,19 @@
       "modules": ["audit_core/schema.sql", "audit_core/db.py"],
       "tests": ["tests/test_firmware_fpcheck_schema.py", "tests/test_firmware_schema.py", "tests/test_migrate.py", "tests/test_workspace.py", "tests/test_harness.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md", "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md", "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md"],
-      "notes": "Schema foundation only; the full Stage 4f phase remains in progress. Five additive tables retain image/generation/batch ownership for runs, receipts, verdicts, pivots and reviewed findings. Exact TableSpec contracts validate canonical unique JSON arrays, variant-specific evidence, bounded identifiers, lowercase digests, nonnegative counts, confidence 0-10, static-reviewed evidence rung, relative batch/component paths, and canonical stored paths. Phase modules must enforce run containment and cross-row ownership. No generic findings/verdicts or column migrations change. The verified completed-hunt snapshot helper is next, followed by preparation, parsing/import, completion, invalidation and CLI."
+      "notes": "Schema foundation only; the full Stage 4f phase remains in progress. Five additive tables retain image/generation/batch ownership for runs, receipts, verdicts, pivots and reviewed findings. Exact TableSpec contracts validate canonical unique JSON arrays, variant-specific evidence, bounded identifiers, lowercase digests, nonnegative counts, confidence 0-10, static-reviewed evidence rung, relative batch/component paths, and canonical stored paths. Phase modules must enforce run containment and cross-row ownership. No generic findings/verdicts or column migrations change. The verified completed-hunt snapshot is implemented; deterministic review-batch preparation is next, followed by parsing/import, completion, invalidation and CLI."
+    },
+    {
+      "id": "firmware-hunt-verified-snapshot",
+      "name": "Read-only verified completed firmware hunt snapshot",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4",
+      "verbs": [],
+      "modules": ["audit_core/hunt.py"],
+      "tests": ["tests/test_hunt_gate.py", "tests/test_firmware_fpcheck_prepare.py"],
+      "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md"],
+      "notes": "hunt.verified_snapshot shares the complete Stage 4e verifier with hunt.check, requires both lanes already complete and performs no SQL writes or status/timestamp transitions. Frozen lane/candidate/blocker records retain full candidate evidence and lane-qualified identity. Canonical artifact paths are verified run descendants and exposed run-relative. Supports read-only SQLite and caller-owned transactions; checks full denominators beyond the 200-row display cap and candidate-free lanes. Deterministic review-batch preparation is next; Stage 4f phase tables are not written by this helper."
     },
     {
       "id": "firmware-hunt",
@@ -974,7 +986,7 @@
         "progress.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Merged into local main at 8119af1, not pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Stage 4f firmware fpcheck has its schema foundation implemented, with the verified completed-hunt snapshot helper next; the Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
+      "notes": "Merged into local main at 8119af1, not pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Stage 4f firmware fpcheck has its schema foundation and verified completed-hunt snapshot implemented, with deterministic review-batch preparation next; the Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
     }
   ],
   "open_items": [

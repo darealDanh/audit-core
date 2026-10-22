@@ -210,9 +210,13 @@ def test_equivalent_run_path_spellings_can_complete_and_recheck_both_lanes(prepa
     "receipt-result-path", "receipt-result-hash", "receipt-units", "receipt-candidates", "result-corrupt",
     "result-noncanonical", "result-missing", "coverage-missing", "coverage-extra", "coverage-state", "coverage-reason",
     "candidate-missing", "candidate-extra", "candidate-evidence", "candidate-provenance", "candidate-surface"])
-def test_corrupt_durable_inputs_refuse_without_changing_status_or_timestamps(ready, damage):
+@pytest.mark.parametrize("reader", ["check", "snapshot"])
+def test_corrupt_durable_inputs_refuse_without_changing_status_or_timestamps(ready, damage, reader):
     # Breaks: accepting drift, partial evidence, foreign ownership, or aggregate-only agreement.
     con, run, root, summary = ready
+    if reader == "snapshot":
+        for lane in db.HUNT_LANES:
+            hunt.check(con, run, root, lane=lane)
     receipt = dict(con.execute("SELECT * FROM cba_hunt_receipts WHERE lane='l-sink' ORDER BY batch_path").fetchone())
     if damage.startswith("surface-"):
         if damage == "surface-absent":
@@ -278,16 +282,23 @@ def test_corrupt_durable_inputs_refuse_without_changing_status_or_timestamps(rea
                 "candidate-provenance": ("artifact_sha256", "0" * 64), "candidate-surface": ("surface_ids", '["foreign"]')}[damage]
             con.execute(f"UPDATE cba_hunt_candidates SET {field}=? WHERE lane='l-sink'", (value,))
     con.commit()
-    before = state(con)
+    before, writes = state(con), con.total_changes
     with pytest.raises(hunt.HuntError):
-        hunt.check(con, run, root, lane="l-sink")
-    assert state(con) == before and not con.in_transaction
+        if reader == "snapshot":
+            hunt.verified_snapshot(con, run, root)
+        else:
+            hunt.check(con, run, root, lane="l-sink")
+    assert state(con) == before and con.total_changes == writes and not con.in_transaction
 
 
 @pytest.mark.parametrize("damage", ["added", "removed", "same-size", "missing-root"])
-def test_live_root_is_required_and_exact(ready, damage):
+@pytest.mark.parametrize("reader", ["check", "snapshot"])
+def test_live_root_is_required_and_exact(ready, damage, reader):
     # Breaks: trusting prepared hashes, sizes alone, or an absent live root.
     con, run, root, _ = ready
+    if reader == "snapshot":
+        for lane in db.HUNT_LANES:
+            hunt.check(con, run, root, lane=lane)
     if damage == "added":
         (root / "extra").write_bytes(b"hello\n")
     elif damage == "removed":
@@ -296,10 +307,13 @@ def test_live_root_is_required_and_exact(ready, damage):
         (root / "a").write_bytes(b"other\n")
     else:
         root = root / "absent"
-    before = state(con)
+    before, writes = state(con), con.total_changes
     with pytest.raises(hunt.HuntError):
-        hunt.check(con, run, root, lane="l-sink")
-    assert state(con) == before
+        if reader == "snapshot":
+            hunt.verified_snapshot(con, run, root)
+        else:
+            hunt.check(con, run, root, lane="l-sink")
+    assert state(con) == before and con.total_changes == writes
 
 
 @pytest.mark.parametrize("disposition,reason,passes", [("not_applicable", "Data cannot participate in the lane.", True),
@@ -344,12 +358,17 @@ def test_201st_unit_is_checked_beyond_the_database_display_cap(tmp_path):
         for lane in db.HUNT_LANES:
             assert hunt.check(con, run, root, lane=lane).lanes[0].manifest_units == 201
         assert hunt.check(con, run, root).complete
+        snapshot = hunt.verified_snapshot(con, run, root)
+        assert tuple(lane.unit_count for lane in snapshot.lanes) == (201, 201)
+        assert snapshot.candidates == ()
         con.execute("UPDATE cba_coverage SET reason='tampered' WHERE phase='hunt-l-sink' AND unit=?",
                     (db.firmware_unit_key("target", "unit-200"),))
         con.commit()
         before = state(con)
         with pytest.raises(hunt.HuntError):
             hunt.check(con, run, root, lane="l-sink")
+        with pytest.raises(hunt.HuntError):
+            hunt.verified_snapshot(con, run, root)
         assert state(con) == before
 
 

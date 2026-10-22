@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation implemented, remaining phase work pending · **Verification:** `make all` passed all 8 gates; 3,614 tests passed, 0/5,071 unexecuted statements
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation and verified completed-hunt snapshot implemented, deterministic review-batch preparation next · **Verification:** `make all` passed all 8 gates; 3,663 tests passed, 0/5,134 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -64,7 +64,8 @@ These are not style preferences. Each one has a specific, known cost.
   merged into local `main` at `8119af1`. Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` are
   committed on this feature branch; its five-table schema foundation and row
-  contracts are implemented. The verified completed-hunt snapshot helper is next.
+  contracts and the verified completed-hunt snapshot are implemented.
+  Deterministic review-batch preparation is next.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -136,8 +137,14 @@ These are not style preferences. Each one has a specific, known cost.
   target triage, or surface evidence invalidates same-image hunt state.
   Expected SQLite errors print exactly `hunt: database operation failed`;
   other expected errors escape/cap at 512 ASCII characters plus newline.
-- **Current next phase:** continue firmware `fpcheck` with its read-only
-  completed-hunt snapshot helper, then static candidate review,
+- **Verified completed-hunt snapshot:** `hunt.verified_snapshot` shares the
+  full Stage 4e verifier with `hunt.check`, requires both lanes already complete,
+  and returns frozen lane/candidate/blocker records without SQL writes or status/
+  timestamp transitions. Artifact paths are verified run descendants and exposed
+  as canonical run-relative POSIX paths. It supports read-only SQLite and caller
+  transactions; candidate-free lanes and denominators above 200 remain complete.
+- **Current next phase:** continue firmware `fpcheck` with deterministic
+  review-batch preparation, then static candidate review,
   cross-lane/root-cause deduplication, pivot preservation, and promotion into a
   reviewed finding model. Stage 4e remains firmware functionality inside the
   shared repository; it is not a separately packaged skill. It inherits
@@ -188,7 +195,7 @@ unknowns, rollback and unexpected exception identity, and bounded diagnostics.
 The full harness includes the available GL.iNet consistency check. No paid
 audit, milestone rerun, new indicator snapshot, or mutation sweep ran.
 
-### Stage 4f schema foundation verification
+### Historical Stage 4f schema foundation verification
 
 The schema foundation adds five tables, bringing self-test to **32 SQLite
 tables / 31 contracted**, with exact columns/keys agreeing. Existing generic
@@ -216,12 +223,34 @@ its targeted corrected rerun and the later full instrumented suite pass.
 Full-harness verification completed after the final documentation reconciliation.
 No mutation sweep, paid audit/milestone rerun, or indicator snapshot ran.
 
-Next is the read-only completed-hunt snapshot helper; preparation,
-parsing/import, completion, invalidation and CLI remain. Cross-row/run
+At that point, next was the read-only completed-hunt snapshot helper; preparation,
+parsing/import, completion, invalidation and CLI remained. Cross-row/run
 containment and ownership belong to those modules, while schema validation
 checks stored path spelling. Triage remains upsert-only and Stage 4d retains
 its retained-orphan candidate scan limitation. The Asus golden and
 monorepo/submodule decision remain overall Stage 4 prerequisites.
+
+### Stage 4f verified completed-hunt snapshot
+
+The Stage 4e and snapshot suites pass **407 tests**. The RED run recorded
+**50 expected missing-helper failures / 65 existing tests passed** before any
+implementation. Real artifacts and SQLite verify full evidence preservation,
+independent same-ID lane candidates, nested immutability, no SQL/status/time
+changes, pending-lane refusal, independent input corruption, artifact containment,
+read-only connections/caller transactions and unit-201/candidate-free regressions.
+Full `make all` evidence: **all eight gates passed**, **3,663 tests passed**,
+**0 unexecuted / 5,134 statements, 0 allowed**; **28 dispatchable verbs**;
+**32 schema tables / 31 contracted** with columns/keys agreeing; four migrations
+plus current schema apply to both frozen baselines, preserving firmware rows
+and producing databases accepted by `connect()`; clean lint; **6 CRLF / 201
+LF**; **46 features / 13 stages / 21 open-item records**; **108 Markdown files
+installed**, zero sentinels, real install untouched; existing benchmark recall
+**9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
+Verification includes a fresh full harness after the final documentation
+reconciliation. No mutation sweep, paid audit/milestone rerun or indicator
+snapshot ran. Next is Task 4: deterministic review-batch preparation, consuming
+this verified snapshot and retaining the triage upsert-only and Stage 4d
+orphan-scan limitations.
 
 ### Historical Stage 4e merged-state verification
 
@@ -326,8 +355,9 @@ Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
 Stage 4f has approved design and plan commits `b4f6e0f` and `61177ce` on
 `stage4f-firmware-fpcheck`. The five additive tables and their row contracts
 are implemented: runs, receipts, verdicts, pivots, and reviewed findings.
-The next task is the read-only completed-hunt snapshot helper; preparation,
-parsing/import, completion, invalidation, and CLI follow. The remaining phase will
+The verified read-only completed-hunt snapshot is also implemented. The next
+task is deterministic review-batch preparation; parsing/import, completion,
+invalidation, and CLI follow. The remaining phase will
 statically adversarially review hunt candidates, deduplicate across lanes
 and root causes, preserve useful pivots, and promote only reviewed findings.
 It inherits image scoping, the complete target denominator, triage's upsert-only
@@ -376,7 +406,8 @@ Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shippe
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`. These six
 phases were built at zero audit cost. Firmware `fpcheck` has its schema
-foundation and needs the completed-hunt snapshot helper next; the separate
+foundation and verified completed-hunt snapshot; deterministic review-batch
+preparation is next. The separate
 firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work

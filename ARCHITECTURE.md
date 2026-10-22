@@ -197,7 +197,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `firmware_tree.py` | 101 | Shared fail-closed regular-file traversal, hashing, classification, and retained ELF facts for triage and surface. |
 | `surface.py` | 582 | Exact-root verification, deterministic content-addressed batches, image-owned generation invalidation, and the sole completion transition. |
 | `surface_results.py` | 458 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
-| `hunt.py` | 375 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, and gate receipts and full-denominator coverage. |
+| `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
 | `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
@@ -381,14 +381,20 @@ not adjudicate false positives, assign final severity, fetch/carve/execute or
 emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. The next firmware slice
-is `fpcheck`. Its five additive tables and row contracts are implemented;
-the completed-hunt snapshot helper, preparation, result parsing/import,
+is `fpcheck`. Its five additive tables, row contracts and completed-hunt
+snapshot helper are implemented; preparation, result parsing/import,
 completion, invalidation, and CLI remain to be built. Table validation checks
 variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
 worklist/result/artifact paths also accept canonical absolute paths; phase
-modules must enforce run containment and cross-row ownership. The next task
-is the read-only verified completed-hunt snapshot helper. The Asus golden
+modules must enforce run containment and cross-row ownership.
+`hunt.verified_snapshot` shares the full Stage 4e verifier with `hunt.check`;
+it requires both lanes already complete and never changes SQL/status/timestamps.
+Frozen lane/candidate/blocker records retain full verified evidence and
+lane-qualified candidate identity; artifact paths are verified run descendants
+and returned in canonical run-relative POSIX form. Reads support read-only
+SQLite and caller-owned transactions, without the display-row cap.
+The next task is deterministic firmware review-batch preparation. The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;

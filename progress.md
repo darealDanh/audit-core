@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f schema foundation: `make all` passed all 8 gates; 3,614 tests passed, 0/5,071 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f verified completed-hunt snapshot: `make all` passed all 8 gates; 3,663 tests passed, 0/5,134 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -25,9 +25,9 @@ benchmark-gated before it ships.
 (`hunt`) is merged at `8119af1`; nothing has been pushed. Stage 4f firmware
 `fpcheck` is in progress, with approved design and plan committed as `b4f6e0f`
 and `61177ce` on this feature branch. Its five-table schema foundation and row
-contracts are implemented; the next task is the read-only completed-hunt
-snapshot helper. Preparation, parsing/import, completion, invalidation, and
-CLI remain. Stage 5 has not started.
+contracts and the read-only verified completed-hunt snapshot are implemented;
+the next task is deterministic review-batch preparation. Parsing/import,
+completion, invalidation, and CLI remain. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -431,11 +431,12 @@ in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
-`fpcheck` is in progress with its schema foundation implemented; the
-completed-hunt snapshot helper is next. The Asus golden remains required for the overall Stage 4
-milestone, and the monorepo/submodule decision remains required for restructure.
+`fpcheck` is in progress with its schema foundation and verified completed-hunt
+snapshot implemented; deterministic review-batch preparation is next. The Asus
+golden remains required for the overall Stage 4 milestone, and the
+monorepo/submodule decision remains required for restructure.
 
-### Stage 4f schema foundation verification
+### Historical Stage 4f schema foundation verification
 
 Five additive firmware review tables and their exact row contracts are
 implemented. The requested focused suite passes **726 tests**. The completed
@@ -454,8 +455,31 @@ verification completed after the documentation reconciliation required by `AGENT
 The initial ordinary test process had collected an old CLI table-count
 expectation before it was corrected; the corrected targeted test and later
 instrumented full suite passed. No paid audit, mutation sweep or indicator
-snapshot ran. Remaining Stage 4f work starts with the completed-hunt snapshot
-helper and inherits the triage/upstream limitations stated above.
+snapshot ran. At that point, remaining Stage 4f work started with the completed-hunt
+snapshot helper and inherited the triage/upstream limitations stated above.
+
+### Stage 4f verified completed-hunt snapshot
+
+`hunt.verified_snapshot` now shares the complete Stage 4e verifier with
+`hunt.check`, requires two already-complete lanes, and performs no SQL writes
+or completion transitions. Frozen lane/candidate/blocker records retain all
+verified candidate evidence, lane-qualified identity and run-relative canonical
+artifact provenance. It works on read-only SQLite connections and inside a
+caller's transaction. Real artifact/SQLite regressions cover input corruption,
+same-size live-root changes, pending lanes, escaping/symlink artifacts, nested
+immutability, candidate-free lanes and corruption beyond the 200-row display cap.
+The Stage 4e and snapshot suites pass **407 tests**. Full `make all` evidence:
+**all eight gates passed**, **3,663 tests passed**, **0 unexecuted / 5,134
+statements, 0 allowed**; **28 dispatchable verbs**; **32 schema tables / 31
+contracted** with columns/keys agreeing; four migrations plus current schema
+apply to both frozen baselines, preserving firmware rows and producing databases
+accepted by `connect()`; clean lint; **6 CRLF / 201 LF**; **46 features / 13
+stages / 21 open-item records**; **108 Markdown files installed**, zero
+sentinels, real install untouched; existing benchmark recall **9/19** over
+**45 findings**, precision **39/40**, **$73.15 per match**. Verification includes
+a fresh full harness after the final documentation reconciliation. No mutation
+sweep, paid audit/milestone rerun or indicator snapshot ran. Deterministic
+review-batch preparation is next; the inherited triage/upstream limitations remain.
 
 ---
 
@@ -628,8 +652,9 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4f firmware `fpcheck` with the verified completed-hunt snapshot helper**;
-   the five-table schema and row contracts are implemented. Then prepare batches,
+1. **Continue Stage 4f firmware `fpcheck` with deterministic review-batch preparation**;
+   the five-table schema, row contracts and verified completed-hunt snapshot
+   are implemented. Then
    parse/import reviews, derive findings, add invalidation and expose the CLI,
    consuming Stage 4e candidates
    for static adversarial review, cross-lane/root-cause deduplication, pivot
