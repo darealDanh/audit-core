@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f schema foundation: 726 focused tests pass; instrumented full suite passes (3,614 collected cases), 0/5,071 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f schema foundation: `make all` passed all 8 gates; 3,614 tests passed, 0/5,071 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -438,9 +438,10 @@ milestone, and the monorepo/submodule decision remains required for restructure.
 ### Stage 4f schema foundation verification
 
 Five additive firmware review tables and their exact row contracts are
-implemented. The requested focused suite passes **726 tests**; the
-instrumented full suite passes, with **3,614 cases** in current collection and
-**0 unexecuted / 5,071 statements, 0 allowed**. Self-test reports 28
+implemented. The requested focused suite passes **726 tests**. The completed
+post-reconciliation `make all` passed **all eight gates**, with **3,614 tests
+passed** and **0 unexecuted / 5,071 statements, 0 allowed**. The initial
+successful full run took **169.46s** for the test suite. Self-test reports 28
 dispatchable verbs, **32 schema tables / 31 contracted**, and the existing
 four column migrations plus current schema applied to both frozen baselines
 with firmware rows preserved and results accepted by `connect()`.
@@ -448,8 +449,8 @@ with firmware rows preserved and results accepted by `connect()`.
 Measured remaining gates: clean lint; **6 CRLF / 200 LF**; **45 features / 13
 stages / 21 open-item records**; **108 Markdown files installed**, zero
 sentinels, real install untouched; existing benchmark recall **9/19** over
-**45 findings**, precision **39/40**, **$73.15 per match**. A fresh `make all`
-rechecks all eight gates after this reconciliation, as required by `AGENTS.md`.
+**45 findings**, precision **39/40**, **$73.15 per match**. Full-harness
+verification completed after the documentation reconciliation required by `AGENTS.md`.
 The initial ordinary test process had collected an old CLI table-count
 expectation before it was corrected; the corrected targeted test and later
 instrumented full suite passed. No paid audit, mutation sweep or indicator

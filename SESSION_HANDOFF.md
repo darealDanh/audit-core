@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation implemented, remaining phase work pending · **Verification:** 726 focused tests pass; instrumented full suite passes (3,614 collected cases), 0/5,071 unexecuted statements
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation implemented, remaining phase work pending · **Verification:** `make all` passed all 8 gates; 3,614 tests passed, 0/5,071 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -199,8 +199,9 @@ batch/component paths, stored path spellings, UTF-8 text, identifiers,
 digests, counts and confidence are validated through real database tests.
 
 Current measured test evidence: **726 focused tests passed in 25.88s**;
-current full collection has **3,614 cases**, and the instrumented full suite
-passes with **0 unexecuted / 5,071 statements, 0 allowed**. Other measured
+the completed post-reconciliation `make all` passed **all eight gates** with
+**3,614 tests passed** and **0 unexecuted / 5,071 statements, 0 allowed**.
+The initial successful full run took **169.46s** for the test suite. Other measured
 gates pass: **28 dispatchable verbs**; the existing four migrations plus
 schema apply to both frozen baselines, preserving firmware rows and producing
 databases accepted by `connect()`; clean lint; **6 CRLF / 200 LF**;
@@ -212,7 +213,7 @@ benchmark recall **9/19** over **45 findings**, precision **39/40**,
 The initial ordinary suite captured a stale CLI count assertion before its
 correction (`test_selftest_cross_checks_the_table_contract_against_the_real_schema`);
 its targeted corrected rerun and the later full instrumented suite pass.
-A fresh `make all` rechecks all eight gates after this final reconciliation.
+Full-harness verification completed after the final documentation reconciliation.
 No mutation sweep, paid audit/milestone rerun, or indicator snapshot ran.
 
 Next is the read-only completed-hunt snapshot helper; preparation,
