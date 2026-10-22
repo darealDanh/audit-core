@@ -128,7 +128,7 @@ its own.
 One SQLite database per run, at `reports/audit-<timestamp>/audit.db`, created
 by `audit.py init`.
 
-**Twenty-six tables under contract**, all prefixed `cba_`:
+**Thirty-one tables under contract**, all prefixed `cba_`:
 
 | Group | Tables |
 |---|---|
@@ -143,8 +143,9 @@ by `audit.py init`.
 | Firmware diff | `cba_firmware_files`, `cba_diffs`, `cba_diff_entries` |
 | Firmware surface | `cba_surface_runs`, `cba_firmware_surfaces`, `cba_unknowns` |
 | Firmware hunt | `cba_hunt_runs`, `cba_hunt_receipts`, `cba_hunt_candidates` |
+| Firmware review foundation | `cba_firmware_fp_runs`, `cba_firmware_fp_receipts`, `cba_firmware_fp_verdicts`, `cba_firmware_pivots`, `cba_firmware_findings` |
 
-> `selftest` reports **27** tables in `schema.sql` against **26** under
+> `selftest` reports **32** tables in `schema.sql` against **31** under
 > contract. The extra table is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
@@ -178,7 +179,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 957 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, and image-qualified firmware-unit identity. |
+| `db.py` | 1131 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f review row validation. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -380,7 +381,15 @@ not adjudicate false positives, assign final severity, fetch/carve/execute or
 emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. The next firmware slice
-is `fpcheck`. The Asus golden remains required for the overall Stage 4
+is `fpcheck`. Its five additive tables and row contracts are implemented;
+the completed-hunt snapshot helper, preparation, result parsing/import,
+completion, invalidation, and CLI remain to be built. Table validation checks
+variant-specific evidence, canonical unique JSON arrays, relative batch and
+component paths, lowercase digests, counts, and bounded identifiers. Stored
+worklist/result/artifact paths also accept canonical absolute paths; phase
+modules must enforce run containment and cross-row ownership. The next task
+is the read-only verified completed-hunt snapshot helper. The Asus golden
+remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;
 deterministic harness scoring only measures the existing baseline.

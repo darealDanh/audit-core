@@ -39,6 +39,9 @@ SURFACE_RUN_STATES = ("pending", "complete")
 HUNT_LANES = ("l-sink", "l-dark")
 HUNT_RUN_STATES = ("pending", "complete")
 HUNT_DISPOSITIONS = ("analyzed", "not_applicable", "not_audited")
+FIRMWARE_FP_RUN_STATES = ("pending", "complete")
+FIRMWARE_FP_VERDICTS = ("TRUE_POSITIVE", "FALSE_POSITIVE", "DUPLICATE")
+FIRMWARE_FP_EVIDENCE_RUNGS = ("static-reviewed",)
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -430,6 +433,131 @@ def _validate_hunt_candidate(row: dict[str, str]) -> None:
         seen.add(blocker["id"])
 
 
+def _firmware_fp_text(value: object, column: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise DbError(f"{column} requires a non-empty string")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as exc:
+        raise DbError(f"{column} requires UTF-8 text") from exc
+
+
+def _firmware_fp_path(value: object, column: str, *, absolute: bool = False) -> None:
+    """Validate spelling only; phase modules establish run containment."""
+    _firmware_fp_text(value, column)
+    parts = value[1:].split("/") if absolute and value.startswith("/") else value.split("/")
+    if ("\\" in value or "\x00" in value or re.match(r"^[A-Za-z]:", value)
+            or (value.startswith("/") and not absolute)
+            or any(part in ("", ".", "..") for part in parts)):
+        raise DbError(f"{column} requires a canonical {'stored' if absolute else 'relative'} path")
+
+
+def _firmware_fp_base(row: dict[str, str], table: str) -> None:
+    counts = tuple(column for column in TABLE_SPECS[table].required
+                   if column.endswith("_count") or column == "confidence")
+    _validate_surface_text(row, table, counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    for column in TABLE_SPECS[table].required:
+        if column in counts:
+            continue
+        _firmware_fp_text(row[column], column)
+        if column.endswith("_sha256"):
+            _validate_sha256(row, column)
+        if column in ("worklist_path", "result_path", "artifact_path"):
+            _firmware_fp_path(row[column], column, absolute=True)
+    if "confidence" in counts and int(row["confidence"]) > 10:
+        raise DbError("confidence requires an integer 0-10")
+
+
+def _firmware_fp_array(row: dict[str, str], column: str, *, nonempty: bool = False) -> list:
+    values = _hunt_json_array(row, column)
+    if nonempty and not values:
+        raise DbError(f"{column} requires at least one entry")
+    seen: set[object] = set()
+    for value in values:
+        if column == "contributors":
+            if not isinstance(value, dict) or set(value) != {"lane", "candidate_id"}:
+                raise DbError("contributors require exactly lane and candidate_id")
+            try:
+                _firmware_fp_text(value["lane"], "lane")
+                one_of("lane", HUNT_LANES)(value)
+                _validate_surface_identifier(value, "candidate_id")
+            except DbError as exc:
+                raise DbError(f"contributors: {exc}") from exc
+            identity = (value["lane"], value["candidate_id"])
+        else:
+            _firmware_fp_text(value, column)
+            if column == "component_paths":
+                _firmware_fp_path(value, column)
+            elif column == "lanes":
+                one_of(column, HUNT_LANES)({column: value})
+            else:
+                _validate_surface_identifier({column: value}, column)
+            identity = value
+        if identity in seen:
+            raise DbError(f"{column} must not repeat an entry")
+        seen.add(identity)
+    return values
+
+
+def _validate_firmware_fp_run(row: dict[str, str]) -> None:
+    _firmware_fp_base(row, "cba_firmware_fp_runs")
+    one_of("status", FIRMWARE_FP_RUN_STATES)(row)
+
+
+def _validate_firmware_fp_receipt(row: dict[str, str]) -> None:
+    _firmware_fp_base(row, "cba_firmware_fp_receipts")
+    _firmware_fp_path(row["batch_path"], "batch_path")
+
+
+def _validate_firmware_fp_verdict(row: dict[str, str]) -> None:
+    _firmware_fp_base(row, "cba_firmware_fp_verdicts")
+    one_of("lane", HUNT_LANES)(row)
+    one_of("verdict", FIRMWARE_FP_VERDICTS)(row)
+    _validate_surface_identifier(row, "candidate_id")
+    _firmware_fp_path(row["batch_path"], "batch_path")
+    _firmware_fp_array(row, "rules_applied")
+    variants = {
+        "TRUE_POSITIVE": ("root_cause_key", "root_cause", "dedup_evidence",
+                          "reviewed_attacker_position", "reviewed_data_flow",
+                          "reviewed_impact_hypothesis", "component_paths", "surface_ids"),
+        "FALSE_POSITIVE": ("refuting_mechanism", "pivot_id"),
+        "DUPLICATE": ("duplicate_lane", "duplicate_candidate_id", "dedup_evidence"),
+    }
+    required = variants[row["verdict"]]
+    for column in set().union(*variants.values()) - set(required):
+        if row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for {row['verdict']}")
+    for column in required:
+        _firmware_fp_text(row.get(column), column)
+    for column in ("root_cause_key", "pivot_id", "duplicate_candidate_id"):
+        if column in required:
+            _validate_surface_identifier(row, column)
+    if row["verdict"] == "DUPLICATE":
+        one_of("duplicate_lane", HUNT_LANES)(row)
+    if row["verdict"] == "TRUE_POSITIVE":
+        _firmware_fp_array(row, "component_paths", nonempty=True)
+        _firmware_fp_array(row, "surface_ids")
+
+
+def _validate_firmware_pivot(row: dict[str, str]) -> None:
+    _firmware_fp_base(row, "cba_firmware_pivots")
+    for column in ("pivot_id", "source_candidate_id"):
+        _validate_surface_identifier(row, column)
+    one_of("source_lane", HUNT_LANES)(row)
+    _firmware_fp_path(row["component_path"], "component_path")
+
+
+def _validate_firmware_finding(row: dict[str, str]) -> None:
+    _firmware_fp_base(row, "cba_firmware_findings")
+    for column in ("finding_id", "root_cause_key", "canonical_candidate_id"):
+        _validate_surface_identifier(row, column)
+    one_of("canonical_lane", HUNT_LANES)(row)
+    one_of("evidence_rung", FIRMWARE_FP_EVIDENCE_RUNGS)(row)
+    for column in ("contributors", "lanes", "component_paths", "surface_ids"):
+        _firmware_fp_array(row, column, nonempty=column != "surface_ids")
+
+
 def _validate_diff_entry(row: dict[str, str]) -> None:
     change = row.get("change")
     if change not in DIFF_CHANGES:
@@ -609,6 +737,52 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "state_evidence", "confidence", "impact_hypothesis", "blockers", "artifact_path",
                   "artifact_sha256"),
         primary_key=("image_id", "lane", "candidate_id"), validate=_validate_hunt_candidate),
+    "cba_firmware_fp_runs": TableSpec(
+        columns=("image_id", "manifest_sha256", "surface_snapshot_sha256", "sink_worklist_sha256",
+                 "dark_worklist_sha256", "candidate_snapshot_sha256", "worklist_path", "worklist_sha256",
+                 "candidate_count", "batch_count", "status", "prepared_at", "completed_at"),
+        required=("image_id", "manifest_sha256", "surface_snapshot_sha256", "sink_worklist_sha256",
+                  "dark_worklist_sha256", "candidate_snapshot_sha256", "worklist_path", "worklist_sha256",
+                  "candidate_count", "batch_count", "status"),
+        primary_key=("image_id",), validate=_validate_firmware_fp_run),
+    "cba_firmware_fp_receipts": TableSpec(
+        columns=("image_id", "candidate_snapshot_sha256", "worklist_sha256", "batch_path", "batch_sha256",
+                 "result_path", "result_sha256", "assigned_count", "verdict_count", "true_positive_count",
+                 "false_positive_count", "duplicate_count", "pivot_count", "recorded_at"),
+        required=("image_id", "candidate_snapshot_sha256", "worklist_sha256", "batch_path", "batch_sha256",
+                  "result_path", "result_sha256", "assigned_count", "verdict_count", "true_positive_count",
+                  "false_positive_count", "duplicate_count", "pivot_count"),
+        primary_key=("image_id", "candidate_snapshot_sha256", "batch_path"),
+        validate=_validate_firmware_fp_receipt),
+    "cba_firmware_fp_verdicts": TableSpec(
+        columns=("image_id", "lane", "candidate_id", "candidate_snapshot_sha256", "batch_path", "verdict",
+                 "reason", "attacker_advantage", "rules_applied", "mitigation_analysis", "confidence",
+                 "root_cause_key", "root_cause", "dedup_evidence", "duplicate_lane", "duplicate_candidate_id",
+                 "refuting_mechanism", "pivot_id", "reviewed_attacker_position", "reviewed_data_flow",
+                 "reviewed_impact_hypothesis", "component_paths", "surface_ids", "artifact_path",
+                 "artifact_sha256", "reviewed_at"),
+        required=("image_id", "lane", "candidate_id", "candidate_snapshot_sha256", "batch_path", "verdict",
+                  "reason", "attacker_advantage", "rules_applied", "mitigation_analysis", "confidence",
+                  "artifact_path", "artifact_sha256"),
+        primary_key=("image_id", "lane", "candidate_id"), validate=_validate_firmware_fp_verdict),
+    "cba_firmware_pivots": TableSpec(
+        columns=("image_id", "pivot_id", "candidate_snapshot_sha256", "source_lane", "source_candidate_id",
+                 "component_path", "refuting_mechanism", "enabled_observation", "evidence", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "pivot_id", "candidate_snapshot_sha256", "source_lane", "source_candidate_id",
+                  "component_path", "refuting_mechanism", "enabled_observation", "evidence", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("image_id", "pivot_id"), validate=_validate_firmware_pivot),
+    "cba_firmware_findings": TableSpec(
+        columns=("image_id", "finding_id", "candidate_snapshot_sha256", "root_cause_key", "canonical_lane",
+                 "canonical_candidate_id", "contributors", "lanes", "component_paths", "surface_ids", "title",
+                 "bug_class", "root_cause", "attacker_position", "data_flow", "impact_hypothesis",
+                 "evidence_summary", "confidence", "evidence_rung", "artifact_path", "artifact_sha256", "derived_at"),
+        required=("image_id", "finding_id", "candidate_snapshot_sha256", "root_cause_key", "canonical_lane",
+                  "canonical_candidate_id", "contributors", "lanes", "component_paths", "surface_ids", "title",
+                  "bug_class", "root_cause", "attacker_position", "data_flow", "impact_hypothesis",
+                  "evidence_summary", "confidence", "evidence_rung", "artifact_path", "artifact_sha256"),
+        primary_key=("image_id", "finding_id"), validate=_validate_firmware_finding),
 }
 
 

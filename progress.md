@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** `make all` passed all 8 gates; 2,925 tests, 0/4,946 uncovered statements · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f schema foundation: 726 focused tests pass; instrumented full suite passes (3,614 collected cases), 0/5,071 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -23,8 +23,11 @@ benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a-4e are merged to local `main`.** Stage 4e
 (`hunt`) is merged at `8119af1`; nothing has been pushed. Stage 4f firmware
-`fpcheck` is the next vertical slice, with approved design and plan committed
-as `b4f6e0f` and `61177ce` on this feature branch. Stage 5 has not started.
+`fpcheck` is in progress, with approved design and plan committed as `b4f6e0f`
+and `61177ce` on this feature branch. Its five-table schema foundation and row
+contracts are implemented; the next task is the read-only completed-hunt
+snapshot helper. Preparation, parsing/import, completion, invalidation, and
+CLI remain. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -421,15 +424,37 @@ statements, 0 allowed; benchmark recall 9/19 over 45 findings, precision
 tests in 140.33 seconds. These benchmark figures score the existing baseline;
 no firmware audit, paid milestone run, or quality improvement is claimed.
 
-Fresh merged-state `make all` verification on the Stage 4f worktree preserves
-those counts and summaries, with 6 CRLF / 199 LF after adding the approved
-Stage 4f design and plan. All eight gates pass; the full current summary is
-recorded in `SESSION_HANDOFF.md` under Stage 4e merged-state verification.
+The historical merged-state `make all` verification on the Stage 4f worktree
+preserved those counts and summaries, with 6 CRLF / 199 LF after adding the approved
+Stage 4f design and plan. All eight gates passed; that summary is recorded
+in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
-`fpcheck` is next; the Asus golden remains required for the overall Stage 4
+`fpcheck` is in progress with its schema foundation implemented; the
+completed-hunt snapshot helper is next. The Asus golden remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains required for restructure.
+
+### Stage 4f schema foundation verification
+
+Five additive firmware review tables and their exact row contracts are
+implemented. The requested focused suite passes **726 tests**; the
+instrumented full suite passes, with **3,614 cases** in current collection and
+**0 unexecuted / 5,071 statements, 0 allowed**. Self-test reports 28
+dispatchable verbs, **32 schema tables / 31 contracted**, and the existing
+four column migrations plus current schema applied to both frozen baselines
+with firmware rows preserved and results accepted by `connect()`.
+
+Measured remaining gates: clean lint; **6 CRLF / 200 LF**; **45 features / 13
+stages / 21 open-item records**; **108 Markdown files installed**, zero
+sentinels, real install untouched; existing benchmark recall **9/19** over
+**45 findings**, precision **39/40**, **$73.15 per match**. A fresh `make all`
+rechecks all eight gates after this reconciliation, as required by `AGENTS.md`.
+The initial ordinary test process had collected an old CLI table-count
+expectation before it was corrected; the corrected targeted test and later
+instrumented full suite passed. No paid audit, mutation sweep or indicator
+snapshot ran. Remaining Stage 4f work starts with the completed-hunt snapshot
+helper and inherits the triage/upstream limitations stated above.
 
 ---
 
@@ -602,7 +627,10 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Implement Stage 4f firmware `fpcheck` from its approved design and plan**, consuming Stage 4e candidates
+1. **Continue Stage 4f firmware `fpcheck` with the verified completed-hunt snapshot helper**;
+   the five-table schema and row contracts are implemented. Then prepare batches,
+   parse/import reviews, derive findings, add invalidation and expose the CLI,
+   consuming Stage 4e candidates
    for static adversarial review, cross-lane/root-cause deduplication, pivot
    preservation, and promotion into a reviewed finding model. It inherits
    triage's upsert-only snapshots and Stage 4d's retained-orphan scan scaling.

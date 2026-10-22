@@ -12,6 +12,8 @@ EXPECTED_TABLES = [
     "cba_coverage", "cba_feature_groups", "cba_findings", "cba_fp_verdicts",
     "cba_inventory", "cba_known_findings", "cba_pattern_hits", "cba_patterns",
     "cba_security_observations", "cba_sources",
+    "cba_firmware_fp_runs", "cba_firmware_fp_receipts", "cba_firmware_fp_verdicts",
+    "cba_firmware_pivots", "cba_firmware_findings",
 ]
 
 

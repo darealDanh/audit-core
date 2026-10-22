@@ -151,6 +151,7 @@ def test_selftest_reports_every_verb_the_parser_declares():
         capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
     assert "28 declared, all dispatchable" in proc.stdout
+    assert "32 in schema.sql, 31 under contract" in proc.stdout
 
 
 def test_manifest_records_stage4e_hunt_implementation_and_contracts():

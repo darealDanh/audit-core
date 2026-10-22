@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f design and plan approved · **Verification:** `make all` passed 8/8 gates; 2,925 tests
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation implemented, remaining phase work pending · **Verification:** 726 focused tests pass; instrumented full suite passes (3,614 collected cases), 0/5,071 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -63,7 +63,8 @@ These are not style preferences. Each one has a specific, known cost.
   `6eba6d6` and its last implementation remains `b14b4fb`. Stage 4e is
   merged into local `main` at `8119af1`. Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` are
-  committed on this feature branch; firmware `fpcheck` implementation is next.
+  committed on this feature branch; its five-table schema foundation and row
+  contracts are implemented. The verified completed-hunt snapshot helper is next.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -135,7 +136,8 @@ These are not style preferences. Each one has a specific, known cost.
   target triage, or surface evidence invalidates same-image hunt state.
   Expected SQLite errors print exactly `hunt: database operation failed`;
   other expected errors escape/cap at 512 ASCII characters plus newline.
-- **Current next phase:** firmware `fpcheck` for static candidate review,
+- **Current next phase:** continue firmware `fpcheck` with its read-only
+  completed-hunt snapshot helper, then static candidate review,
   cross-lane/root-cause deduplication, pivot preservation, and promotion into a
   reviewed finding model. Stage 4e remains firmware functionality inside the
   shared repository; it is not a separately packaged skill. It inherits
@@ -186,7 +188,41 @@ unknowns, rollback and unexpected exception identity, and bounded diagnostics.
 The full harness includes the available GL.iNet consistency check. No paid
 audit, milestone rerun, new indicator snapshot, or mutation sweep ran.
 
-### Stage 4e merged-state verification
+### Stage 4f schema foundation verification
+
+The schema foundation adds five tables, bringing self-test to **32 SQLite
+tables / 31 contracted**, with exact columns/keys agreeing. Existing generic
+findings/verdicts and the four column migrations are unchanged. Both frozen
+baselines gain the new tables; repeated application preserves old and new
+rows. Conditional verdict fields, canonical unique JSON arrays, relative
+batch/component paths, stored path spellings, UTF-8 text, identifiers,
+digests, counts and confidence are validated through real database tests.
+
+Current measured test evidence: **726 focused tests passed in 25.88s**;
+current full collection has **3,614 cases**, and the instrumented full suite
+passes with **0 unexecuted / 5,071 statements, 0 allowed**. Other measured
+gates pass: **28 dispatchable verbs**; the existing four migrations plus
+schema apply to both frozen baselines, preserving firmware rows and producing
+databases accepted by `connect()`; clean lint; **6 CRLF / 200 LF**;
+**45 features / 13 stages / 21 open-item records**; **108 Markdown files
+installed**, zero sentinel survivors, real install untouched; existing
+benchmark recall **9/19** over **45 findings**, precision **39/40**,
+**$73.15 per match**.
+
+The initial ordinary suite captured a stale CLI count assertion before its
+correction (`test_selftest_cross_checks_the_table_contract_against_the_real_schema`);
+its targeted corrected rerun and the later full instrumented suite pass.
+A fresh `make all` rechecks all eight gates after this final reconciliation.
+No mutation sweep, paid audit/milestone rerun, or indicator snapshot ran.
+
+Next is the read-only completed-hunt snapshot helper; preparation,
+parsing/import, completion, invalidation and CLI remain. Cross-row/run
+containment and ownership belong to those modules, while schema validation
+checks stored path spelling. Triage remains upsert-only and Stage 4d retains
+its retained-orphan candidate scan limitation. The Asus golden and
+monorepo/submodule decision remain overall Stage 4 prerequisites.
+
+### Historical Stage 4e merged-state verification
 
 The Stage 4f worktree includes local `main` at `8119af1` plus the approved
 Stage 4f design and plan. Its full `make all` result is 8/8 gates: 2,925 tests;
@@ -200,8 +236,8 @@ statements, 0 allowed; benchmark recall 9/19 over 45 findings, precision
 Stage 4f design and plan. No new audit, paid milestone run, indicator snapshot,
 or mutation sweep ran.
 
-`ARCHITECTURE.md` already describes the implemented Stage 4e boundary and
-names firmware `fpcheck` next; its present-state claims need no change.
+At that reconciliation point, `ARCHITECTURE.md` described the implemented
+Stage 4e boundary and named firmware `fpcheck` next.
 
 ### Historical Stage 4e Task 9 verification
 
@@ -287,7 +323,10 @@ implementation commit is `b14b4fb`, independent of the documentation commit.
 
 Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
 Stage 4f has approved design and plan commits `b4f6e0f` and `61177ce` on
-`stage4f-firmware-fpcheck`. Firmware `fpcheck` implementation is next:
+`stage4f-firmware-fpcheck`. The five additive tables and their row contracts
+are implemented: runs, receipts, verdicts, pivots, and reviewed findings.
+The next task is the read-only completed-hunt snapshot helper; preparation,
+parsing/import, completion, invalidation, and CLI follow. The remaining phase will
 statically adversarially review hunt candidates, deduplicate across lanes
 and root causes, preserve useful pivots, and promote only reviewed findings.
 It inherits image scoping, the complete target denominator, triage's upsert-only
@@ -335,7 +374,8 @@ running the gate — that is the point of them; do not "fix" them.
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`. These six
-phases were built at zero audit cost. Firmware `fpcheck` is next; the separate
+phases were built at zero audit cost. Firmware `fpcheck` has its schema
+foundation and needs the completed-hunt snapshot helper next; the separate
 firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work
