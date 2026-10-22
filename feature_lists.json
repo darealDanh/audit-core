@@ -94,15 +94,15 @@
       "id": "stage4e",
       "name": "hunt - evidence-bound two-lane firmware candidate analysis",
       "status": "shipped",
-      "gate": "make all: 8/8 gates; 2,925 tests; 0/4,946 uncovered statements; integration pending",
-      "summary": "Implemented and whole-branch reviewed on feature branch stage4e-firmware-hunt; integration pending and not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Firmware fpcheck is next."
+      "gate": "make all: 8/8 gates; 2,925 tests; 0/4,946 uncovered statements; merged locally at 8119af1, not pushed",
+      "summary": "Merged into local main at 8119af1, not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Stage 4f firmware fpcheck implementation is next, with approved design and plan on its feature branch."
     },
     {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices: qualify shipped as stage4a, acquire plus triage as stage4b, diff as stage4c, surface as stage4d, and hunt implemented on its feature branch as stage4e; firmware fpcheck is next. The required asus golden is still missing; the monorepo/submodule decision and separate skill tree remain open."
+      "summary": "Full firmware phase set from spec section 4, plus the monorepo restructure. Built as vertical slices: qualify shipped as stage4a, acquire plus triage as stage4b, diff as stage4c, surface as stage4d, and hunt merged into local main at 8119af1 as stage4e, not pushed; Stage 4f firmware fpcheck implementation is next from its approved design and plan. The required asus golden is still missing; the monorepo/submodule decision and separate skill tree remain open."
     },
     {
       "id": "stage5",
@@ -962,7 +962,7 @@
         "progress.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Implemented and whole-branch reviewed on stage4e-firmware-hunt; integration is pending and nothing has been pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Firmware fpcheck is next; the Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
+      "notes": "Merged into local main at 8119af1, not pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Stage 4f firmware fpcheck implementation is next from its approved design and plan; the Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
     }
   ],
   "open_items": [

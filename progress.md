@@ -1,6 +1,6 @@
 # Project progress
 
-**Last updated:** 2026-10-20 · **Branch:** `stage4e-firmware-hunt`; Stage 4e implemented and whole-branch reviewed; integration pending, not pushed ·
+**Last updated:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
 **Current verification:** `make all` passed all 8 gates; 2,925 tests, 0/4,946 uncovered statements · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
@@ -21,10 +21,10 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4d are merged to local `main`.** Stage 4e
-(`hunt`) is implemented and whole-branch reviewed on the `stage4e-firmware-hunt`
-feature branch; integration is pending and nothing has been
-pushed. Firmware `fpcheck` is the next vertical slice. Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a-4e are merged to local `main`.** Stage 4e
+(`hunt`) is merged at `8119af1`; nothing has been pushed. Stage 4f firmware
+`fpcheck` is the next vertical slice, with approved design and plan committed
+as `b4f6e0f` and `61177ce` on this feature branch. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -38,7 +38,7 @@ pushed. Firmware `fpcheck` is the next vertical slice. Stage 5 has not started.
 | 4b | `acquire` + `triage` firmware provenance and inventory | 13 | 25 files, +2,087 / −105 | **merged** (`6bbb0e0`) — 8/8 gates, no audit run |
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
-| 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | feature branch | `stage4e-firmware-hunt` | **implemented and whole-branch reviewed**; `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; integration pending, not pushed |
+| 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining five firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -410,7 +410,7 @@ raw result that would serialize to 8 MiB + 1 is rejected before install or SQL,
 including replacement rollback. Inventory and brief regressions protect
 clean-checkout manifest resolution and orchestrator-owned checkpoint publication.
 
-The final `make all` passed all eight gates: 2,925 tests in 168.94 seconds;
+The historical Stage 4e final `make all` passed all eight gates: 2,925 tests in 168.94 seconds;
 28 dispatchable verbs; 27 schema tables / 26 contracted; four migrations plus
 the current schema applied to the frozen pre-Stage-3 and Stage-4b baselines,
 firmware rows preserved and results accepted by `connect()`; clean lint; 6
@@ -420,6 +420,11 @@ statements, 0 allowed; benchmark recall 9/19 over 45 findings, precision
 39/40, $73.15 per matched finding. Plain `python3 -m pytest -q` passed 2,925
 tests in 140.33 seconds. These benchmark figures score the existing baseline;
 no firmware audit, paid milestone run, or quality improvement is claimed.
+
+Fresh merged-state `make all` verification on the Stage 4f worktree preserves
+those counts and summaries, with 6 CRLF / 199 LF after adding the approved
+Stage 4f design and plan. All eight gates pass; the full current summary is
+recorded in `SESSION_HANDOFF.md` under Stage 4e merged-state verification.
 
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
@@ -459,11 +464,10 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** `main` includes the Stage 4d merge and
-   post-merge documentation reconciliation, 50 commits ahead of `origin/main`
-   at the last check on 2026-10-16 (`git rev-list --left-right --count
-   origin/main...main` reported `0 50`). Stage 4e is on the separate
-   `stage4e-firmware-hunt` feature branch and awaits integration. Nothing has
+7. **Local changes are not pushed.** `main` includes Stage 4e at `8119af1`.
+   The earlier observation of 50 commits ahead of `origin/main` was measured
+   on 2026-10-16 and is historical, not the current synchronization count.
+   Stage 4f design and plan are on `stage4f-firmware-fpcheck`. Nothing has
    been pushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
@@ -598,12 +602,13 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Design and implement firmware `fpcheck`**, consuming Stage 4e candidates
+1. **Implement Stage 4f firmware `fpcheck` from its approved design and plan**, consuming Stage 4e candidates
    for static adversarial review, cross-lane/root-cause deduplication, pivot
    preservation, and promotion into a reviewed finding model. It inherits
    triage's upsert-only snapshots and Stage 4d's retained-orphan scan scaling.
-   Stage 4e is implemented on its feature branch pending integration; nothing
-   has been pushed.
+   Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
+   The Asus golden and monorepo/submodule decision remain prerequisites for
+   the overall Stage 4 milestone/restructure.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-20 · **Branch:** `stage4e-firmware-hunt`; Task 9 documentation/inventory reconciliation recorded ·
-**Status:** Stage 4e implemented and whole-branch reviewed on this feature branch; integration pending, no push · **Verification:** final `make all` passed 8/8 gates; 2,925 tests
+**Written:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f design and plan approved · **Verification:** `make all` passed 8/8 gates; 2,925 tests
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -59,13 +59,12 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4e-firmware-hunt`; Stage 4d's merge point remains
+- **Branch:** `stage4f-firmware-fpcheck`; Stage 4d's merge point remains
   `6eba6d6` and its last implementation remains `b14b4fb`. Stage 4e is
-  implemented and whole-branch reviewed here; integration is pending.
-  Nothing has been pushed.
-- **Stage 4e has not been integrated into local `main`.** The Stage 4e feature
-  branch/worktree remains available for review and user-directed integration.
-  The prior synchronization observation for `main` was 50 commits ahead
+  merged into local `main` at `8119af1`. Nothing has been pushed.
+- **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` are
+  committed on this feature branch; firmware `fpcheck` implementation is next.
+  The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
 - **Stages 4a–4e are firmware-audit behavior on the shared spine, not a separate
@@ -153,7 +152,7 @@ These are not style preferences. Each one has a specific, known cost.
 ### Verify the state yourself
 
 ```bash
-cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4e-firmware-hunt
+cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4f-firmware-fpcheck
 make all          # all eight gates
 ```
 
@@ -187,9 +186,26 @@ unknowns, rollback and unexpected exception identity, and bounded diagnostics.
 The full harness includes the available GL.iNet consistency check. No paid
 audit, milestone rerun, new indicator snapshot, or mutation sweep ran.
 
-### Stage 4e Task 9 verification
+### Stage 4e merged-state verification
 
-The current Stage 4e feature tree passes the full eight-gate harness. The
+The Stage 4f worktree includes local `main` at `8119af1` plus the approved
+Stage 4f design and plan. Its full `make all` result is 8/8 gates: 2,925 tests;
+28 dispatchable verbs; 27 schema tables / 26 contracted; four migrations plus
+the current schema applied to both frozen baselines with firmware rows
+preserved and results accepted by `connect()`; clean lint; 6 CRLF / 199 LF;
+44 features / 13 stages / 21 open-item records; 108 Markdown files installed,
+zero sentinel survivors, real install untouched; 0 unexecuted / 4,946
+statements, 0 allowed; benchmark recall 9/19 over 45 findings, precision
+39/40, $73.15 per matched finding. The two additional LF files are the
+Stage 4f design and plan. No new audit, paid milestone run, indicator snapshot,
+or mutation sweep ran.
+
+`ARCHITECTURE.md` already describes the implemented Stage 4e boundary and
+names firmware `fpcheck` next; its present-state claims need no change.
+
+### Historical Stage 4e Task 9 verification
+
+The historical Stage 4e feature tree passed the full eight-gate harness. The
 pre-documentation `make all` summary, used to reconcile this handoff, was:
 
 ```
@@ -219,8 +235,8 @@ regression was first run against the stale inventory and failed because its
 docs listed ignored `.superpowers` artifacts; after removing that dependency,
 the clean-checkout manifest passes. Historical Stage 4d measurements above
 remain historical and are not substituted for these Stage 4e results. The
-final committed-tree `make all` must match these measured values; if it differs,
-reconcile the docs and rerun the harness.
+fresh merged-state verification is recorded above; historical measurements
+remain unchanged.
 
 No firmware audit, paid milestone run, new indicator snapshot, or mutation
 sweep ran. Benchmark output is read-only scoring of the existing baseline;
@@ -251,8 +267,8 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4d are merged to local `main`; Stage 4e is
-implemented on the current feature branch and awaits integration. Stage 4c adds
+Stages 0 through 3c and Stages 4a-4e are merged to local `main`; Stage 4e is
+included at `8119af1`, not pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -267,11 +283,12 @@ rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
 
-### Design and implement firmware `fpcheck`
+### Implement Stage 4f firmware `fpcheck`
 
-Stage 4e is implemented and task-reviewed on `stage4e-firmware-hunt`; its
-integration remains pending, and it has not been pushed. Firmware `fpcheck` is
-next: statically adversarially review hunt candidates, deduplicate across lanes
+Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
+Stage 4f has approved design and plan commits `b4f6e0f` and `61177ce` on
+`stage4f-firmware-fpcheck`. Firmware `fpcheck` implementation is next:
+statically adversarially review hunt candidates, deduplicate across lanes
 and root causes, preserve useful pivots, and promote only reviewed findings.
 It inherits image scoping, the complete target denominator, triage's upsert-only
 snapshot limitation, and the retained-orphan candidate scan performance limit.
@@ -317,7 +334,7 @@ running the gate — that is the point of them; do not "fix" them.
 
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
-local `main`; Stage 4e implemented `hunt` on its feature branch. These six
+local `main`; Stage 4e merged `hunt` at `8119af1`. These six
 phases were built at zero audit cost. Firmware `fpcheck` is next; the separate
 firmware skill tree does not exist yet.
 
