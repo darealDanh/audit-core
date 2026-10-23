@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema, verified hunt snapshot, preparation, strict review results, atomic import and canonical reviewed finding completion and atomic upstream review invalidation implemented; Task 9 bounded CLI next · **Verification:** `make all` passed all 8 gates; 4,032 tests passed, 0/5,933 unexecuted statements
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema, verified hunt snapshot, preparation, strict review results, atomic import and canonical reviewed finding completion and atomic upstream review invalidation implemented; bounded firmware CLI implemented; Task 10 review brief and installed-user routing next · **Verification:** `make all` passed all 8 gates; 4,134 full-suite tests passed, 0/5,933 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -67,8 +67,8 @@ These are not style preferences. Each one has a specific, known cost.
   contracts, the verified completed-hunt snapshot, deterministic review preparation,
   and image-scoped review invalidation helper are implemented.
   Strict result parsing/validation, atomic batch import and canonical reviewed finding
-  derivation/completion and atomic upstream review invalidation are implemented;
-  Task 9, the bounded firmware `fpcheck` CLI, is next.
+  derivation/completion, atomic upstream review invalidation and the bounded firmware
+  `fpcheck` CLI are implemented. Task 10 review brief and installed-user routing are next.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -162,9 +162,9 @@ These are not style preferences. Each one has a specific, known cost.
   unchanged hunt replacements also preserve lane completion after comparing durable
   receipts, coverage and candidates. Reference acquisition/triage and supplemental
   source/path edits do not change target ownership.
-- **Current next phase:** Task 9, the bounded firmware `fpcheck` CLI. Expose
-  prepare/record/check modes with aggregate-only output and existing error rules;
-  the review brief and installed-user routing follow in Task 10. Stage 4e remains
+- **Current next phase:** Task 10, the firmware review brief and installed-user routing.
+  The bounded `fpcheck` prepare/record/check CLI is implemented; add the firmware-specific
+  brief and routing while preserving ordinary source-code fpcheck. Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
   monorepo/submodule decision remain prerequisites for the overall Stage 4
@@ -422,13 +422,14 @@ its timing and commit evidence are in the Task 7 report.
 
 At the Task 7 boundary, upstream invalidation wiring (Task 8) was next; the
 final gate refused stale evidence, while eager upstream removal remained unwired.
-The current Task 8 boundary is recorded below. Triage's upsert-only snapshots
+The historical Task 8 boundary is recorded below; the current Task 9 boundary
+follows. Triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling
 persist; the Asus golden and monorepo/submodule decision remain overall Stage 4
 milestone/restructure prerequisites. No mutation sweep, paid audit/milestone rerun,
 indicator snapshot, merge or push ran.
 
-### Stage 4f atomic upstream review invalidation
+### Historical Stage 4f atomic upstream review invalidation
 
 Task 8 joins the existing acquisition, target triage, surface prepare/results,
 hunt prepare/results and lane completion transactions through local imports of
@@ -458,11 +459,59 @@ recall **9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
 The final post-documentation `make all` rechecks these measured totals; exact
 run timings and commit evidence are recorded in the Task 8 report.
 
-Next is Task 9: the bounded firmware `fpcheck` prepare/record/check CLI, followed
-by Task 10 review brief and installed-user routing. Triage remains upsert-only;
+At the Task 8 boundary, the bounded firmware CLI was next; it is now implemented.
+Task 10 review brief and installed-user routing are the current next stage.
+Triage remains upsert-only;
 Stage 4d retained-orphan scan scaling persists. The Asus golden and monorepo/submodule
 decision remain prerequisites for the overall Stage 4 milestone/restructure.
 No mutation sweep, paid audit/milestone rerun, indicator snapshot, merge or push ran.
+
+### Stage 4f bounded firmware review CLI
+
+Task 9 exposes explicit `fpcheck --prepare`, `--record RESULT` and `--check`
+modes beneath the existing prose workflow. All mode combinations and extras are
+validated before opening the run database; syntax errors exit 2 and semantic
+mode errors exit 1 without creating a run. Prepare defaults to 20 candidates per
+batch and accepts integer targets 1–200; check requires the current live root.
+The CLI delegates directly to the completed preparation, atomic importer and
+completion gate. Source-code `cba_fp_verdicts` commands are unchanged.
+
+Human and JSON success output select only scalar aggregate/provenance fields and
+artifact paths. Success redaction uses absolute root spellings so `--root .`
+preserves dots in usable artifact filenames. Check reports `finding_count`,
+never the per-finding review records. Public text fields escape controls/non-ASCII, redact the supplied root,
+and cap at 512 printable ASCII characters; unusually long image identifiers or
+paths are displayed with a trailing `...`. Stored identities and artifacts retain
+their full values. Expected diagnostics have the same 512-character cap plus
+newline; SQLite anywhere in an expected exception chain produces exactly
+`fpcheck: database operation failed`. Unexpected exceptions propagate from the
+direct handler after rollback/connection release.
+
+Tests-first RED: **97 failed / 17 passed**, from the missing parser/handler and
+updated verb-count assertions. Real subprocess tests prepare, record hand-written
+canonical results, replace receipts and complete both three-candidate and empty
+generations in human and JSON formats. They pin exact summaries, clean success
+stderr, private-evidence exclusion and generic-table isolation. Error tests cover
+early no-I/O validation, real SQLite authorization failures, cause/context cycles,
+escaping/capping, rollback and unexpected exception propagation.
+
+Final focused CLI plus complete Stage 4f suites: **1,124 tests passed**. The
+current full suite passes **4,134 tests**. Full measurement harness: **all 8 gates
+passed**, with **0/5,933 unexecuted statements** (zero allowed). Selftest:
+**29 dispatchable verbs**, **32 schema tables / 31 contracted tables**, and
+**4 migrations plus current schema** passing both baselines. Skill lint is clean;
+line endings: **6 CRLF / 207 LF**; manifest: **52 features / 13 stages / 21 open
+items**; install: **108 Markdown files**, zero sentinels, real install untouched.
+Existing read-only benchmark: recall **9/19** over **45 findings**, precision
+**39/40**, **$73.15 per match**. The final post-documentation `make all` rechecks
+these measured totals; run timings and commit evidence are in the Task 9 report.
+
+Next is Task 10: add the firmware review brief and installed-user routing.
+Triage remains upsert-only; Stage 4d retained-orphan scan scaling persists. The
+Asus golden and monorepo/submodule decision remain prerequisites for the overall
+Stage 4 milestone/restructure. No mutation sweep, paid audit/milestone rerun,
+indicator snapshot, merge or push ran.
+
 
 ### Historical Stage 4e merged-state verification
 
@@ -570,9 +619,9 @@ are implemented: runs, receipts, verdicts, pivots, and reviewed findings.
 The verified read-only completed-hunt snapshot, deterministic review preparation,
 selected-image invalidation helper, and strict result parsing/validation are also
 implemented, together with atomic batch import and canonical reviewed finding
-derivation/completion and atomic upstream invalidation. Next is Task 9: expose
-the bounded firmware `fpcheck` prepare/record/check CLI. The review brief and
-installed-user routing follow in Task 10.
+derivation/completion, atomic upstream invalidation and the bounded firmware
+`fpcheck` prepare/record/check CLI. Next is Task 10: the review brief and
+installed-user routing.
 The final gate already verifies live-root/provenance evidence, globally resolves
 duplicate chains, preserves useful pivots, and publishes only reviewed findings.
 It inherits image scoping, the complete target denominator, triage's upsert-only
@@ -623,7 +672,8 @@ local `main`; Stage 4e merged `hunt` at `8119af1`. These six
 phases were built at zero audit cost. Firmware `fpcheck` has its schema
 foundation, verified completed-hunt snapshot, deterministic review preparation and
 strict result parsing/validation, atomic batch import and canonical reviewed finding
-derivation/completion and atomic upstream invalidation; Task 9 bounded CLI is next. The separate
+derivation/completion, atomic upstream invalidation and the bounded CLI are implemented.
+Task 10 review brief and installed-user routing are next. The separate
 firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work

@@ -51,7 +51,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 28 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 29 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -388,7 +388,8 @@ Stage 4d check's retained-orphan result scan scaling. The next firmware slice
 is `fpcheck`. Its five additive tables, row contracts and completed-hunt
 snapshot helper, deterministic review preparation, and strict result parsing/validation
 are implemented, together with atomic import, reviewed finding completion and
-upstream review invalidation. Task 9 bounded CLI and the later review brief remain.
+upstream review invalidation and the bounded firmware CLI. Task 10 review brief and
+installed-user routing remain.
 Table validation checks
 variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
@@ -467,8 +468,19 @@ canonical findings artifact and matching derived rows, repeat all verification, 
 preserve timestamps without SQL writes. Empty receipted generations and fully
 false-positive generations complete with zero findings. Only dedicated Stage 4f
 tables are written; generic finding/verdict tables are untouched. Atomic upstream
-invalidation is implemented; Task 9, the bounded firmware `fpcheck` CLI, is next.
+invalidation and the bounded firmware `fpcheck` CLI are implemented; Task 10 review
+brief and installed-user routing are next.
 The final check also independently refuses stale upstream evidence.
+`audit.py fpcheck` requires one explicit prepare/record/check mode and validates
+all mode-specific flags before database I/O (syntax exit 2; semantic exit 1).
+Prepare accepts batch targets 1–200, default 20. The handler delegates to the
+phase boundaries and selects scalar counts/provenance plus artifact paths;
+check reports a finding count, excluding per-finding identifiers and review
+fields. Both output formats escape/cap public text at 512 ASCII characters,
+redact the supplied root and keep success stderr empty. Expected diagnostics
+are capped at 512 ASCII characters plus newline, with a fixed SQLite message;
+unexpected handler exceptions propagate after cleanup. No source-code generic
+verdict behavior or prose workflow name changes.
 The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.

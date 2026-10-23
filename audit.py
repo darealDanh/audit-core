@@ -43,6 +43,8 @@ from audit_core import surface as surface_mod  # noqa: E402
 from audit_core import surface_results as surface_results_mod  # noqa: E402
 from audit_core import hunt as hunt_mod  # noqa: E402
 from audit_core import hunt_results as hunt_results_mod  # noqa: E402
+from audit_core import firmware_fpcheck as firmware_fpcheck_mod  # noqa: E402
+from audit_core import firmware_fpcheck_results as firmware_fpcheck_results_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -495,7 +497,8 @@ def cmd_surface(args: argparse.Namespace) -> int:
     return 0
 
 
-def _hunt_error_message(exc: BaseException, root: str | pathlib.Path | None = None) -> str:
+def _hunt_error_message(exc: BaseException, root: str | pathlib.Path | None = None,
+                        *, verb: str = "hunt") -> str:
     """Render expected hunt errors without exposing SQL details or control text."""
     pending = [exc]
     seen = set()
@@ -505,12 +508,16 @@ def _hunt_error_message(exc: BaseException, root: str | pathlib.Path | None = No
             continue
         seen.add(id(current))
         if isinstance(current, sqlite3.Error):
-            return "hunt: database operation failed"
+            return f"{verb}: database operation failed"
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 pending.append(linked)
 
-    message = str(exc)
+    return _bounded_cli_text(str(exc), root)
+
+
+def _bounded_cli_text(message: str, root: str | pathlib.Path | None = None) -> str:
+    """Redact the supplied root and bound terminal-facing text to 512 ASCII chars."""
     if root is not None:
         root_path = pathlib.Path(root).expanduser()
         for private_path in sorted({str(root_path), str(root_path.resolve(strict=False))},
@@ -629,6 +636,99 @@ def cmd_hunt(args: argparse.Namespace) -> int:
                   f"{lane.candidates} candidate(s), {lane.blockers} blocker(s), {count}")
         if args.lane is None:
             print(f"hunt {result.image_id}: both lanes complete")
+    return 0
+
+
+def cmd_fpcheck(args: argparse.Namespace) -> int:
+    """Expose deterministic firmware review boundaries using bounded aggregates."""
+    if sum((bool(args.prepare), args.record is not None, bool(args.check))) != 1:
+        error = "exactly one of --prepare, --record, or --check is required"
+    elif args.replace and args.record is None:
+        error = "--replace requires --record"
+    elif args.record is not None and args.root is not None:
+        error = "--root is only valid for prepare or check"
+    elif args.record is not None and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    elif not args.prepare and args.batch_size is not None:
+        error = "--batch-size is only valid with --prepare"
+    elif (args.prepare or args.check) and args.root is None:
+        error = "--root is required for fpcheck prepare or check"
+    elif args.batch_size is not None and (type(args.batch_size) is not int or
+                                         not 1 <= args.batch_size <= 200):
+        error = "batch_size must be an integer from 1 to 200"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    def diagnostic(exc):
+        return _hunt_error_message(exc, root, verb="fpcheck")
+    try:
+        con = _open_db(str(run_dir / "audit.db"), error_message=diagnostic)
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(diagnostic(exc), file=sys.stderr)
+        return 1
+    if con is None:
+        return 1
+    try:
+        if args.prepare:
+            result = firmware_fpcheck_mod.prepare(
+                con, run_dir, root, image_id=args.image_id,
+                batch_size=20 if args.batch_size is None else args.batch_size)
+            fields = ("image_id", "manifest_sha256", "surface_snapshot_sha256",
+                      "candidate_snapshot_sha256", "generation", "worklist_path",
+                      "worklist_sha256", "candidate_count", "batch_count")
+        elif args.record is not None:
+            result = firmware_fpcheck_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace)
+            fields = ("image_id", "batch_path", "assigned_candidates", "true_positives",
+                      "false_positives", "duplicates", "pivots", "artifact_path")
+        else:
+            result = firmware_fpcheck_mod.check(con, run_dir, root, image_id=args.image_id)
+            fields = ("image_id", "candidate_count", "true_positives", "false_positives",
+                      "duplicates", "pivots", "artifact_path", "complete")
+        payload = {field: getattr(result, field) for field in fields}
+        if args.check:
+            payload["finding_count"] = len(result.findings)
+    except Exception as exc:
+        if con.in_transaction:
+            con.rollback()
+        if isinstance(exc, (firmware_fpcheck_mod.FpcheckError, db_mod.DbError,
+                            OSError, sqlite3.Error)):
+            print(diagnostic(exc), file=sys.stderr)
+            return 1
+        raise
+    finally:
+        con.close()
+
+    # Explicit scalar fields prevent worker evidence or finding details from
+    # escaping through dataclass serialization. Text is bounded in both formats.
+    public_root = root.absolute() if root is not None else None
+    payload = {key: _bounded_cli_text(value, public_root) if isinstance(value, str) else value
+               for key, value in payload.items()}
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    elif args.prepare:
+        print(f"fpcheck prepared {payload['image_id']}: {payload['candidate_count']} candidate(s), "
+              f"{payload['batch_count']} batch(es)")
+        print(f"candidate snapshot sha256 {payload['candidate_snapshot_sha256']}")
+        print(f"worklist sha256 {payload['worklist_sha256']}")
+        print(payload["worklist_path"])
+    else:
+        counts = (f"{payload['true_positives']} true positive(s), "
+                  f"{payload['false_positives']} false positive(s), "
+                  f"{payload['duplicates']} duplicate(s), {payload['pivots']} pivot(s)")
+        if args.record is not None:
+            print(f"fpcheck recorded {payload['image_id']} {payload['batch_path']}: "
+                  f"{payload['assigned_candidates']} candidate(s), {counts}")
+        else:
+            status = "complete" if payload["complete"] else "pending"
+            print(f"fpcheck {payload['image_id']}: {payload['candidate_count']} candidate(s), "
+                  f"{counts}, {payload['finding_count']} finding(s), {status}")
+        print(payload["artifact_path"])
     return 0
 
 
@@ -1247,6 +1347,7 @@ HANDLERS = {
     "diff": cmd_diff,
     "surface": cmd_surface,
     "hunt": cmd_hunt,
+    "fpcheck": cmd_fpcheck,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1364,6 +1465,19 @@ def build_parser() -> argparse.ArgumentParser:
     hnt.add_argument("--lane", choices=db_mod.HUNT_LANES,
                      help="check one completed lane instead of both")
     hnt.add_argument("--json", action="store_true")
+    fpc = sub.add_parser("fpcheck", help="prepare, record, or check firmware false-positive review")
+    fpc.add_argument("--run", required=True, metavar="RUN_DIR")
+    fpc.add_argument("--prepare", action="store_true")
+    fpc.add_argument("--record", default=None, metavar="RESULT_JSON")
+    fpc.add_argument("--check", action="store_true")
+    fpc.add_argument("--root", default=None, metavar="CARVED_ROOTFS",
+                     help="required for prepare and check")
+    fpc.add_argument("--image-id", default=None, metavar="ID")
+    fpc.add_argument("--batch-size", type=int, default=None, metavar="N",
+                     help="prepare candidates per batch, 1..200 (default: 20)")
+    fpc.add_argument("--replace", action="store_true",
+                     help="replace an imported batch with --record")
+    fpc.add_argument("--json", action="store_true")
     ind = sub.add_parser("indicators",
                          help="deterministic leading indicators for one run")
     ind.add_argument("--db", metavar="AUDIT_DB")
