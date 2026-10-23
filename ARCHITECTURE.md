@@ -200,7 +200,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
 | `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
 | `firmware_fpcheck.py` | 162 | Snapshot verified hunt candidates, cluster priority hints without merging, install deterministic bounded review batches, publish pending review runs, and invalidate one image's review state. |
-| `firmware_fpcheck_results.py` | 346 | Parse bounded adversarial review results, reverify current assignments and evidence ownership, and produce canonical bytes without writes. |
+| `firmware_fpcheck_results.py` | 466 | Parse bounded review results, validate assignments and ownership without writes, and atomically import canonical batch receipts, verdicts and pivots. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -420,11 +420,21 @@ Image IDs retain the existing non-empty UTF-8 text contract. Confidence typing i
 structural; its 0..10 range is checked after assignment membership. Pending runs
 require no completion timestamp; completed runs require a non-empty timestamp so
 replacement and idempotent final checks can revalidate the same current evidence.
-It works on read-only SQLite and inside caller transactions without SQL/artifact
-writes. This result API has no live-root parameter: preparation and the final
+The load/validate/canonical boundary works on read-only SQLite and inside caller
+transactions without SQL/artifact writes. This result API has no live-root parameter: preparation and the final
 completion gate retain root verification. Duplicate targets may cross batches;
-global chain resolution remains Task 7. Task 6 is next: artifact-first atomic
-batch import. The Asus golden
+global chain resolution and finding derivation/completion remain Task 7. `record`
+installs `artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json`
+before taking one `BEGIN IMMEDIATE` transaction. It repeats mutable provenance,
+receipt ownership and installed-byte checks under the lock, then publishes one
+receipt, one verdict per lane-qualified candidate, and one pivot per false positive.
+SQL defaults own timestamps; worker JSON never supplies SQL provenance. Replacement
+isolates the selected image/snapshot/batch; pivot deletion joins lane-qualified
+source verdicts. Sibling batches/images survive, selected-image derived findings
+are cleared, and the review run returns to pending. SQL/commit failures roll back
+all rows and may leave only an unreferenced immutable artifact. No live root is
+accessed during import. Upstream invalidation wiring and CLI remain later tasks.
+The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;

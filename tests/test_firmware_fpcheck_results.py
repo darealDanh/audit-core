@@ -456,3 +456,12 @@ def test_exact_canonical_8_mib_is_accepted(review):
     path.write_text(json.dumps(payload, separators=(",", ":")))
     validated = api().validate(review[0], review[1], api().load(path))
     assert len(api().canonical_bytes(validated)) == 8 * 1024 * 1024
+
+
+def test_validation_remains_read_only_after_batch_publication(review):
+    result = load_payload(review)
+    api().record(review[0], review[1], review[1] / "review-result.json")
+    before, writes = state(review[0]), review[0].total_changes
+    validated = api().validate(review[0], review[1], result)
+    assert len(validated.assigned_candidates) == 3
+    assert state(review[0]) == before and review[0].total_changes == writes and not review[0].in_transaction

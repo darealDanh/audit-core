@@ -1,4 +1,4 @@
-"""Strict, read-only parsing and ownership checks for firmware review results."""
+"""Strict firmware review results and atomic, batch-owned publication."""
 from __future__ import annotations
 
 import dataclasses
@@ -77,6 +77,18 @@ class ValidatedBatch:
     result: BatchResult
     assigned_candidates: tuple[tuple[str, str], ...]
     index_path: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ImportSummary:
+    image_id: str
+    batch_path: str
+    assigned_candidates: int
+    true_positives: int
+    false_positives: int
+    duplicates: int
+    pivots: int
+    artifact_path: str
 
 
 def _object(value: object, cls: type) -> dict:
@@ -344,3 +356,111 @@ def validate(con: sqlite3.Connection, run_dir: str | pathlib.Path, result: Batch
 def canonical_bytes(validated: ValidatedBatch) -> bytes:
     """Serialize worker evidence only, with the same canonical-output size bound."""
     return _canonical(validated.result)
+
+
+def _prior_receipt(con: sqlite3.Connection, result: BatchResult, *, replace: bool) -> dict | None:
+    receipts = surface._query(con, "SELECT * FROM cba_firmware_fp_receipts WHERE image_id=? "
+        "AND candidate_snapshot_sha256=? AND batch_path=?",
+        (result.image_id, result.candidate_snapshot_sha256, result.batch_path))
+    if not receipts:
+        return None
+    receipt = receipts[0]
+    if not replace:
+        raise FpcheckError("Firmware review batch receipt already exists; pass --replace")
+    db.TABLE_SPECS["cba_firmware_fp_receipts"].validate(receipt)
+    if (receipt["worklist_sha256"], receipt["batch_sha256"]) != (result.worklist_sha256, result.batch_sha256):
+        raise FpcheckError("Existing firmware review receipt has different batch ownership")
+    return receipt
+
+
+def _artifact_directories(run_dir: pathlib.Path, destination: pathlib.Path) -> None:
+    parts = destination.relative_to(run_dir).parts
+    for depth in range(len(parts) + 1):
+        directory = run_dir.joinpath(*parts[:depth])
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            raise FpcheckError("Invalid firmware review artifact directory")
+
+
+def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+           result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
+    """Install canonical evidence before atomically publishing one owned batch."""
+    started = False
+    try:
+        if con.in_transaction:
+            raise FpcheckError("Firmware review import requires a connection without an active transaction")
+        run_dir = pathlib.Path(run_dir).absolute()
+        validated = validate(con, run_dir, load(result_path))
+        result = validated.result
+        _prior_receipt(con, result, replace=replace)
+        content = canonical_bytes(validated)
+        digest = hashlib.sha256(content).hexdigest()
+        generation = pathlib.Path(validated.index_path).parent.name
+        destination = run_dir / "artifacts/firmware-fpcheck" / generation / digest
+        artifact_path = str(destination / "result.json")
+        _artifact_directories(run_dir, destination)
+        surface.atomic_install(destination, {"result.json": content})
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        if validate(con, run_dir, result) != validated:
+            raise FpcheckError("Firmware review inputs changed before publication")
+        receipt = _prior_receipt(con, result, replace=replace)
+        _artifact_directories(run_dir, destination)
+        firmware_fpcheck._checked_install(destination, {"result.json": content})
+        ownership = (result.image_id, result.candidate_snapshot_sha256, result.batch_path)
+        if receipt is not None:
+            # Pivots have no batch column: join their lane-qualified source to
+            # verdicts before deleting those verdicts, never a raw candidate ID.
+            con.execute("DELETE FROM cba_firmware_pivots WHERE image_id=? AND candidate_snapshot_sha256=? "
+                "AND EXISTS (SELECT 1 FROM cba_firmware_fp_verdicts v WHERE v.image_id=cba_firmware_pivots.image_id "
+                "AND v.candidate_snapshot_sha256=cba_firmware_pivots.candidate_snapshot_sha256 "
+                "AND v.lane=cba_firmware_pivots.source_lane AND v.candidate_id=cba_firmware_pivots.source_candidate_id "
+                "AND v.pivot_id=cba_firmware_pivots.pivot_id AND v.batch_path=?)", ownership)
+            con.execute("DELETE FROM cba_firmware_fp_verdicts WHERE image_id=? AND candidate_snapshot_sha256=? "
+                "AND batch_path=?", ownership)
+            con.execute("DELETE FROM cba_firmware_fp_receipts WHERE image_id=? AND candidate_snapshot_sha256=? "
+                "AND batch_path=?", ownership)
+        counts = {verdict: sum(row.verdict == verdict for row in result.decisions) for verdict in db.FIRMWARE_FP_VERDICTS}
+        provenance = {"image_id": result.image_id, "candidate_snapshot_sha256": result.candidate_snapshot_sha256,
+                      "artifact_path": artifact_path, "artifact_sha256": digest}
+        db.put(con, "cba_firmware_fp_receipts", {"image_id": result.image_id,
+            "candidate_snapshot_sha256": result.candidate_snapshot_sha256, "worklist_sha256": result.worklist_sha256,
+            "batch_path": result.batch_path, "batch_sha256": result.batch_sha256,
+            "result_path": artifact_path, "result_sha256": digest,
+            "assigned_count": len(validated.assigned_candidates), "verdict_count": len(result.decisions),
+            "true_positive_count": counts["TRUE_POSITIVE"], "false_positive_count": counts["FALSE_POSITIVE"],
+            "duplicate_count": counts["DUPLICATE"], "pivot_count": counts["FALSE_POSITIVE"]}, commit=False)
+        for decision in result.decisions:
+            row = {field: getattr(decision, field) for field in ("lane", "candidate_id", "verdict", "reason",
+                "attacker_advantage", "mitigation_analysis", "confidence")}
+            row.update(provenance, batch_path=result.batch_path,
+                       rules_applied=surface.canonical_bytes(decision.rules_applied).decode().removesuffix("\n"))
+            if decision.true_positive is not None:
+                variant = dataclasses.asdict(decision.true_positive)
+                for field in ("attacker_position", "data_flow", "impact_hypothesis"):
+                    variant["reviewed_" + field] = variant.pop(field)
+                for field in ("component_paths", "surface_ids"):
+                    variant[field] = surface.canonical_bytes(variant[field]).decode().removesuffix("\n")
+                row.update(variant)
+            elif decision.false_positive is not None:
+                variant = decision.false_positive
+                row.update(refuting_mechanism=variant.refuting_mechanism, pivot_id=variant.pivot_id)
+                db.put(con, "cba_firmware_pivots", provenance | {"pivot_id": variant.pivot_id,
+                    "source_lane": decision.lane, "source_candidate_id": decision.candidate_id,
+                    "component_path": variant.component_path, "refuting_mechanism": variant.refuting_mechanism,
+                    "enabled_observation": variant.enabled_observation, "evidence": variant.pivot_evidence}, commit=False)
+            else:
+                variant = decision.duplicate
+                row.update(duplicate_lane=variant.target_lane, duplicate_candidate_id=variant.target_candidate_id,
+                           dedup_evidence=variant.dedup_evidence)
+            db.put(con, "cba_firmware_fp_verdicts", row, commit=False)
+        con.execute("DELETE FROM cba_firmware_findings WHERE image_id=?", (result.image_id,))
+        con.execute("UPDATE cba_firmware_fp_runs SET status='pending',completed_at=NULL WHERE image_id=?", (result.image_id,))
+        con.commit()
+        return ImportSummary(result.image_id, result.batch_path, len(validated.assigned_candidates),
+            counts["TRUE_POSITIVE"], counts["FALSE_POSITIVE"], counts["DUPLICATE"], counts["FALSE_POSITIVE"], artifact_path)
+    except Exception as exc:
+        if started:
+            con.rollback()
+        if isinstance(exc, (sqlite3.Error, OSError, db.DbError, surface.SurfaceError)):
+            raise FpcheckError("Cannot publish firmware review batch") from exc
+        raise

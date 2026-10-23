@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f adversarial result validation: `make all` passed all 8 gates; 3,871 tests passed, 0/5,546 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f atomic batch import: `make all` passed all 8 gates; 3,903 tests passed, 0/5,648 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -26,8 +26,8 @@ benchmark-gated before it ships.
 `fpcheck` is in progress, with approved design and plan committed as `b4f6e0f`
 and `61177ce` on this feature branch. Its five-table schema foundation and row
 contracts, the read-only verified completed-hunt snapshot, and deterministic
-review-batch preparation and strict result parsing/validation are implemented.
-Task 6 is next: artifact-first atomic batch import. Completion, upstream invalidation
+review-batch preparation, strict result parsing/validation and atomic batch import are implemented.
+Task 7 finding derivation/completion is next. Upstream invalidation
 wiring, and CLI remain.
 Stage 5 has not started.
 
@@ -434,8 +434,8 @@ in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
 `fpcheck` is in progress with its schema foundation and verified completed-hunt
-snapshot, deterministic review-batch preparation and strict result parsing/validation
-implemented; Task 6 atomic batch import is next. The Asus
+snapshot, deterministic review-batch preparation, strict result parsing/validation
+and atomic batch import implemented; Task 7 finding derivation/completion is next. The Asus
 golden remains required for the overall Stage 4 milestone, and the
 monorepo/submodule decision remains required for restructure.
 
@@ -514,9 +514,9 @@ At that boundary Task 5 was next: strict review-result parsing and ownership val
 completion, upstream invalidation wiring (Task 8), and CLI remain. Triage's upsert-only
 snapshots and Stage 4d's retained-orphan scan scaling remain inherited limitations.
 
-### Stage 4f strict adversarial review results
+### Historical Stage 4f strict adversarial review results
 
-`firmware_fpcheck_results` now provides frozen typed result/variant records,
+Task 5 introduced frozen typed result/variant records in `firmware_fpcheck_results`,
 strict bounded UTF-8 JSON loading, read-only assignment/ownership validation,
 and canonical bytes containing only worker evidence. Both raw and canonical
 results are capped at 8 MiB, including the newline expansion at the exact raw
@@ -545,10 +545,44 @@ files**, zero sentinels, real install untouched. Existing benchmark: recall
 **9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
 No mutation sweep, paid audit/milestone rerun or indicator snapshot ran.
 
-Task 6 is next: artifact-first atomic batch import, with locked revalidation of
+At the Task 5 boundary, Task 6 was next: artifact-first atomic batch import, with locked revalidation of
 mutable generation evidence. Finding derivation/completion, upstream invalidation
 wiring (Task 8), and CLI remain. Triage's upsert-only snapshots and Stage 4d's
 retained-orphan scan scaling remain inherited limitations.
+
+### Stage 4f atomic batch import
+
+Task 6 adds frozen `ImportSummary` and `record` to the strict result module.
+Canonical immutable result artifacts install before one `BEGIN IMMEDIATE`
+transaction; mutable hunt/snapshot/worklist/assignment provenance, receipt ownership
+and installed bytes are rechecked under the lock. Each batch publishes one receipt,
+one verdict per lane-qualified candidate, and one pivot per false positive.
+SQL defaults own timestamps; the importer derives all SQL provenance.
+Empty batches retain zero-count receipts. Duplicate imports require explicit
+replacement. Replacement removes only selected-image/current-snapshot/batch claims;
+pivot deletion joins lane-qualified source verdicts. Sibling images/batches and
+old-snapshot pivots survive. Selected-image derived findings are cleared and the
+run returns to pending. Rollback preserves prior SQL on read/install/SQL/commit
+failures; an unreferenced immutable canonical artifact may remain.
+
+RED: **26 expected missing-record failures / 167 existing result tests passed
+in 22.61s**. Focused GREEN: **252 tests passed in 30.01s**, including the
+preparation, strict result and import suites.
+
+Full suite: **3,903 tests passed in 240.36s**. Full harness: **all 8 gates passed**,
+with **0/5,648 unexecuted statements** (zero allowed). Selftest: **28 verbs**,
+**32 schema tables / 31 contracted tables**, and **4 migrations plus current schema**
+passing both baselines. Skill lint is clean; line endings: **6 CRLF / 205 LF**;
+manifest: **49 features / 13 stages / 21 open items**; install: **108 Markdown
+files**, zero sentinels, real install untouched. Existing benchmark: recall
+**9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
+The complete post-reconciliation `make all` is the final completion gate.
+
+Next is Task 7: global duplicate graph checks, root-cause grouping, reviewed finding
+derivation and completion with exact live-root revalidation. Upstream invalidation
+wiring (Task 8) and CLI remain. Triage's upsert-only snapshots, Stage 4d retained-orphan
+scan scaling, and the overall milestone's missing Asus golden/restructure decision
+remain inherited limitations. No mutation sweep, paid audit or indicator snapshot ran.
 
 ---
 
@@ -721,10 +755,10 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4f firmware `fpcheck` with Task 6: artifact-first atomic batch import**;
+1. **Continue Stage 4f firmware `fpcheck` with Task 7: finding derivation and completion**;
    the five-table schema, row contracts, verified completed-hunt snapshot,
-   deterministic preparation, strict result parsing/validation and image-scoped invalidation
-   helper are implemented. Then derive findings, wire upstream invalidation and expose the CLI,
+   deterministic preparation, strict result parsing/validation, atomic batch import and image-scoped invalidation
+   helper are implemented. Derive findings and verify global duplicate graphs first, then wire upstream invalidation and expose the CLI,
    consuming Stage 4e candidates
    for static adversarial review, cross-lane/root-cause deduplication, pivot
    preservation, and promotion into a reviewed finding model. It inherits
