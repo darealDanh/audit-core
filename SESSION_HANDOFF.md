@@ -1,7 +1,7 @@
 # Session handoff
 
-**Written:** 2026-10-22 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema foundation and verified completed-hunt snapshot implemented, deterministic review-batch preparation next · **Verification:** `make all` passed all 8 gates; 3,663 tests passed, 0/5,134 unexecuted statements
+**Written:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema, verified hunt snapshot and deterministic review preparation implemented; Task 5 result parsing/validation next · **Verification:** `make all` passed all 8 gates; 3,704 tests passed, 0/5,263 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -64,8 +64,9 @@ These are not style preferences. Each one has a specific, known cost.
   merged into local `main` at `8119af1`. Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` are
   committed on this feature branch; its five-table schema foundation and row
-  contracts and the verified completed-hunt snapshot are implemented.
-  Deterministic review-batch preparation is next.
+  contracts, the verified completed-hunt snapshot, deterministic review preparation,
+  and image-scoped review invalidation helper are implemented.
+  Task 5 strict result parsing and validation is next.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -143,8 +144,15 @@ These are not style preferences. Each one has a specific, known cost.
   timestamp transitions. Artifact paths are verified run descendants and exposed
   as canonical run-relative POSIX paths. It supports read-only SQLite and caller
   transactions; candidate-free lanes and denominators above 200 remain complete.
-- **Current next phase:** continue firmware `fpcheck` with deterministic
-  review-batch preparation, then static candidate review,
+- **Deterministic review preparation:** immutable canonical batches preserve full
+  lane-qualified candidate evidence and owning artifacts, bind both hunt worklists,
+  and carry normalized priority-only similarity hints. Clusters never split; the
+  requested 1..200 size is a target, with a 1,000-candidate hard limit. Empty hunts
+  receive one empty batch. Installation precedes locked hunt/root/byte revalidation
+  and pending-run publication. Same inputs preserve completed review state;
+  replacement/invalidation isolates one image. Upstream callers remain Task 8.
+- **Current next phase:** continue firmware `fpcheck` with Task 5 strict result
+  parsing and ownership validation, then import and static candidate review,
   cross-lane/root-cause deduplication, pivot preservation, and promotion into a
   reviewed finding model. Stage 4e remains firmware functionality inside the
   shared repository; it is not a separately packaged skill. It inherits
@@ -230,7 +238,7 @@ checks stored path spelling. Triage remains upsert-only and Stage 4d retains
 its retained-orphan candidate scan limitation. The Asus golden and
 monorepo/submodule decision remain overall Stage 4 prerequisites.
 
-### Stage 4f verified completed-hunt snapshot
+### Historical Stage 4f verified completed-hunt snapshot
 
 The Stage 4e and snapshot suites pass **407 tests**. The RED run recorded
 **50 expected missing-helper failures / 65 existing tests passed** before any
@@ -248,9 +256,38 @@ installed**, zero sentinels, real install untouched; existing benchmark recall
 **9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
 Verification includes a fresh full harness after the final documentation
 reconciliation. No mutation sweep, paid audit/milestone rerun or indicator
-snapshot ran. Next is Task 4: deterministic review-batch preparation, consuming
-this verified snapshot and retaining the triage upsert-only and Stage 4d
+snapshot ran. At that point, next was Task 4: deterministic review-batch preparation,
+consuming this verified snapshot and retaining the triage upsert-only and Stage 4d
 orphan-scan limitations.
+
+### Stage 4f deterministic review-batch preparation
+
+Task 4 adds `firmware_fpcheck.py` with frozen batch/summary records, full canonical
+candidate snapshotting, both hunt worklist digests, normalized similarity routing,
+stable no-split batches, and one canonical empty assignment. The index SHA-256 is
+the generation identity, binding the candidate evidence and batch-size policy.
+Installation rejects symlink parents before writes, then publication repeats the
+verified hunt/live root and prior-run checks under `BEGIN IMMEDIATE`, re-reads all
+installed bytes, invalidates only changed selected-image state, and inserts one
+pending run. Same-input preparation preserves status/timestamps/claims. Explicit
+invalidation touches only that image's five Stage 4f tables; commit is opt-in.
+
+RED: **28 expected missing-module failures / 13 existing tests passed**. A later
+adversarial RED exposed pre-install symlink-parent redirection; its guard passed
+GREEN. A separate relative-run spelling RED exposed unnecessary invalidation;
+normalizing the run path fixes it. Preparation plus Stage 4e regressions:
+**204 tests passed in 28.98s**, including **54 preparation/snapshot tests**.
+Full harness: `make all` passed **all 8 gates**, with **3,704 tests passed** and
+**0/5,263 unexecuted statements** (zero allowed). Selftest: **28 verbs**,
+**32 schema tables / 31 contracted tables**, and **4 migrations plus current
+schema** passing both baselines. Skill lint is clean; line endings: **6 CRLF /
+202 LF**; manifest: **47 features / 13 stages / 21 open items**; install:
+**108 Markdown files**, zero sentinels, real install untouched. Existing benchmark:
+recall **9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
+Next is Task 5 strict result parsing and ownership validation. Import, finding
+derivation/completion, upstream invalidation wiring (Task 8), and CLI remain.
+No mutation sweep, paid audit/milestone rerun or indicator snapshot ran; the
+triage upsert-only and Stage 4d orphan-scan limitations remain.
 
 ### Historical Stage 4e merged-state verification
 
@@ -355,9 +392,10 @@ Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
 Stage 4f has approved design and plan commits `b4f6e0f` and `61177ce` on
 `stage4f-firmware-fpcheck`. The five additive tables and their row contracts
 are implemented: runs, receipts, verdicts, pivots, and reviewed findings.
-The verified read-only completed-hunt snapshot is also implemented. The next
-task is deterministic review-batch preparation; parsing/import, completion,
-invalidation, and CLI follow. The remaining phase will
+The verified read-only completed-hunt snapshot, deterministic review preparation,
+and selected-image invalidation helper are also implemented. The next task is
+Task 5: strict result parsing and validation; import, completion,
+upstream invalidation wiring, and CLI follow. The remaining phase will
 statically adversarially review hunt candidates, deduplicate across lanes
 and root causes, preserve useful pivots, and promote only reviewed findings.
 It inherits image scoping, the complete target denominator, triage's upsert-only
@@ -406,8 +444,8 @@ Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shippe
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`. These six
 phases were built at zero audit cost. Firmware `fpcheck` has its schema
-foundation and verified completed-hunt snapshot; deterministic review-batch
-preparation is next. The separate
+foundation, verified completed-hunt snapshot and deterministic review preparation;
+Task 5 result parsing and validation is next. The separate
 firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work
