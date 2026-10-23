@@ -200,6 +200,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
 | `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
 | `firmware_fpcheck.py` | 162 | Snapshot verified hunt candidates, cluster priority hints without merging, install deterministic bounded review batches, publish pending review runs, and invalidate one image's review state. |
+| `firmware_fpcheck_results.py` | 346 | Parse bounded adversarial review results, reverify current assignments and evidence ownership, and produce canonical bytes without writes. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -383,8 +384,8 @@ emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. The next firmware slice
 is `fpcheck`. Its five additive tables, row contracts and completed-hunt
-snapshot helper and deterministic review preparation are implemented; result
-parsing/import, completion, upstream invalidation wiring, and CLI remain to be built. Table validation checks
+snapshot helper, deterministic review preparation, and strict result parsing/validation
+are implemented; import, completion, upstream invalidation wiring, and CLI remain to be built. Table validation checks
 variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
 worklist/result/artifact paths also accept canonical absolute paths; phase
@@ -408,8 +409,22 @@ and prior-run checks, re-reads installed artifacts, and publishes one pending ro
 Same inputs preserve existing review state; changed preparation invalidates only
 the selected image's five review tables, retaining sibling images and artifacts.
 Public `invalidate` leaves commit ownership with the caller by default. Upstream
-invalidation callers remain Task 8. Task 5 is next: strict result parsing and ownership
-validation against these assignments. The Asus golden
+invalidation callers remain Task 8. `firmware_fpcheck_results` rejects duplicate JSON
+keys, invalid UTF-8, non-finite values, unknown keys and mismatched verdict variants.
+Raw input and canonical output each have an 8 MiB bound. Frozen records preserve
+all reviewer evidence. Validation rebuilds the current completed-hunt evidence and
+canonical review generation, requires a consistent pending/complete run, checks exact lane-qualified
+assignment membership before verdict semantics, and binds components/surfaces to
+the selected image. Rules use exactly HE-1..18, PR-1..10, CV-1..3 and MARGINAL-GAIN.
+Image IDs retain the existing non-empty UTF-8 text contract. Confidence typing is
+structural; its 0..10 range is checked after assignment membership. Pending runs
+require no completion timestamp; completed runs require a non-empty timestamp so
+replacement and idempotent final checks can revalidate the same current evidence.
+It works on read-only SQLite and inside caller transactions without SQL/artifact
+writes. This result API has no live-root parameter: preparation and the final
+completion gate retain root verification. Duplicate targets may cross batches;
+global chain resolution remains Task 7. Task 6 is next: artifact-first atomic
+batch import. The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;
