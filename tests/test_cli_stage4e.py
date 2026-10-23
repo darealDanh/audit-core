@@ -216,6 +216,13 @@ def test_real_prepare_record_independent_lane_checks_and_final_gate(target_run, 
         assert json.loads(final.stdout) == expected
     else:
         assert final.stdout.splitlines() == [lane_line("l-sink"), lane_line("l-dark"), "hunt target: both lanes complete"]
+    before = snapshot(run)
+    replacement = run_cli("hunt", "--run", run, "--record", worker, "--replace", "--json")
+    assert replacement.returncode == 0 and replacement.stderr == ""
+    assert snapshot(run) == before
+    changed = json.loads(worker.read_text())
+    changed["decisions"][0]["reason"] = "Revised direct inspection confirms no attacker-controlled path."
+    worker.write_text(json.dumps(changed))
     replacement = run_cli("hunt", "--run", run, "--record", worker, "--replace", "--json")
     assert replacement.returncode == 0 and replacement.stderr == ""
     with db.connect(run / "audit.db") as con:

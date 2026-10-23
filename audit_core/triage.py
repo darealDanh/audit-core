@@ -155,9 +155,10 @@ def run(con: sqlite3.Connection, root: str | pathlib.Path, *,
             # only when the rows this publication actually writes change identity.
             if any(previous.get(row["path"]) != (row["kind"], int(row["size"]), row["sha256"])
                    for _, row in prepared):
-                from audit_core import hunt
+                from audit_core import firmware_fpcheck, hunt
 
                 hunt.invalidate(con, effective_image_id)
+                firmware_fpcheck.invalidate(con, effective_image_id, commit=False)
                 for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_surface_runs"):
                     con.execute(f"DELETE FROM {table} WHERE image_id=?", (effective_image_id,))
                 prefix = db.firmware_unit_key(effective_image_id, "")

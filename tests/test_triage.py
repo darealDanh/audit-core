@@ -7,6 +7,7 @@ import struct
 import pytest
 
 from audit_core import db, firmware_tree, triage, workspace
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
@@ -593,3 +594,35 @@ def test_service_scan_handles_start_stop_daemon_conservatively(tmp_path):
 
     assert [service["name"] for service in services] == ["core"]
     assert services[0]["evidence"] == "start-stop-daemon -S -x /bin/core"
+
+
+@pytest.mark.parametrize("scope", ["changed", "same", "reference"])
+def test_triage_invalidates_only_changed_target_review(con, tmp_path, scope):
+    run = pathlib.Path(con.execute("PRAGMA database_list").fetchone()[2]).parent
+    root = tmp_path / "root"
+    add_target(con, run, root, ["a", "b"])
+    db.put(con, "cba_images", {"id": "ref", "role": "diff-reference", "vendor": "v",
+        "model": "m", "version": "1", "path": "ref.bin", "sha256": "b" * 64})
+    seed_fp_state(con, "target")
+    seed_fp_state(con, "target:雪%_|")
+    before = sql_state(con)
+    if scope != "same":
+        (root / "a").write_bytes(b"changed")
+    triage.run(con, root, image_id="ref" if scope == "reference" else "target", allow_no_elf=True)
+    assert_fp_state(con, before, "target", cleared=scope == "changed")
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_triage_review_delete_failure_rolls_back_manifest_and_dependents(con, tmp_path, table):
+    run = pathlib.Path(con.execute("PRAGMA database_list").fetchone()[2]).parent
+    root = tmp_path / "root"
+    add_target(con, run, root, ["a", "b"])
+    seed_fp_state(con, "target")
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    (root / "a").write_bytes(b"changed")
+    with pytest.raises(triage.TriageError, match="review delete failure"):
+        triage.run(con, root, image_id="target", allow_no_elf=True)
+    assert sql_state(con) == before and not con.in_transaction

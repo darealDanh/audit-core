@@ -367,7 +367,9 @@ Hints are advisory. Worklists are installed under
 `RUN/artifacts/hunt/<generation>/<lane>/<result-sha256>/result.json`. Durable
 receipts own every imported batch, including candidate-free batches. Candidates
 are image-, lane-, component-, result-, and batch-bound. Replacing a batch
-requires `--replace`, removes only that batch's rows, and resets only its lane.
+requires `--replace`; changed evidence removes only that batch's rows and resets
+only its lane. A byte-identical replacement with matching durable receipt, coverage
+and candidates preserves completion and timestamps.
 
 In shared `cba_coverage`, `not_applicable` maps to `state='analyzed'` with its
 evidence-backed reason retained; `not_audited` keeps its state, and a budget
@@ -385,7 +387,9 @@ generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. The next firmware slice
 is `fpcheck`. Its five additive tables, row contracts and completed-hunt
 snapshot helper, deterministic review preparation, and strict result parsing/validation
-are implemented; import, completion, upstream invalidation wiring, and CLI remain to be built. Table validation checks
+are implemented, together with atomic import, reviewed finding completion and
+upstream review invalidation. Task 9 bounded CLI and the later review brief remain.
+Table validation checks
 variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
 worklist/result/artifact paths also accept canonical absolute paths; phase
@@ -408,8 +412,18 @@ Preparation installs all files before `BEGIN IMMEDIATE`, repeats verified hunt/l
 and prior-run checks, re-reads installed artifacts, and publishes one pending row.
 Same inputs preserve existing review state; changed preparation invalidates only
 the selected image's five review tables, retaining sibling images and artifacts.
-Public `invalidate` leaves commit ownership with the caller by default. Upstream
-invalidation callers remain Task 8. `firmware_fpcheck_results` rejects duplicate JSON
+Public `invalidate` leaves commit ownership with the caller by default. Local
+imports at acquisition, target triage, surface prepare/results, hunt prepare/results
+and hunt lane completion boundaries invoke it with `commit=False` inside the
+upstream SQL transaction. Selected-target hash/version or manifest changes, new
+prepared generations, changed result evidence and real lane completion transitions
+remove only that image's five review tables. Reference/supplemental acquisition
+changes and byte-identical operations preserve review state. Hunt replacement
+compares receipt provenance/counts, qualified coverage and complete receipt-owned
+candidate rows before preserving review and lane completion; repairing damaged
+durable rows invalidates review even if the submitted result bytes are unchanged.
+Any deletion failure rolls back both upstream publication and review removal.
+`firmware_fpcheck_results` rejects duplicate JSON
 keys, invalid UTF-8, non-finite values, unknown keys and mismatched verdict variants.
 Raw input and canonical output each have an 8 MiB bound. Frozen records preserve
 all reviewer evidence. Validation rebuilds the current completed-hunt evidence and
@@ -452,9 +466,9 @@ unreferenced immutable artifact may remain. Completed rechecks require the exist
 canonical findings artifact and matching derived rows, repeat all verification, and
 preserve timestamps without SQL writes. Empty receipted generations and fully
 false-positive generations complete with zero findings. Only dedicated Stage 4f
-tables are written; generic finding/verdict tables are untouched. Task 8 upstream
-invalidation wiring is next, followed by CLI; the final check currently refuses stale
-upstream evidence, while eager removal at every upstream boundary remains unwired.
+tables are written; generic finding/verdict tables are untouched. Atomic upstream
+invalidation is implemented; Task 9, the bounded firmware `fpcheck` CLI, is next.
+The final check also independently refuses stale upstream evidence.
 The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.

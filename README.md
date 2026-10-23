@@ -400,7 +400,9 @@ time. A result disposition of `not_applicable` is stored as `state='analyzed'`
 in shared coverage, with its evidence-backed explanation retained as the
 reason; `not_audited` remains `not_audited`, and a budget skip fails the gate.
 Replacing a batch requires `--replace`, removes only that batch's owned rows,
-and returns only its lane to pending. Changed acquisition, target triage, or
+and returns only its lane to pending when the durable evidence changes. A
+byte-identical replacement with matching receipt, coverage and candidate rows
+preserves completion and timestamps. Changed acquisition, target triage, or
 surface evidence invalidates dependent hunt state for that image. Ambiguous
 legacy raw hunt coverage is preserved and refused because its image ownership
 cannot be proven.

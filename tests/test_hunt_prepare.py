@@ -541,3 +541,55 @@ def test_damaged_first_lane_during_second_lane_install_cannot_be_published(ready
     with pytest.raises(hunt.HuntError):
         hunt.prepare(con, run, root)
     assert sql_state(con) == before and not con.in_transaction
+
+
+# Complete dedicated review state is seeded independently of upstream publication.
+# These tests catch missing invalidation, cross-image deletes, and early commits.
+FP_TABLES = ("cba_firmware_fp_runs", "cba_firmware_fp_receipts", "cba_firmware_fp_verdicts",
+             "cba_firmware_pivots", "cba_firmware_findings")
+
+
+def seed_fp_state(con, image_id):
+    from tests.test_firmware_fpcheck_schema import ROWS, TP
+    for table, row in ROWS:
+        values = row | {"image_id": image_id}
+        if table == "cba_firmware_fp_runs":
+            values.update(status="complete", completed_at="retained")
+        db.put(con, table, values)
+    db.put(con, "cba_firmware_fp_verdicts", TP | {"image_id": image_id, "lane": "l-dark"})
+
+
+def assert_fp_state(con, before, image_id, *, cleared):
+    after = sql_state(con)
+    for table in FP_TABLES:
+        expected = [row for row in before[table] if row[0] != image_id] if cleared else before[table]
+        assert after[table] == expected, table
+
+
+@pytest.mark.parametrize("image_id", ["target", "a%_雪:|target"])
+@pytest.mark.parametrize("change", [False, True])
+def test_hunt_preparation_invalidates_only_changed_images_review(ready, image_id, change):
+    con, run, root = ready
+    if image_id != "target":
+        root = root.parent / "unicode-root"
+        add_target(con, run, root, ["a", "b"], image_id=image_id)
+    hunt.prepare(con, run, root, image_id=image_id)
+    seed_fp_state(con, image_id)
+    seed_fp_state(con, image_id + ":sibling")
+    before = sql_state(con)
+    hunt.prepare(con, run, root, image_id=image_id, dark_batch_size=1 if change else 50)
+    assert_fp_state(con, before, image_id, cleared=change)
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_hunt_preparation_review_delete_failure_rolls_back_both_lanes(ready, table):
+    con, run, root = ready
+    hunt.prepare(con, run, root)
+    seed_fp_state(con, "target")
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    with pytest.raises(hunt.HuntError):
+        hunt.prepare(con, run, root, dark_batch_size=1)
+    assert sql_state(con) == before and not con.in_transaction

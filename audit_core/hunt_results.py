@@ -361,6 +361,40 @@ def _prior_receipt(con: sqlite3.Connection, validated: ValidatedBatch, *, replac
     return receipt
 
 
+def _same_publication(con: sqlite3.Connection, validated: ValidatedBatch,
+                      receipt: dict | None, provenance: dict[str, str]) -> bool:
+    """Compare durable receipt, coverage and candidates before preserving review state."""
+    if receipt is None:
+        return False
+    result = validated.result
+    expected_receipt = {"image_id": result.image_id, "lane": result.lane,
+        "worklist_sha256": result.worklist_sha256, "batch_path": result.batch_path,
+        "batch_sha256": result.batch_sha256, "result_path": provenance["artifact_path"],
+        "result_sha256": provenance["artifact_sha256"], "unit_count": len(validated.assigned_units),
+        "candidate_count": sum(len(unit.candidates) for unit in result.decisions)}
+    if {key: value for key, value in receipt.items() if key != "recorded_at"} != expected_receipt:
+        return False
+    for decision in result.decisions:
+        coverage = con.execute("SELECT state,reason FROM cba_coverage WHERE unit=? AND phase=?",
+            (db.firmware_unit_key(result.image_id, decision.path), "hunt-" + result.lane)).fetchone()
+        state = "not_audited" if decision.disposition == "not_audited" else "analyzed"
+        if coverage is None or tuple(coverage) != (state, decision.reason):
+            return False
+        actual = [{key: row[key] for key in row.keys() if key != "recorded_at"}
+            for row in con.execute("SELECT * FROM cba_hunt_candidates WHERE image_id=? AND lane=? "
+                "AND artifact_path=? AND artifact_sha256=? AND component_path=?",
+                (result.image_id, result.lane, receipt["result_path"], receipt["result_sha256"], decision.path))]
+        expected = []
+        for candidate in decision.candidates:
+            row = dataclasses.asdict(candidate)
+            for column in ("surface_ids", "blockers"):
+                row[column] = surface.canonical_bytes(row[column]).decode("utf-8").removesuffix("\n")
+            expected.append(row | provenance)
+        if sorted(actual, key=repr) != sorted(expected, key=repr):
+            return False
+    return True
+
+
 def _artifact_directories(run_dir: pathlib.Path, destination: pathlib.Path) -> None:
     parts = destination.relative_to(run_dir).parts
     for depth in range(len(parts) + 1):
@@ -398,6 +432,18 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         receipt = _prior_receipt(con, validated, replace=replace)
         _artifact_directories(run_dir, destination)
         hunt._checked_install(destination, {"result.json": content})
+        candidate_count = sum(len(unit.candidates) for unit in result.decisions)
+        blocker_count = sum(len(row.blockers) for unit in result.decisions for row in unit.candidates)
+        summary = ImportSummary(result.image_id, result.lane, result.batch_path, len(validated.assigned_units),
+                                candidate_count, blocker_count, artifact_path)
+        provenance = {"image_id": result.image_id, "lane": result.lane,
+                      "artifact_path": artifact_path, "artifact_sha256": digest}
+        if _same_publication(con, validated, receipt, provenance):
+            con.commit()
+            return summary
+        from audit_core import firmware_fpcheck
+
+        firmware_fpcheck.invalidate(con, result.image_id, commit=False)
         ownership = (result.image_id, result.lane, result.worklist_sha256, result.batch_path)
         if receipt is not None:
             # Candidates do not carry a generation column: the durable receipt
@@ -411,14 +457,10 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                  for unit in validated.assigned_units])
             con.execute("DELETE FROM cba_hunt_receipts WHERE image_id=? AND lane=? "
                         "AND worklist_sha256=? AND batch_path=?", ownership)
-        candidate_count = sum(len(unit.candidates) for unit in result.decisions)
-        blocker_count = sum(len(row.blockers) for unit in result.decisions for row in unit.candidates)
         db.put(con, "cba_hunt_receipts", {"image_id": result.image_id, "lane": result.lane,
             "worklist_sha256": result.worklist_sha256, "batch_path": result.batch_path,
             "batch_sha256": result.batch_sha256, "result_path": artifact_path, "result_sha256": digest,
             "unit_count": str(len(validated.assigned_units)), "candidate_count": str(candidate_count)}, commit=False)
-        provenance = {"image_id": result.image_id, "lane": result.lane,
-                      "artifact_path": artifact_path, "artifact_sha256": digest}
         for decision in result.decisions:
             db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(result.image_id, decision.path),
                 "phase": "hunt-" + result.lane,
@@ -433,8 +475,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         con.execute("UPDATE cba_hunt_runs SET status='pending',completed_at=NULL WHERE image_id=? AND lane=?",
                     (result.image_id, result.lane))
         con.commit()
-        return ImportSummary(result.image_id, result.lane, result.batch_path, len(validated.assigned_units),
-                             candidate_count, blocker_count, artifact_path)
+        return summary
     except Exception as exc:
         if started:
             con.rollback()

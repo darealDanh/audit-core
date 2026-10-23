@@ -441,10 +441,11 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             db.put(con, "cba_coverage", {"unit": db.firmware_unit_key(result.image_id, decision.path), "phase": "surface",
                 "state": decision.state, "reason": reason}, commit=False)
         if not same:
-            from audit_core import hunt
+            from audit_core import firmware_fpcheck, hunt
 
             try:
                 hunt.invalidate(con, result.image_id)
+                firmware_fpcheck.invalidate(con, result.image_id, commit=False)
             except hunt.HuntError as exc:
                 raise SurfaceError(str(exc)) from exc
         con.execute("UPDATE cba_surface_runs SET status='pending',completed_at=NULL WHERE image_id=?",

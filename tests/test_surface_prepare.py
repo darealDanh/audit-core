@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, surface, workspace
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
@@ -562,3 +563,29 @@ def test_unexpected_preparation_failure_after_writes_propagates_and_rolls_back(
     with db.connect(run / "audit.db") as other:
         other.execute("BEGIN IMMEDIATE")
         other.rollback()
+
+
+@pytest.mark.parametrize("image_id", ["target", "a%_雪:|target"])
+@pytest.mark.parametrize("change", [False, True])
+def test_surface_preparation_invalidates_only_changed_images_review(setup, image_id, change):
+    con, run, root = setup
+    add_target(con, run, root, ["banner"], image_id=image_id)
+    seed_fp_state(con, image_id)
+    seed_fp_state(con, image_id + ":sibling")
+    before = sql_state(con)
+    surface.prepare(con, run, root, image_id=image_id, batch_size=1 if change else 50)
+    assert_fp_state(con, before, image_id, cleared=change)
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_surface_preparation_review_delete_failure_rolls_back_generation(setup, table):
+    con, run, root = setup
+    add_target(con, run, root, ["banner"])
+    seed_fp_state(con, "target")
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    with pytest.raises(surface.SurfaceError, match="review delete failure"):
+        surface.prepare(con, run, root, batch_size=1)
+    assert sql_state(con) == before and not con.in_transaction

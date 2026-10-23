@@ -66,10 +66,11 @@ def record(con: sqlite3.Connection, *, vendor: str, model: str, version: str,
             # its qualified coverage units from the old manifest before
             # deleting it. Never infer ownership of old unqualified rows.
             if role == "target":
-                from audit_core import hunt
+                from audit_core import firmware_fpcheck, hunt
 
                 try:
                     hunt.invalidate(con, image_id)
+                    firmware_fpcheck.invalidate(con, image_id, commit=False)
                 except hunt.HuntError as exc:
                     raise AcquireError(str(exc)) from exc
                 for table in ("cba_firmware_surfaces", "cba_unknowns", "cba_surface_runs"):

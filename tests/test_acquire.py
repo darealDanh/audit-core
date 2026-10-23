@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from audit_core import acquire, db, firmware_diff, triage, workspace
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
@@ -362,3 +363,37 @@ def test_acquisition_hunt_delete_failure_rolls_back_all_owned_state(con, tmp_pat
         acquire.record(con, **kwargs["target"], replace=True)
     assert sql_state(con) == before
     assert not con.in_transaction
+
+
+@pytest.mark.parametrize("change", ["hash", "version", "same", "reference"])
+def test_acquisition_invalidates_only_changed_target_review(con, tmp_path, change):
+    kwargs = completed_surface_pair(con, tmp_path)
+    selected = "acme|r1|target"
+    seed_fp_state(con, selected)
+    seed_fp_state(con, "acme|r1|target:雪%_|")
+    before = sql_state(con)
+    role = "diff-reference" if change == "reference" else "target"
+    if change in ("hash", "reference"):
+        kwargs[role]["path"].write_bytes(b"new image")
+    elif change == "version":
+        kwargs[role]["version"] = "2"
+    else:
+        relocated = tmp_path / "identical-image.bin"
+        relocated.write_bytes(kwargs[role]["path"].read_bytes())
+        kwargs[role].update(path=relocated, source="updated supplemental source")
+    acquire.record(con, **kwargs[role], replace=True)
+    assert_fp_state(con, before, selected, cleared=change in ("hash", "version"))
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_acquisition_review_delete_failure_rolls_back_provenance_and_manifest(con, tmp_path, table):
+    kwargs = completed_surface_pair(con, tmp_path)
+    seed_fp_state(con, "acme|r1|target")
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    kwargs["target"]["version"] = "2"
+    with pytest.raises(sqlite3.Error, match="review delete failure"):
+        acquire.record(con, **kwargs["target"], replace=True)
+    assert sql_state(con) == before and not con.in_transaction

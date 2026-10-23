@@ -10,6 +10,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, surface, workspace
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import add_target, assert_hunt_cleared_only, seed_hunt_state, sql_state
 
 
@@ -916,3 +917,39 @@ def test_import_normalizes_budget_reason_for_the_existing_coverage_gate(prepared
     assert not coverage.gate(report).ok
     artifact = json.loads(pathlib.Path(summary.artifact_path).read_bytes())
     assert artifact["decisions"][0]["reason"] == " \tbudget\n"
+
+
+@pytest.mark.parametrize("change", ["same", "evidence", "damaged-row"])
+def test_surface_replacement_invalidates_only_changed_review_evidence(prepared, change):
+    con, run, payload, *_ = prepared
+    record_payload(prepared)
+    record_payload(prepared, sibling_payload(prepared))
+    surface.check(con, image_id="target")
+    seed_hunt_state(con, "target", snapshot_sha256=surface.verified_snapshot(con, run).snapshot_sha256)
+    seed_fp_state(con, "target")
+    seed_fp_state(con, "target:雪%_|")
+    changed = copy.deepcopy(payload)
+    if change == "evidence":
+        changed["decisions"][1]["surfaces"][0]["handler"] = "revised"
+    elif change == "damaged-row":
+        con.execute("UPDATE cba_firmware_surfaces SET handler='corrupt' WHERE image_id='target'")
+        con.commit()
+    before = sql_state(con)
+    record_payload(prepared, changed, replace=True)
+    assert_fp_state(con, before, "target", cleared=change != "same")
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_surface_result_review_delete_failure_rolls_back_all_publication(prepared, table):
+    con = prepared[0]
+    record_payload(prepared)
+    seed_fp_state(con, "target")
+    changed = copy.deepcopy(prepared[2])
+    changed["decisions"][1]["surfaces"][0]["handler"] = "revised"
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    with pytest.raises(surface.SurfaceError, match="review delete failure"):
+        record_payload(prepared, changed, replace=True)
+    assert sql_state(con) == before and not con.in_transaction

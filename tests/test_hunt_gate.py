@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, hunt, hunt_results, surface, workspace
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import add_target
 from tests.test_hunt_results import candidate, prepared  # noqa: F401
 
@@ -483,3 +484,31 @@ def test_checks_repeat_after_publication_lock_before_transition(ready, change):
     with pytest.raises(hunt.HuntError):
         hunt.check(Boundary(), run, root, lane="l-sink")
     assert state(con) == changed and not con.in_transaction
+
+
+@pytest.mark.parametrize("lane", db.HUNT_LANES)
+@pytest.mark.parametrize("already_complete", [False, True])
+def test_hunt_completion_invalidates_review_only_for_a_real_transition(ready, lane, already_complete):
+    con, run, root, _ = ready
+    if already_complete:
+        hunt.check(con, run, root, lane=lane)
+    seed_fp_state(con, "target")
+    seed_fp_state(con, "target:雪%_|")
+    before = state(con)
+    hunt.check(con, run, root, lane=lane)
+    assert_fp_state(con, before, "target", cleared=not already_complete)
+    if already_complete:
+        assert state(con) == before
+
+
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_hunt_completion_review_delete_failure_rolls_back_lane_transition(ready, table):
+    con, run, root, _ = ready
+    seed_fp_state(con, "target")
+    before = state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    with pytest.raises(hunt.HuntError):
+        hunt.check(con, run, root, lane="l-sink")
+    assert state(con) == before and not con.in_transaction

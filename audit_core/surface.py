@@ -308,10 +308,11 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         if same:
             con.commit()
             return summary
-        from audit_core import hunt
+        from audit_core import firmware_fpcheck, hunt
 
         try:
             hunt.invalidate(con, selected)
+            firmware_fpcheck.invalidate(con, selected, commit=False)
         except hunt.HuntError as exc:
             raise SurfaceError(str(exc)) from exc
         if prior is not None:

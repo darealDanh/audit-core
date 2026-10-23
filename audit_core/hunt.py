@@ -272,7 +272,10 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         for lane, (files, _, _) in definitions.items():
             _checked_install(destination / lane, files)
         if not same:
+            from audit_core import firmware_fpcheck
+
             invalidate(con, selected)
+            firmware_fpcheck.invalidate(con, selected, commit=False)
             for record in records:
                 db.put(con, "cba_hunt_runs", {**{key: str(value) for key, value in record.items()},
                                              "status": "pending"}, commit=False)
@@ -443,8 +446,12 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | path
             raise HuntError("Hunt check inputs changed before completion")
         summary = inputs[0]
         if lane is not None:
-            con.execute("UPDATE cba_hunt_runs SET status='complete',completed_at=datetime('now') "
-                        "WHERE image_id=? AND lane=? AND status='pending'", (summary.image_id, lane))
+            updated = con.execute("UPDATE cba_hunt_runs SET status='complete',completed_at=datetime('now') "
+                                  "WHERE image_id=? AND lane=? AND status='pending'", (summary.image_id, lane))
+            if updated.rowcount:
+                from audit_core import firmware_fpcheck
+
+                firmware_fpcheck.invalidate(con, summary.image_id, commit=False)
         con.commit()
         return summary
     except Exception as exc:

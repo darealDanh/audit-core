@@ -10,6 +10,7 @@ import sqlite3
 import pytest
 
 from audit_core import db, hunt, hunt_results, surface
+from tests.test_hunt_prepare import FP_TABLES, assert_fp_state, seed_fp_state
 from tests.test_hunt_prepare import add_target
 from tests.test_hunt_results import candidate, dark_payload, prepared  # noqa: F401
 
@@ -435,3 +436,48 @@ def test_replacement_preserves_another_generations_receipt_and_candidates(prepar
     record(prepared, payload, replace=True)
     assert old_receipt in rows(con, "cba_hunt_receipts")
     assert rows(con, "cba_hunt_candidates") == [old_candidate]
+
+
+@pytest.mark.parametrize("change", ["same", "candidate", "coverage", "damaged-row", "damaged-coverage", "damaged-receipt"])
+def test_hunt_replacement_invalidates_only_changed_review_evidence(prepared, change):
+    con = prepared[0]
+    record(prepared)
+    complete(con)
+    seed_fp_state(con, "target")
+    seed_fp_state(con, "target:雪%_|")
+    changed = copy.deepcopy(prepared[2])
+    if change == "candidate":
+        candidate(changed)["operation_evidence"] += " Revised trace."
+    elif change == "coverage":
+        changed["decisions"][0]["reason"] = "Revised direct inspection."
+    elif change == "damaged-row":
+        con.execute("UPDATE cba_hunt_candidates SET title='corrupt' WHERE image_id='target'")
+    elif change == "damaged-coverage":
+        con.execute("UPDATE cba_coverage SET reason='corrupt' WHERE phase='hunt-l-sink'")
+    elif change == "damaged-receipt":
+        con.execute("UPDATE cba_hunt_receipts SET candidate_count=0 WHERE image_id='target'")
+    con.commit()
+    before = sql_state(con)
+    record(prepared, changed, replace=True)
+    assert_fp_state(con, before, "target", cleared=change != "same")
+    if change == "same":
+        assert sql_state(con) == before
+
+
+@pytest.mark.parametrize("replace", [False, True])
+@pytest.mark.parametrize("table", FP_TABLES)
+def test_hunt_result_review_delete_failure_rolls_back_receipts_claims_and_status(prepared, table, replace):
+    con = prepared[0]
+    if replace:
+        record(prepared)
+        complete(con)
+    seed_fp_state(con, "target")
+    changed = copy.deepcopy(prepared[2])
+    candidate(changed)["operation_evidence"] += " Revised trace."
+    before = sql_state(con)
+    con.execute(f"CREATE TRIGGER fail_review BEFORE DELETE ON {table} "
+                "BEGIN SELECT RAISE(FAIL, 'review delete failure'); END")
+    con.commit()
+    with pytest.raises(hunt.HuntError):
+        record(prepared, changed, replace=replace)
+    assert sql_state(con) == before and not con.in_transaction
