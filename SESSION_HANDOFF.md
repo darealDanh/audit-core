@@ -1,7 +1,7 @@
 # Session handoff
 
 **Written:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema, verified hunt snapshot, deterministic review preparation, strict result validation and atomic batch import implemented; Task 7 finding derivation/completion next · **Verification:** `make all` passed all 8 gates; 3,903 tests passed, 0/5,648 unexecuted statements
+**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f schema, verified hunt snapshot, deterministic review preparation, strict result validation and atomic batch import implemented; Task 7 finding derivation/completion next · **Verification:** `make all` passed all 8 gates; 3,904 tests passed, 0/5,648 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -344,9 +344,12 @@ findings are cleared and the run returns to pending, including after complete ru
 Failures roll back all SQL; an unreferenced immutable result artifact may remain.
 
 RED: **26 expected missing-record failures / 167 existing result tests passed
-in 22.61s**. Focused GREEN: **252 tests passed in 30.01s**.
+in 22.61s**. Latest focused GREEN: **254 tests passed in 62.07s**.
+Review Fix Round 1 adds real two-connection write-lock contention with a 25ms busy
+timeout: publication raises the domain error, durable SQL stays unchanged, and
+the competing connection retains its transaction and uncommitted update.
 
-Full suite: **3,903 tests passed in 240.36s**. Full harness: **all 8 gates passed**,
+Full suite: **3,904 tests passed in 247.08s**. Full harness: **all 8 gates passed**,
 with **0/5,648 unexecuted statements** (zero allowed). Selftest: **28 verbs**,
 **32 schema tables / 31 contracted tables**, and **4 migrations plus current schema**
 passing both baselines. Skill lint is clean; line endings: **6 CRLF / 205 LF**;

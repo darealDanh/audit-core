@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f atomic batch import: `make all` passed all 8 gates; 3,903 tests passed, 0/5,648 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f atomic batch import: `make all` passed all 8 gates; 3,904 tests passed, 0/5,648 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -566,10 +566,13 @@ run returns to pending. Rollback preserves prior SQL on read/install/SQL/commit
 failures; an unreferenced immutable canonical artifact may remain.
 
 RED: **26 expected missing-record failures / 167 existing result tests passed
-in 22.61s**. Focused GREEN: **252 tests passed in 30.01s**, including the
+in 22.61s**. Latest focused GREEN: **254 tests passed in 62.07s**, including the
 preparation, strict result and import suites.
+Review Fix Round 1 adds real two-connection write-lock contention with a 25ms busy
+timeout: publication raises the domain error, durable SQL stays unchanged, and
+the competing connection retains its transaction and uncommitted update.
 
-Full suite: **3,903 tests passed in 240.36s**. Full harness: **all 8 gates passed**,
+Full suite: **3,904 tests passed in 247.08s**. Full harness: **all 8 gates passed**,
 with **0/5,648 unexecuted statements** (zero allowed). Selftest: **28 verbs**,
 **32 schema tables / 31 contracted tables**, and **4 migrations plus current schema**
 passing both baselines. Skill lint is clean; line endings: **6 CRLF / 205 LF**;

@@ -5,6 +5,7 @@ import hashlib
 import json
 import pathlib
 import sqlite3
+import time
 
 import pytest
 
@@ -262,6 +263,32 @@ def test_concurrent_connection_receipt_is_rechecked_under_publication_lock(revie
     with pytest.raises(firmware_fpcheck.FpcheckError, match="replace"):
         api().record(con, run, path)
     assert before is not None and state(con) == before and not con.in_transaction
+
+
+def test_competing_write_transaction_times_out_without_changing_either_connection(review):
+    con, run, *_ = review
+    path = source(review)
+    before = state(con)
+    con.execute("PRAGMA busy_timeout=25")
+    other = sqlite3.connect(run / "audit.db", timeout=0.025)
+    try:
+        other.execute("BEGIN IMMEDIATE")
+        other.execute("UPDATE cba_firmware_fp_runs SET prepared_at='competing writer'")
+        started = time.monotonic()
+        with pytest.raises(firmware_fpcheck.FpcheckError) as error:
+            api().record(con, run, path)
+        assert time.monotonic() - started < 5
+        assert isinstance(error.value.__cause__, sqlite3.OperationalError)
+        assert "locked" in str(error.value.__cause__).lower()
+        assert state(con) == before and not con.in_transaction
+        assert other.in_transaction
+        assert other.execute("SELECT prepared_at FROM cba_firmware_fp_runs").fetchone() == ("competing writer",)
+        artifact, = (run / "artifacts/firmware-fpcheck").rglob("result.json")
+        assert artifact.read_bytes() == review[5]
+        other.rollback()
+        assert state(con) == before
+    finally:
+        other.close()
 
 
 @pytest.mark.parametrize("table,operation", [(t, op) for t in (
