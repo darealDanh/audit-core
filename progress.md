@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f atomic batch import: `make all` passed all 8 gates; 3,904 tests passed, 0/5,648 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f canonical reviewed findings/completion: `make all` passed all 8 gates; 3,964 tests passed, 0/5,889 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -26,9 +26,9 @@ benchmark-gated before it ships.
 `fpcheck` is in progress, with approved design and plan committed as `b4f6e0f`
 and `61177ce` on this feature branch. Its five-table schema foundation and row
 contracts, the read-only verified completed-hunt snapshot, and deterministic
-review-batch preparation, strict result parsing/validation and atomic batch import are implemented.
-Task 7 finding derivation/completion is next. Upstream invalidation
-wiring, and CLI remain.
+review-batch preparation, strict result parsing/validation, atomic batch import and
+canonical reviewed finding derivation/completion are implemented. Task 8 upstream
+invalidation wiring is next, followed by CLI.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -435,7 +435,8 @@ No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
 `fpcheck` is in progress with its schema foundation and verified completed-hunt
 snapshot, deterministic review-batch preparation, strict result parsing/validation
-and atomic batch import implemented; Task 7 finding derivation/completion is next. The Asus
+and atomic batch import and canonical reviewed finding derivation/completion implemented;
+Task 8 upstream invalidation wiring is next, followed by CLI. The Asus
 golden remains required for the overall Stage 4 milestone, and the
 monorepo/submodule decision remains required for restructure.
 
@@ -550,7 +551,7 @@ mutable generation evidence. Finding derivation/completion, upstream invalidatio
 wiring (Task 8), and CLI remain. Triage's upsert-only snapshots and Stage 4d's
 retained-orphan scan scaling remain inherited limitations.
 
-### Stage 4f atomic batch import
+### Historical Stage 4f atomic batch import
 
 Task 6 adds frozen `ImportSummary` and `record` to the strict result module.
 Canonical immutable result artifacts install before one `BEGIN IMMEDIATE`
@@ -581,11 +582,67 @@ files**, zero sentinels, real install untouched. Existing benchmark: recall
 **9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
 The complete post-reconciliation `make all` is the final completion gate.
 
-Next is Task 7: global duplicate graph checks, root-cause grouping, reviewed finding
-derivation and completion with exact live-root revalidation. Upstream invalidation
+At the Task 6 boundary, Task 7 global duplicate graph checks, root-cause grouping,
+reviewed finding derivation and completion with exact live-root revalidation were next. Upstream invalidation
 wiring (Task 8) and CLI remain. Triage's upsert-only snapshots, Stage 4d retained-orphan
 scan scaling, and the overall milestone's missing Asus golden/restructure decision
 remain inherited limitations. No mutation sweep, paid audit or indicator snapshot ran.
+
+### Stage 4f canonical reviewed findings and completion
+
+Task 7 adds frozen `FindingSummary` / `FpcheckSummary` and `firmware_fpcheck.check`.
+The gate reconstructs every receipt-owned verdict and false-positive pivot from
+current canonical result artifacts, requiring exact batch/candidate coverage,
+counts, ownership and provenance. It revalidates the completed hunt, review
+worklists and live root even when the review status is already complete.
+Iterative path-compressed duplicate resolution works across lanes/batches and
+rejects cycles, missing/foreign/self targets and non-TP terminals. Exact root-cause
+keys group true positives and duplicate contributors; similarity hints never merge.
+The first lexicographic direct/terminal TP supplies immutable candidate title/bug
+class and its own reviewed scalar evidence. Sorted unions retain every contributor,
+component and surface; minimum confidence includes duplicate contributors. IDs bind
+image/snapshot/root key, and the evidence rung is exactly `static-reviewed`.
+
+Deterministic `findings.json` installs before one immediate transaction, which
+repeats all input/root/artifact checks under the publication lock before replacing
+selected-image findings and marking the review complete. Complete rechecks require
+existing canonical findings evidence and matching derived rows; they preserve rows
+and timestamps. Empty receipted and fully false-positive generations complete with
+zero findings. Trigger-injected delete/insert/status failures, commit failure,
+read/install failures and publication races preserve prior SQL/status/timestamps;
+only an unreferenced immutable artifact may remain. Real second-connection write
+contention preserves both connections' transaction ownership and durable state.
+Generic findings/verdicts remain untouched; no dynamic, severity or report claim
+is made.
+
+Inherited RED was **42 expected missing-check failures in 18.68s**; initial core
+GREEN was **993 passed in 55.49s**. Original self-review added the missing canonical
+artifact regression (**1 failed / 50 deselected in 14.11s**) and its implementation
+fix. Takeover retained that fix, added zero-finding/lock-contention evidence, and
+closed all seven new refusal branches reported by the initial full coverage gate
+without adding a coverage allowance. Latest focused Stage 4f core GREEN:
+**1,003 passed in 84.81s**; the gate suite passed **60 tests in 15.11s**.
+Historical Task 6 measurements above remain unchanged.
+
+Full suite: **3,964 tests passed in 270.25s**. Full harness: **all 8 gates passed**,
+with **0/5,889 unexecuted statements** (zero allowed). Selftest: **28 verbs**,
+**32 schema tables / 31 contracted tables**, and **4 migrations plus current schema**
+passing both baselines. Skill lint is clean; line endings: **6 CRLF / 206 LF**;
+manifest: **50 features / 13 stages / 21 open items**; install: **108 Markdown
+files**, zero sentinels, real install untouched. Existing benchmark: recall
+**9/19** over **45 findings**, precision **39/40**, **$73.15 per match**.
+These measured totals are rechecked by the final post-documentation `make all`;
+its timing and commit evidence are in the Task 7 report.
+
+Task 8 upstream invalidation wiring is next. Invoke the existing image-scoped,
+SQL-only invalidator within changed acquisition, target triage, surface and hunt
+transactions; preserve unchanged operations and sibling images. The final gate
+already refuses stale evidence; eager upstream removal remains unwired. CLI
+follows. Triage's upsert-only snapshots and Stage 4d retained-orphan scan scaling
+persist; the Asus golden and monorepo/submodule decision remain overall Stage 4
+milestone/restructure prerequisites. No mutation sweep, paid audit/milestone rerun,
+indicator snapshot, merge or push ran.
+
 
 ---
 
@@ -758,17 +815,17 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4f firmware `fpcheck` with Task 7: finding derivation and completion**;
-   the five-table schema, row contracts, verified completed-hunt snapshot,
-   deterministic preparation, strict result parsing/validation, atomic batch import and image-scoped invalidation
-   helper are implemented. Derive findings and verify global duplicate graphs first, then wire upstream invalidation and expose the CLI,
-   consuming Stage 4e candidates
-   for static adversarial review, cross-lane/root-cause deduplication, pivot
-   preservation, and promotion into a reviewed finding model. It inherits
-   triage's upsert-only snapshots and Stage 4d's retained-orphan scan scaling.
-   Stage 4e is merged into local `main` at `8119af1`; nothing has been pushed.
-   The Asus golden and monorepo/submodule decision remain prerequisites for
-   the overall Stage 4 milestone/restructure.
+1. **Continue Stage 4f firmware `fpcheck` with Task 8: upstream invalidation wiring**;
+   schema, verified hunt snapshot, deterministic preparation, strict result validation,
+   atomic batch import, global duplicate resolution and reviewed finding completion
+   are implemented. Wire the existing image-scoped SQL-only invalidator into changed
+   acquisition, target triage, surface and hunt transaction boundaries; byte-identical
+   operations and sibling images must retain their review state. The final completion
+   gate already refuses stale provenance, but eager upstream invalidation remains
+   unwired. CLI follows. Triage's upsert-only snapshots and Stage 4d retained-orphan
+   scan scaling persist. Stage 4e is merged into local `main` at `8119af1`; nothing
+   has been pushed. The Asus golden and monorepo/submodule decision remain
+   prerequisites for the overall Stage 4 milestone/restructure.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

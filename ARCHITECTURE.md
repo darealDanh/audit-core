@@ -199,7 +199,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `surface_results.py` | 458 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
 | `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
 | `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
-| `firmware_fpcheck.py` | 162 | Snapshot verified hunt candidates, cluster priority hints without merging, install deterministic bounded review batches, publish pending review runs, and invalidate one image's review state. |
+| `firmware_fpcheck.py` | 428 | Prepare immutable review batches, verify complete review evidence, resolve global duplicates, derive canonical reviewed findings, atomically complete a generation, and invalidate one image's review state. |
 | `firmware_fpcheck_results.py` | 466 | Parse bounded review results, validate assignments and ownership without writes, and atomically import canonical batch receipts, verdicts and pivots. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
@@ -423,7 +423,7 @@ replacement and idempotent final checks can revalidate the same current evidence
 The load/validate/canonical boundary works on read-only SQLite and inside caller
 transactions without SQL/artifact writes. This result API has no live-root parameter: preparation and the final
 completion gate retain root verification. Duplicate targets may cross batches;
-global chain resolution and finding derivation/completion remain Task 7. `record`
+the final completion gate resolves their global chains. `record`
 installs `artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json`
 before taking one `BEGIN IMMEDIATE` transaction. It repeats mutable provenance,
 receipt ownership and installed-byte checks under the lock, then publishes one
@@ -433,7 +433,28 @@ isolates the selected image/snapshot/batch; pivot deletion joins lane-qualified
 source verdicts. Sibling batches/images survive, selected-image derived findings
 are cleared, and the review run returns to pending. SQL/commit failures roll back
 all rows and may leave only an unreferenced immutable artifact. No live root is
-accessed during import. Upstream invalidation wiring and CLI remain later tasks.
+accessed during import.
+`firmware_fpcheck.check` rebuilds every receipt-owned verdict and pivot from the
+current canonical result bytes, requires exact candidate coverage, and revalidates
+the completed hunt, review worklists and live root. Duplicate resolution is iterative
+with path compression and rejects cycles, missing targets and non-TP terminals.
+Exact root-cause keys group direct/terminal true positives and their duplicate
+contributors; similarity signatures never merge groups. The lexicographically first
+true-positive `(lane, candidate_id)` supplies immutable candidate title/bug class and
+its review scalar evidence. Contributors, lanes, components and surfaces form sorted
+unions; confidence is the minimum across every contributor, including duplicates.
+Finding IDs bind image, candidate snapshot and root-cause key; evidence is exactly
+`static-reviewed`. The deterministic `findings.json` installs before one
+`BEGIN IMMEDIATE` transaction. Under the lock the gate repeats all input/artifact
+checks, then replaces selected-image derived rows and marks the run complete.
+Read/install/SQL/commit failures preserve previous SQL/status/timestamps; an
+unreferenced immutable artifact may remain. Completed rechecks require the existing
+canonical findings artifact and matching derived rows, repeat all verification, and
+preserve timestamps without SQL writes. Empty receipted generations and fully
+false-positive generations complete with zero findings. Only dedicated Stage 4f
+tables are written; generic finding/verdict tables are untouched. Task 8 upstream
+invalidation wiring is next, followed by CLI; the final check currently refuses stale
+upstream evidence, while eager removal at every upstream boundary remains unwired.
 The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.
