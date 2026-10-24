@@ -174,7 +174,7 @@ phases' summaries into a dispatch.
 
 ## Sub-Command Router
 
-The application workflow supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans. Stage 4e firmware hunt is a separate, file-backed route described below.
+The application workflow supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans. Stage 4e firmware hunt and Stage 4f firmware fpcheck use the separate file-backed routes below; firmware pivots are recorded through result import.
 
 ### Phase → workflow mapping
 
@@ -242,6 +242,46 @@ final two-lane gate with:
     python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS} --check
 
 This command certifies Stage 4e completion.
+
+### Stage 4f firmware fpcheck
+
+For firmware candidate review after both Stage 4e hunt lanes pass, use this
+route. The ordinary source-code `fpcheck` route remains
+[workflows/fpcheck.md](workflows/fpcheck.md); it reviews source findings.
+Firmware review uses immutable lane-qualified hunt candidates and dedicated
+firmware verdicts, pivots, and reviewed findings. Read
+[references/briefs/firmware-fpcheck-brief.md](references/briefs/firmware-fpcheck-brief.md)
+for cross-lane comparison, duplicate targets, mandatory false-positive pivots,
+static-only limits, and the parser-owned result contract.
+
+The orchestrator prepares the current candidate snapshot and worklists:
+
+    python3 __SKILL_DIR__/audit.py fpcheck --run ${AUDIT_DIR} --root ${ROOTFS} --prepare
+
+Use the returned index path, image ID, and candidate snapshot digest. Render
+one brief per indexed batch with the existing renderer and all eight variables;
+dispatch only its path plus context the template cannot know:
+
+    python3 __SKILL_DIR__/audit.py brief --phase firmware-fpcheck \
+      --unit batch-0001 --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var db_path=${AUDIT_DIR}/audit.db \
+      --var rootfs=${ROOTFS} --var image_id=${IMAGE_ID} \
+      --var candidate_snapshot_sha256=${CANDIDATE_SNAPSHOT_SHA256} \
+      --var worklist_index=${INDEX_PATH} --var batch_path=${BATCH_PATH} \
+      --var result_path=${RESULT_PATH}
+
+Workers read immutable artifacts and write result-only JSON. They return
+`firmware-fpcheck-<batch> <DONE|PARTIAL|FAILED> rows=<n> artifact=<path> [flags=<csv>]`.
+The orchestrator preserves PARTIAL checkpoints for resumption of the same
+assignment. Record only complete results, then check the whole current snapshot:
+
+    python3 __SKILL_DIR__/audit.py fpcheck --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py fpcheck --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+Deterministic code owns SQL, canonical artifact installation, and transitions;
+the final check resolves duplicates across lanes and batches. Worker DONE alone
+cannot certify Stage 4f completion. These static-reviewed firmware outputs carry
+no dynamic verification, severity, or generic finding promotion.
 
 ### Cross-client tool mapping
 
@@ -422,7 +462,7 @@ To begin, route to the appropriate workflow:
 | File | Content |
 |---|---|
 | [references/phase0-source-detection.md](references/phase0-source-detection.md) | Source detection logic, IDA Pro MCP probing, user prompts |
-| [references/briefs/](references/briefs/) | The three dispatch brief templates (`recon-`, `audit-`, `fpcheck-brief.md`) rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
+| [references/briefs/](references/briefs/) | The eight dispatch brief templates, including firmware hunt and fpcheck rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
 | [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, the recon brief's `--var` values, mapping format |
 | [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | The audit brief's `--var` values, finding schema, dedup |
 | [references/phase5-fp-check.md](references/phase5-fp-check.md) | Batching strategy, FP rules, verdict schema |

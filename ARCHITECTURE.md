@@ -388,8 +388,9 @@ Stage 4d check's retained-orphan result scan scaling. The next firmware slice
 is `fpcheck`. Its five additive tables, row contracts and completed-hunt
 snapshot helper, deterministic review preparation, and strict result parsing/validation
 are implemented, together with atomic import, reviewed finding completion and
-upstream review invalidation and the bounded firmware CLI. Task 10 review brief and
-installed-user routing remain.
+upstream review invalidation and the bounded firmware CLI. The firmware review
+brief and installed-user routing are implemented. Task 11 full-phase
+documentation/inventory reconciliation and independent review remain.
 Table validation checks
 variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
@@ -468,8 +469,20 @@ canonical findings artifact and matching derived rows, repeat all verification, 
 preserve timestamps without SQL writes. Empty receipted generations and fully
 false-positive generations complete with zero findings. Only dedicated Stage 4f
 tables are written; generic finding/verdict tables are untouched. Atomic upstream
-invalidation and the bounded firmware `fpcheck` CLI are implemented; Task 10 review
-brief and installed-user routing are next.
+invalidation and the bounded firmware `fpcheck` CLI are implemented. The firmware
+review brief and installed-user routing are implemented; Task 11 full-phase
+documentation/inventory reconciliation and independent review are next.
+The eighth dispatch template, `references/briefs/firmware-fpcheck-brief.md`,
+uses the existing `brief` renderer with eight required path/provenance variables.
+`SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
+file-backed brief per immutable batch, orchestrator `--record`, and global `--check`.
+Workers preserve lane-qualified identities, compare cross-lane evidence, apply
+shared FP rules, and return strict bounded result-only JSON with mandatory
+false-positive pivots and explicit duplicate targets. Workers never own SQL,
+canonical installation, or transitions. PARTIAL checkpoints retain completed
+work without fabricated decisions and cannot be imported as complete results.
+Absolute host-root paths are access context, not persisted reviewer evidence.
+Ordinary source-code fpcheck keeps its existing workflow and brief.
 The final check also independently refuses stale upstream evidence.
 `audit.py fpcheck` requires one explicit prepare/record/check mode and validates
 all mode-specific flags before database I/O (syntax exit 2; semantic exit 1).
