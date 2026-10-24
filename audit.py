@@ -705,10 +705,12 @@ def cmd_fpcheck(args: argparse.Namespace) -> int:
         con.close()
 
     # Explicit scalar fields prevent worker evidence or finding details from
-    # escaping through dataclass serialization. Text is bounded in both formats.
-    public_root = root.absolute() if root is not None else None
-    payload = {key: _bounded_cli_text(value, public_root) if isinstance(value, str) else value
-               for key, value in payload.items()}
+    # escaping through dataclass serialization. JSON preserves exact identities
+    # and usable artifact paths; only human-facing text uses display bounds.
+    if not args.json:
+        public_root = root.absolute() if root is not None else None
+        payload = {key: _bounded_cli_text(value, public_root) if isinstance(value, str) else value
+                   for key, value in payload.items()}
     if args.json:
         print(json.dumps(payload, indent=2))
     elif args.prepare:

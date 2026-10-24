@@ -422,7 +422,7 @@ milestone and restructure.
 ## Firmware static review (Stage 4f)
 
 Stage 4f implementation and documentation are complete on the feature branch;
-controller-owned independent whole-branch review and integration remain pending.
+controller-owned scoped re-review of the final JSON fix and integration remain pending.
 The next firmware slice is `chain`. Firmware review uses the shared CLI; the
 separate `firmware-audit` skill tree remains planned. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
@@ -516,12 +516,15 @@ changes preserve it. Invalidation failure rolls back upstream publication too;
 final check independently refuses stale evidence. Triage remains upsert-only,
 and the inherited Stage 4d orphan-result scan can grow with retained generations.
 
-Success exits 0 with bounded scalar aggregates/provenance and artifact paths;
-`--json` exposes the same summary, never raw review evidence. Syntax errors exit 2;
+Success exits 0 with scalar aggregates/provenance and artifact paths, never raw
+review evidence. Human text escapes controls/non-ASCII, redacts the supplied root,
+and caps each field at 512 ASCII characters. `--json` uses a fixed scalar field
+set and serializes identities and artifact paths losslessly with normal JSON
+escaping; these values can exceed human display limits. Syntax errors exit 2;
 semantic flag and expected domain/filesystem/database errors exit 1. SQLite
-failures print exactly `fpcheck: database operation failed`. Public text escapes
-controls/non-ASCII, redacts the supplied root, and caps at 512 ASCII characters
-(plus newline for diagnostics); unexpected programming errors propagate.
+failures print exactly `fpcheck: database operation failed`. Other expected
+diagnostics escape controls/non-ASCII, redact the supplied root, and cap at 512
+ASCII characters plus a newline; unexpected programming errors propagate.
 
 Static review does not fetch, carve, modify, execute, emulate or exploit firmware,
 settle runtime/hardware blockers, inspect new kernel/bootloader surfaces, assign

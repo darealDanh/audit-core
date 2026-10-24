@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-25 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f implementation/documentation: 4,161 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Stage 4f implementation/documentation: 4,164 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -27,8 +27,10 @@ benchmark-gated before it ships.
 branch, from approved design `b4f6e0f` and plan `61177ce`. The slice includes
 five-table row contracts, verified completed-hunt snapshots, deterministic review
 batches, strict results, atomic import, canonical reviewed findings, upstream
-invalidation, bounded CLI, worker brief and installed routing. Controller-owned
-independent final review and integration remain pending. The next firmware slice
+invalidation, bounded CLI, worker brief and installed routing. Final review found
+JSON identity/path corruption; the final fix preserves machine-readable values
+and retains bounded human output. Controller-owned scoped re-review and
+integration remain pending. The next firmware slice
 is `chain`.
 Stage 5 has not started.
 
@@ -45,7 +47,7 @@ Stage 5 has not started.
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
-| 4f | `fpcheck` — dedicated static firmware review | through `e9af75f` plus documentation | feature branch | implementation/docs complete; controller final review and integration pending |
+| 4f | `fpcheck` — dedicated static firmware review | through `6ad048c` plus final JSON fix | feature branch | implementation/docs complete; controller scoped re-review and integration pending |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -770,6 +772,8 @@ prerequisites. Paid semantic quality measurement remains deferred.
 
 ### Stage 4f implementation and documentation verification
 
+The following records the historical Task 11 boundary.
+
 Stage 4f implementation, installed routing and documentation/inventory are
 complete on the feature branch. Controller-owned independent final review of
 `merge-base(main)..HEAD` and integration remain pending; no merge/push is claimed.
@@ -806,6 +810,46 @@ limit is inherited. Reviewer-authored root-cause keys can under-deduplicate;
 static review cannot settle runtime/hardware blockers. The Asus golden and
 monorepo/submodule decision remain overall milestone/restructure prerequisites.
 Paid semantic quality remains deferred. Controller final review remains required.
+
+### Stage 4f final-review JSON fix verification
+
+Final whole-branch review found one Important defect: success display formatting
+changed JSON identities and artifact paths. The final fix applies escaping,
+root redaction and the 512-character field cap only to human display. Machine
+JSON preserves the fixed aggregate-only whitelist with exact identities and
+usable full artifact paths through normal JSON escaping. Expected diagnostics,
+early validation, raw-evidence exclusion and generic source-code commands retain
+their contracts.
+
+The corrected JSON identity expectation and three real subprocess workflows
+cover Unicode/delimiter IDs, Unicode paths, paths longer than the display cap,
+and run paths sharing the root's spelling prefix. They open returned worklist,
+result and findings artifacts and reuse returned identity/path values through
+record, replacement and check. RED measured **4 failed / 1 passed**; GREEN
+measured **5 passed**. The complete focused CLI/Stage 4f suite passed **1,149
+tests in 73.11s**. Fresh full-harness measurement after the final code/test edits:
+
+```text
+PASS  tests      4164 passed
+PASS  selftest   verbs  29 declared, all dispatchable / tables 32 in schema.sql, 31 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
+PASS  lint       skill lint: clean
+PASS  eol        6 CRLF files, 210 LF
+PASS  manifest   54 features, 14 stages, 21 open items, all paths and verbs resolve
+PASS  install    112 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 5933 statements, 0 allowed
+PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
+
+all 8 gate(s) passed
+```
+
+The final execution report records the authoritative post-documentation
+`make all` result. Historical Task 11 measurements above remain intact. The
+single final-fix wave is implemented; controller-owned scoped re-review and
+integration remain pending. No merge, push, mutation sweep, paid audit/milestone
+rerun or indicator snapshot ran. The next firmware slice is `chain`, retaining
+triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
+and monorepo/submodule decision remain overall milestone/restructure
+prerequisites; static contracts do not establish semantic audit quality.
 
 ---
 
@@ -978,9 +1022,10 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Controller-owned independent final review/integration of Stage 4f, then firmware `chain`**.
+1. **Controller-owned scoped re-review/integration of Stage 4f, then firmware `chain`**.
    Implementation and documentation/inventory are complete on this feature branch.
-   Review must cover `merge-base(main)..HEAD`; no merge or push is claimed.
+   Final whole-branch review found JSON identity/path corruption; the single final
+   fix wave is implemented and awaits scoped re-review. No merge or push is claimed.
    `chain` consumes dedicated reviewed firmware findings. Triage's upsert-only
    snapshots and Stage 4d retained-orphan scan scaling persist. The Asus golden
    and monorepo/submodule decision remain prerequisites for the overall Stage 4

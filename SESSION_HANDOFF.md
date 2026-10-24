@@ -3,8 +3,8 @@
 **Written:** 2026-10-25 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
 **Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f
 implementation and documentation/inventory complete on this feature branch;
-controller-owned independent final review and integration pending. Next firmware
-slice: `chain`. **Verification:** `make all` passed all 8 gates; 4,161 full-suite
+controller-owned scoped re-review of the final JSON fix and integration pending. Next firmware
+slice: `chain`. **Verification:** `make all` passed all 8 gates; 4,164 full-suite
 tests passed, 0/5,933 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -74,7 +74,9 @@ These are not style preferences. Each one has a specific, known cost.
   derivation/completion, atomic upstream review invalidation and the bounded firmware
   `fpcheck` CLI are implemented, including the firmware review brief and installed-user
   routing. Implementation and documentation/inventory are complete on this branch;
-  controller-owned independent final review and integration remain pending.
+  Final review found JSON identity/path corruption; the final fix preserves exact
+  machine values and retains bounded human output. Controller-owned scoped
+  re-review and integration remain pending.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -168,7 +170,7 @@ These are not style preferences. Each one has a specific, known cost.
   unchanged hunt replacements also preserve lane completion after comparing durable
   receipts, coverage and candidates. Reference acquisition/triage and supplemental
   source/path edits do not change target ownership.
-- **Current next phase:** controller-owned independent whole-branch review and
+- **Current next phase:** controller-owned scoped re-review of the final JSON fix and
   integration of Stage 4f, then firmware `chain`. Implementation, installed routing
   and documentation/inventory are complete on this branch. Ordinary source-code
   fpcheck retains its workflow; no merge/push is claimed.
@@ -562,6 +564,8 @@ prerequisites. Paid semantic quality measurement remains deferred.
 
 ### Stage 4f implementation and documentation verification
 
+The following records the historical Task 11 boundary.
+
 Stage 4f implementation, installed routing and documentation/inventory are
 complete on the feature branch. Controller-owned independent final review of
 `merge-base(main)..HEAD` and integration remain pending; no merge/push is claimed.
@@ -598,6 +602,46 @@ limit is inherited. Reviewer-authored root-cause keys can under-deduplicate;
 static review cannot settle runtime/hardware blockers. The Asus golden and
 monorepo/submodule decision remain overall milestone/restructure prerequisites.
 Paid semantic quality remains deferred. Controller final review remains required.
+
+### Stage 4f final-review JSON fix verification
+
+Final whole-branch review found one Important defect: success display formatting
+changed JSON identities and artifact paths. The final fix applies escaping,
+root redaction and the 512-character field cap only to human display. Machine
+JSON preserves the fixed aggregate-only whitelist with exact identities and
+usable full artifact paths through normal JSON escaping. Expected diagnostics,
+early validation, raw-evidence exclusion and generic source-code commands retain
+their contracts.
+
+The corrected JSON identity expectation and three real subprocess workflows
+cover Unicode/delimiter IDs, Unicode paths, paths longer than the display cap,
+and run paths sharing the root's spelling prefix. They open returned worklist,
+result and findings artifacts and reuse returned identity/path values through
+record, replacement and check. RED measured **4 failed / 1 passed**; GREEN
+measured **5 passed**. The complete focused CLI/Stage 4f suite passed **1,149
+tests in 73.11s**. Fresh full-harness measurement after the final code/test edits:
+
+```text
+PASS  tests      4164 passed
+PASS  selftest   verbs  29 declared, all dispatchable / tables 32 in schema.sql, 31 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
+PASS  lint       skill lint: clean
+PASS  eol        6 CRLF files, 210 LF
+PASS  manifest   54 features, 14 stages, 21 open items, all paths and verbs resolve
+PASS  install    112 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 5933 statements, 0 allowed
+PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
+
+all 8 gate(s) passed
+```
+
+The final execution report records the authoritative post-documentation
+`make all` result. Historical Task 11 measurements above remain intact. The
+single final-fix wave is implemented; controller-owned scoped re-review and
+integration remain pending. No merge, push, mutation sweep, paid audit/milestone
+rerun or indicator snapshot ran. The next firmware slice is `chain`, retaining
+triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
+and monorepo/submodule decision remain overall milestone/restructure
+prerequisites; static contracts do not establish semantic audit quality.
 
 ### Historical Stage 4e merged-state verification
 
@@ -699,9 +743,10 @@ implementation commit is `b14b4fb`, independent of the documentation commit.
 ### Review/integrate Stage 4f, then implement firmware `chain`
 
 Stage 4f implementation and documentation/inventory reconciliation are complete
-on `stage4f-firmware-fpcheck`. The controller must independently review the whole
-branch from `merge-base(main)..HEAD` and handle any final-review fix wave before
-integration. No Stage 4f merge or push is claimed. The next firmware slice is
+on `stage4f-firmware-fpcheck`. Independent whole-branch review found one Important
+JSON identity/path corruption issue. The single final-fix wave is implemented;
+controller-owned scoped re-review and integration remain pending.
+No Stage 4f merge or push is claimed. The next firmware slice is
 `chain`, consuming dedicated reviewed findings with canonical contributors and
 static-reviewed evidence. Triage remains upsert-only; the Stage 4d retained-orphan
 scan performance limit persists. The Asus golden and monorepo/submodule decision

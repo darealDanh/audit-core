@@ -300,7 +300,7 @@ def test_real_domain_refusals_preserve_database(review, damage):
 
 
 @pytest.mark.parametrize("json_output", [False, True])
-def test_success_escapes_and_bounds_arbitrary_image_identifiers(tmp_path, json_output):
+def test_success_preserves_json_identity_and_bounds_human_display(tmp_path, json_output):
     run = workspace.init_run(tmp_path / "project")
     root = tmp_path / "PRIVATE_CARVED_ROOT"
     image_id = "image\n\x1b\u202e" + "x" * 2000
@@ -317,9 +317,77 @@ def test_success_escapes_and_bounds_arbitrary_image_identifiers(tmp_path, json_o
     public_id = prefix + "x" * (509 - len(prefix)) + "..."
     assert result.stdout.isascii()
     if json_output:
-        assert json.loads(result.stdout)["image_id"] == public_id
+        assert json.loads(result.stdout)["image_id"] == image_id
     else:
         assert result.stdout.splitlines()[0] == f"fpcheck prepared {public_id}: 0 candidate(s), 1 batch(es)"
+
+
+@pytest.mark.parametrize("layout", ["unicode", "long-path", "root-prefix"])
+def test_json_workflow_round_trips_identity_and_usable_artifact_paths(tmp_path, layout):
+    # Breaks: display escaping, truncation or root-substring redaction changes
+    # machine-readable values before the next workflow command can consume them.
+    project = tmp_path / "dữ-liệu"
+    root = tmp_path / "PRIVATE_CARVED_ROOT"
+    if layout == "long-path":
+        # Keep audit.db below SQLite's host path limit while its deeper
+        # worklist/result/findings artifact paths exceed the display cap.
+        while len(str(project)) < 420:
+            project /= "d" * min(180, 420 - len(str(project)))
+    elif layout == "root-prefix":
+        root = tmp_path / "carved"
+        project = tmp_path / "carved-run" / "dữ-liệu"
+    run = workspace.init_run(project)
+    image_id = "a:%_图像"
+    with db.connect(run / "audit.db") as con:
+        add_target(con, run, root, ["a"], image_id=image_id)
+        summary = hunt.prepare(con, run, root, image_id=image_id)
+        fill(con, run, summary)
+        for lane in db.HUNT_LANES:
+            hunt.check(con, run, root, image_id=image_id, lane=lane)
+
+    prepared_result = run_cli("fpcheck", "--run", run, "--prepare", "--root", root,
+                              "--image-id", image_id, "--json")
+    assert prepared_result.returncode == 0, prepared_result.stderr
+    prep = json.loads(prepared_result.stdout)
+    assert prep["image_id"] == image_id
+    index_path = pathlib.Path(prep["worklist_path"])
+    assert index_path.is_relative_to(run)
+    index = json.loads(index_path.read_bytes())
+    batch, = index["batches"]
+    if layout == "long-path":
+        assert len(str(index_path)) > 512
+    result_file = run / "review.json"
+    result_file.write_text(json.dumps({
+        "schema_version": 1, "image_id": prep["image_id"],
+        "candidate_snapshot_sha256": prep["candidate_snapshot_sha256"],
+        "worklist_sha256": prep["worklist_sha256"], "batch_path": batch["path"],
+        "batch_sha256": batch["sha256"], "decisions": [],
+    }), encoding="utf-8")
+    recorded_result = run_cli("fpcheck", "--run", run, "--record", result_file, "--json")
+    assert recorded_result.returncode == 0, recorded_result.stderr
+    recorded = json.loads(recorded_result.stdout)
+    assert recorded["image_id"] == image_id
+    result_path = pathlib.Path(recorded["artifact_path"])
+    assert result_path.is_relative_to(run)
+    assert json.loads(result_path.read_bytes())["image_id"] == image_id
+    # Consume both the returned artifact path and identity through supported CLI steps.
+    replaced_result = run_cli("fpcheck", "--run", run, "--record", result_path,
+                              "--replace", "--json")
+    assert replaced_result.returncode == 0, replaced_result.stderr
+    assert json.loads(replaced_result.stdout) == recorded
+    checked_result = run_cli("fpcheck", "--run", run, "--check", "--root", root,
+                             "--image-id", recorded["image_id"], "--json")
+    assert checked_result.returncode == 0, checked_result.stderr
+    checked = json.loads(checked_result.stdout)
+    assert checked["image_id"] == image_id and checked["complete"] is True
+    findings_path = pathlib.Path(checked["artifact_path"])
+    assert findings_path.is_relative_to(run)
+    assert json.loads(findings_path.read_bytes())["image_id"] == image_id
+    for result in (prepared_result, recorded_result, replaced_result, checked_result):
+        assert result.stderr == ""
+        assert "PRIVATE_" not in result.stdout
+        if layout != "root-prefix":
+            assert str(root) not in result.stdout
 
 
 @pytest.mark.parametrize("mode", ["prepare", "record", "check"])

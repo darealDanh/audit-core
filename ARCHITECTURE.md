@@ -387,7 +387,7 @@ emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below. Its implementation and documentation are complete on the feature branch; controller-owned independent
-whole-branch review and integration remain pending. The next firmware slice is
+scoped re-review of the final JSON fix and integration remain pending. The next firmware slice is
 `chain`.
 
 ### Stage 4f — dedicated firmware static review
@@ -402,6 +402,12 @@ python3 audit.py fpcheck --run RUN --prepare --root ROOT [--image-id ID] [--batc
 python3 audit.py fpcheck --run RUN --record RESULT.json [--replace] [--json]
 python3 audit.py fpcheck --run RUN --check --root ROOT [--image-id ID] [--json]
 ```
+
+The CLI whitelists scalar aggregates/provenance and artifact paths. JSON preserves
+exact identities and usable paths with normal JSON escaping; its fixed field set
+does not impose the human display's per-string size limit. Only human display
+fields use root redaction and the 512-character ASCII cap. Expected diagnostics
+retain their separate escaping/redaction/cap and fixed SQLite error message.
 
 Table validation checks variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
@@ -482,7 +488,8 @@ false-positive generations complete with zero findings. Only dedicated Stage 4f
 tables are written; generic finding/verdict tables are untouched. Atomic upstream
 invalidation and the bounded firmware `fpcheck` CLI are implemented. The firmware
 review brief, installed-user routing and full-phase documentation/inventory are
-complete on the branch; independent final review and integration remain pending.
+complete on the branch; controller scoped re-review of the final JSON fix and
+integration remain pending.
 The eighth dispatch template, `references/briefs/firmware-fpcheck-brief.md`,
 uses the existing `brief` renderer with eight required path/provenance variables.
 `SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
