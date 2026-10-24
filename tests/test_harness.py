@@ -177,3 +177,36 @@ def test_manifest_records_stage4e_hunt_implementation_and_contracts():
         "docs/superpowers/plans/2026-10-19-stage4e-firmware-hunt.md",
     ):
         assert path in feature["modules"] + feature["tests"] + feature["docs"]
+
+
+def test_manifest_records_stage4f_review_implementation_and_contracts():
+    """The complete firmware review slice is discoverable without local ledgers."""
+    import json
+
+    data = json.loads((ROOT / "feature_lists.json").read_text())
+    stage = next((row for row in data["stages"] if row["id"] == "stage4f"), None)
+    assert stage is not None
+    assert stage["status"] == "shipped"
+    feature = next((row for row in data["features"] if row["id"] == "firmware-fpcheck"), None)
+    assert feature is not None
+    assert feature["stage"] == "stage4f"
+    assert feature["status"] == "shipped"
+    assert {"fpcheck", "brief", "init"}.issubset(feature["verbs"])
+    paths = feature["modules"] + feature["tests"] + feature["docs"]
+    assert not any(path.startswith(".superpowers/sdd/") for path in paths)
+    for path in (
+        "audit.py", "audit_core/schema.sql", "audit_core/db.py",
+        "audit_core/hunt.py", "audit_core/hunt_results.py",
+        "audit_core/acquire.py", "audit_core/triage.py",
+        "audit_core/surface.py", "audit_core/surface_results.py",
+        "audit_core/firmware_fpcheck.py", "audit_core/firmware_fpcheck_results.py",
+        "tests/test_firmware_fpcheck_schema.py", "tests/test_firmware_fpcheck_prepare.py",
+        "tests/test_firmware_fpcheck_results.py", "tests/test_firmware_fpcheck_import.py",
+        "tests/test_firmware_fpcheck_gate.py", "tests/test_cli_stage4f.py",
+        "tests/test_firmware_fpcheck_brief.py", "tests/test_hunt_gate.py",
+        "tests/test_install.py", "tests/test_harness.py",
+        "references/briefs/firmware-fpcheck-brief.md",
+        "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md",
+        "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md",
+    ):
+        assert path in paths

@@ -143,16 +143,17 @@ by `audit.py init`.
 | Firmware diff | `cba_firmware_files`, `cba_diffs`, `cba_diff_entries` |
 | Firmware surface | `cba_surface_runs`, `cba_firmware_surfaces`, `cba_unknowns` |
 | Firmware hunt | `cba_hunt_runs`, `cba_hunt_receipts`, `cba_hunt_candidates` |
-| Firmware review foundation | `cba_firmware_fp_runs`, `cba_firmware_fp_receipts`, `cba_firmware_fp_verdicts`, `cba_firmware_pivots`, `cba_firmware_findings` |
+| Firmware review | `cba_firmware_fp_runs`, `cba_firmware_fp_receipts`, `cba_firmware_fp_verdicts`, `cba_firmware_pivots`, `cba_firmware_findings` |
 
 > `selftest` reports **32** tables in `schema.sql` against **31** under
 > contract. The extra table is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
-**Access is validated and bounded.** `audit_core/db.py` is the only writer.
-It holds `TABLE_SPECS` (columns, required columns, validators) and refuses a
-row that does not satisfy them — a verdict outside the enum, a component kind
-that is not a kind, a chain that claims completeness it has not earned, an
+**Access is validated and bounded.** `audit_core/db.py` holds the shared
+`TABLE_SPECS` (columns, required columns, validators) and validated row helpers;
+phase modules own transactional publication and invalidation SQL. The row helpers
+refuse a row that does not satisfy its contract — a verdict outside the enum, a
+component kind that is not a kind, a chain that claims completeness it has not earned, an
 identity with fewer than `MIN_EVIDENCE_CHARS` of evidence.
 
 **Migrations are first-class.** SQLite has no `ALTER TABLE … ADD COLUMN IF NOT
@@ -384,15 +385,25 @@ The phase records candidate evidence for the later firmware `fpcheck`; it does
 not adjudicate false positives, assign final severity, fetch/carve/execute or
 emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
-Stage 4d check's retained-orphan result scan scaling. The next firmware slice
-is `fpcheck`. Its five additive tables, row contracts and completed-hunt
-snapshot helper, deterministic review preparation, and strict result parsing/validation
-are implemented, together with atomic import, reviewed finding completion and
-upstream review invalidation and the bounded firmware CLI. The firmware review
-brief and installed-user routing are implemented. Task 11 full-phase
-documentation/inventory reconciliation and independent review remain.
-Table validation checks
-variant-specific evidence, canonical unique JSON arrays, relative batch and
+Stage 4d check's retained-orphan result scan scaling. Firmware review is
+implemented as Stage 4f below. Its implementation and documentation are complete on the feature branch; controller-owned independent
+whole-branch review and integration remain pending. The next firmware slice is
+`chain`.
+
+### Stage 4f — dedicated firmware static review
+
+The five dedicated tables are `cba_firmware_fp_runs`,
+`cba_firmware_fp_receipts`, `cba_firmware_fp_verdicts`, `cba_firmware_pivots`,
+and `cba_firmware_findings`. They retain image/generation/batch ownership;
+generic `cba_findings` and `cba_fp_verdicts` remain untouched.
+
+```bash
+python3 audit.py fpcheck --run RUN --prepare --root ROOT [--image-id ID] [--batch-size N] [--json]
+python3 audit.py fpcheck --run RUN --record RESULT.json [--replace] [--json]
+python3 audit.py fpcheck --run RUN --check --root ROOT [--image-id ID] [--json]
+```
+
+Table validation checks variant-specific evidence, canonical unique JSON arrays, relative batch and
 component paths, lowercase digests, counts, and bounded identifiers. Stored
 worklist/result/artifact paths also accept canonical absolute paths; phase
 modules must enforce run containment and cross-row ownership.
@@ -470,8 +481,8 @@ preserve timestamps without SQL writes. Empty receipted generations and fully
 false-positive generations complete with zero findings. Only dedicated Stage 4f
 tables are written; generic finding/verdict tables are untouched. Atomic upstream
 invalidation and the bounded firmware `fpcheck` CLI are implemented. The firmware
-review brief and installed-user routing are implemented; Task 11 full-phase
-documentation/inventory reconciliation and independent review are next.
+review brief, installed-user routing and full-phase documentation/inventory are
+complete on the branch; independent final review and integration remain pending.
 The eighth dispatch template, `references/briefs/firmware-fpcheck-brief.md`,
 uses the existing `brief` renderer with eight required path/provenance variables.
 `SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
@@ -491,9 +502,14 @@ phase boundaries and selects scalar counts/provenance plus artifact paths;
 check reports a finding count, excluding per-finding identifiers and review
 fields. Both output formats escape/cap public text at 512 ASCII characters,
 redact the supplied root and keep success stderr empty. Expected diagnostics
-are capped at 512 ASCII characters plus newline, with a fixed SQLite message;
+are capped at 512 ASCII characters plus newline; SQLite errors print exactly
+`fpcheck: database operation failed`;
 unexpected handler exceptions propagate after cleanup. No source-code generic
 verdict behavior or prose workflow name changes.
+Stage 4f does not execute/emulate/exploit firmware, settle runtime/hardware
+blockers, assign severity/CVSS, claim live reachability, compose exploit chains,
+write disclosure reports or create the separate firmware skill tree. Root-cause
+keys remain reviewer judgments; differing keys can visibly under-deduplicate.
 The Asus golden
 remains required for the overall Stage 4
 milestone, and the monorepo/submodule decision remains open for the restructure.

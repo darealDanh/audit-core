@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-23 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f firmware review brief and installed routing: 4,160 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-10-25 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
+**Current verification:** Stage 4f implementation/documentation: 4,161 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -23,15 +23,13 @@ benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a-4e are merged to local `main`.** Stage 4e
 (`hunt`) is merged at `8119af1`; nothing has been pushed. Stage 4f firmware
-`fpcheck` is in progress, with approved design and plan committed as `b4f6e0f`
-and `61177ce` on this feature branch. Its five-table schema foundation and row
-contracts, the read-only verified completed-hunt snapshot, and deterministic
-review-batch preparation, strict result parsing/validation, atomic batch import and
-canonical reviewed finding derivation/completion and atomic upstream review invalidation
-and the bounded firmware `fpcheck` CLI are implemented, including the firmware
-review brief and installed-user routing.
-Task 11 documentation/inventory reconciliation and independent whole-branch review
-are next, before the final Stage 4f completion decision.
+`fpcheck` implementation and documentation/inventory are complete on this feature
+branch, from approved design `b4f6e0f` and plan `61177ce`. The slice includes
+five-table row contracts, verified completed-hunt snapshots, deterministic review
+batches, strict results, atomic import, canonical reviewed findings, upstream
+invalidation, bounded CLI, worker brief and installed routing. Controller-owned
+independent final review and integration remain pending. The next firmware slice
+is `chain`.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -47,7 +45,8 @@ Stage 5 has not started.
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
-| 4 | `firmware-audit` + monorepo (remaining five firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
+| 4f | `fpcheck` — dedicated static firmware review | through `e9af75f` plus documentation | feature branch | implementation/docs complete; controller final review and integration pending |
+| 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
 Stage 3's figure includes its 3,730-line plan document, which was committed on
@@ -67,7 +66,7 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-Read-only scoring of the existing audit remains unchanged through Stage 4e.
+Read-only scoring of the existing audit remains unchanged through Stage 4f.
 This does not measure the effect of new behavior: the Stage 2/3 audit reruns
 remain deferred, so no recall, precision, or audit-cost improvement is claimed.
 
@@ -435,16 +434,11 @@ Stage 4f design and plan. All eight gates passed; that summary is recorded
 in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
-and Stage 4d retains its orphan-candidate scan scaling limitation. Firmware
-`fpcheck` is in progress with its schema foundation and verified completed-hunt
-snapshot, deterministic review-batch preparation, strict result parsing/validation
-and atomic batch import and canonical reviewed finding derivation/completion implemented;
-atomic upstream review invalidation and the bounded CLI are implemented.
-The firmware review brief and installed-user routing are implemented. Task 11
-documentation/inventory reconciliation and independent whole-branch review are
-next, before the final Stage 4f completion decision. The Asus
-golden remains required for the overall Stage 4 milestone, and the
-monorepo/submodule decision remains required for restructure.
+and Stage 4d retains its orphan-candidate scan scaling limitation. Stage 4f
+implementation and documentation are complete on the feature branch; controller
+final review and integration remain pending. The next firmware slice is `chain`.
+The Asus golden and monorepo/submodule decision remain milestone/restructure
+prerequisites.
 
 ### Historical Stage 4f schema foundation verification
 
@@ -735,7 +729,7 @@ Stage 4 milestone/restructure. No mutation sweep, paid audit/milestone rerun,
 indicator snapshot, merge or push ran.
 
 
-### Stage 4f firmware review worker brief and installed routing
+### Historical Stage 4f firmware review worker brief and installed routing
 
 The eighth template, `references/briefs/firmware-fpcheck-brief.md`, renders through
 `audit.py brief --phase firmware-fpcheck --unit batch-NNNN` with eight required
@@ -756,7 +750,7 @@ locations and resolve the installed parser and shared FP rules. The controller
 captured behavioral RED before editing; independent behavioral GREEN remains its
 post-commit gate. Static contract verification is not paid semantic audit evidence.
 
-Current full-harness measurements: **4,160 tests**, **all eight gates passed**;
+Task 10 full-harness measurements: **4,160 tests**, **all eight gates passed**;
 **29 dispatchable verbs**; **32 schema tables / 31 contracted**, columns/keys agree;
 **four migrations plus current schema** accepted by both frozen baselines;
 clean skill lint; **6 CRLF / 210 LF files**; **53 features / 13 stages / 21 open
@@ -767,12 +761,51 @@ The read-only benchmark remains recall **9/19** over **45 findings**, precision
 mutation sweep, merge, or push ran. The final post-documentation `make all`
 rechecks these recorded measurements; exact logs and timing are in the Task 10 report.
 
-Next is **Task 11**: reconcile the complete Stage 4f documentation/inventory,
+At the Task 10 boundary, next was **Task 11**: reconcile the complete Stage 4f documentation/inventory,
 perform independent whole-branch review, and run final verification before the
 stage-completion decision. The subsequent firmware slice is `chain`. Triage's
 upsert-only snapshots and Stage 4d retained-orphan scan scaling persist; the Asus
 golden and monorepo/submodule decision remain overall milestone/restructure
 prerequisites. Paid semantic quality measurement remains deferred.
+
+### Stage 4f implementation and documentation verification
+
+Stage 4f implementation, installed routing and documentation/inventory are
+complete on the feature branch. Controller-owned independent final review of
+`merge-base(main)..HEAD` and integration remain pending; no merge/push is claimed.
+The next firmware slice is `chain`, consuming dedicated static-reviewed findings.
+
+Task 11 added one durable complete-stage inventory regression. It first failed
+on the missing `stage4f` entry, then passed with the complete stage/feature
+inventory. Plain `python3 -m pytest -q` passed **4,161 tests in 254.90s**, without
+warnings/errors. Structured JSON/whitespace/selftest/lint/EOL/manifest/install
+gates passed. The full `make all` measurement was:
+
+```text
+PASS  tests      4161 passed
+PASS  selftest   verbs  29 declared, all dispatchable / tables 32 in schema.sql, 31 under contract, columns and primary keys agree / migrations 4 plus current schema applied to the pre-Stage-3 and Stage-4b baselines, firmware rows preserved, results accepted by connect()
+PASS  lint       skill lint: clean
+PASS  eol        6 CRLF files, 210 LF
+PASS  manifest   54 features, 14 stages, 21 open items, all paths and verbs resolve
+PASS  install    112 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 5933 statements, 0 allowed
+PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
+
+all 8 gate(s) passed
+```
+
+Variable harness elapsed times are omitted. The 21 open-item records include
+historical closed entries. A fresh
+committed-tree `make all` rechecks these totals after the documentation commit;
+its exact result is recorded in the execution report. No mutation sweep, paid
+audit/milestone rerun or indicator snapshot ran. Read-only benchmark scoring of
+the existing corpus measures no change in semantic audit quality.
+
+Triage remains upsert-only and the Stage 4d retained-orphan result scan scaling
+limit is inherited. Reviewer-authored root-cause keys can under-deduplicate;
+static review cannot settle runtime/hardware blockers. The Asus golden and
+monorepo/submodule decision remain overall milestone/restructure prerequisites.
+Paid semantic quality remains deferred. Controller final review remains required.
 
 ---
 
@@ -865,7 +898,7 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The pytest suite — current implementation measured 2,925 tests; current harness summary is in `SESSION_HANDOFF.md` |
+| `tests` | The full pytest suite; current measured totals are in `SESSION_HANDOFF.md` |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
 | `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
@@ -945,16 +978,13 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4f firmware `fpcheck` with Task 11: documentation/inventory reconciliation, independent whole-branch review, and final verification**;
-   schema, verified hunt snapshot, deterministic preparation, strict result validation,
-   atomic batch import, global duplicate resolution, reviewed finding completion and
-   atomic upstream invalidation and the bounded prepare/record/check CLI are implemented.
-   The firmware-specific brief and installed routing now preserve ordinary source-code
-   fpcheck. Task 11 must reconcile the complete Stage 4f inventory and review the branch;
-   the next firmware slice after that completion decision is `chain`. Triage's upsert-only snapshots and Stage 4d retained-orphan
-   scan scaling persist. Stage 4e is merged into local `main` at `8119af1`; nothing
-   has been pushed. The Asus golden and monorepo/submodule decision remain
-   prerequisites for the overall Stage 4 milestone/restructure.
+1. **Controller-owned independent final review/integration of Stage 4f, then firmware `chain`**.
+   Implementation and documentation/inventory are complete on this feature branch.
+   Review must cover `merge-base(main)..HEAD`; no merge or push is claimed.
+   `chain` consumes dedicated reviewed firmware findings. Triage's upsert-only
+   snapshots and Stage 4d retained-orphan scan scaling persist. The Asus golden
+   and monorepo/submodule decision remain prerequisites for the overall Stage 4
+   milestone/restructure; paid semantic quality remains unmeasured.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

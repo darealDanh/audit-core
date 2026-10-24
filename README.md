@@ -255,9 +255,9 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 
 ## Firmware surface mapping (Stage 4d)
 
-The shared CLI has 28 verbs, including `surface` and `hunt`. Stage 4d is the
-fifth firmware phase (`qualify`, `acquire`, `triage`, `diff`, `surface`); the
-separate `firmware-audit` skill tree is still planned. Start with an initialized
+The shared CLI has 29 verbs, including `surface`, `hunt`, and firmware
+`fpcheck`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
+`diff`, `surface`); the separate `firmware-audit` skill tree is still planned. Start with an initialized
 run, an acquired `target` image, and its image-scoped triage manifest. In an installed
 copy, use that client's skill directory as the path to `audit.py`.
 
@@ -414,9 +414,122 @@ success exits 0. Stage 4e records candidates for later firmware `fpcheck`; it
 does not adjudicate false positives, set final severity, execute or emulate
 firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
-scan scaling. The next firmware slice is `fpcheck`. The Asus golden and the
+scan scaling. Firmware `fpcheck` is implemented below; the next firmware slice is
+`chain`. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
+
+## Firmware static review (Stage 4f)
+
+Stage 4f implementation and documentation are complete on the feature branch;
+controller-owned independent whole-branch review and integration remain pending.
+The next firmware slice is `chain`. Firmware review uses the shared CLI; the
+separate `firmware-audit` skill tree remains planned. Ordinary source-code
+`fpcheck` keeps its existing workflow and generic verdict commands.
+
+```bash
+python3 audit.py fpcheck --run RUN --prepare --root ROOT [--image-id ID] [--batch-size N] [--json]
+python3 audit.py fpcheck --run RUN --record RESULT.json [--replace] [--json]
+python3 audit.py fpcheck --run RUN --check --root ROOT [--image-id ID] [--json]
+```
+
+Exactly one explicit mode is required. Prepare/check require the live carved
+root; record takes no root or image selector because the result binds ownership.
+`--batch-size` belongs to prepare (default 20, integer range 1–200); `--replace`
+belongs to record. All flags are validated before database I/O. In installed
+copies, invoke `audit.py` from that client's skill directory.
+
+Preparation requires an acquired target, its current image-scoped manifest and
+surface generation, and both hunt lanes already complete against identical
+provenance. It uses the full read-only hunt verifier and checks live paths,
+kinds, sizes and SHA-256 against the manifest. Every candidate enters a canonical
+snapshot keyed by `(image_id, lane, candidate_id)`, retaining both lane worklist
+digests and owning result artifacts. Raw IDs repeated in different lanes remain
+separate decisions. Host roots and timestamps are excluded from content identity.
+The candidate snapshot digest binds evidence; the index digest identifies the
+review generation, including batch policy.
+
+Canonical worklists live at `RUN/files/firmware-fpcheck/<generation>/index.json`
+and sibling `batch-NNNN.json` files. Similarity signatures only place related
+candidates with one reviewer; equal-signature clusters remain indivisible and
+may exceed the requested target size. Clusters and batches cannot exceed 1,000
+candidates. A candidate-free hunt still gets one empty batch and requires an
+empty-result receipt before completion.
+
+Render `references/briefs/firmware-fpcheck-brief.md` with
+`audit.py brief --phase firmware-fpcheck --unit batch-NNNN`, supplying
+`run_dir`, `db_path`, `rootfs`, `image_id`, `candidate_snapshot_sha256`,
+`worklist_index`, `batch_path`, and `result_path`. Dispatch the brief file path.
+The worker rereads static evidence and applies attacker advantage first, followed
+by shared HE/PR/CV/Marginal Gain rules. It returns result-only JSON; SQL,
+canonical artifact installation and state transitions belong to deterministic code.
+The carved root is read-only access context; workers must keep its absolute host
+path out of persisted evidence and use relative component/run provenance.
+A PARTIAL checkpoint preserves work but cannot be imported as a complete batch.
+
+The authoritative strict schema is `audit_core/firmware_fpcheck_results.py`.
+UTF-8 input and canonical output are each capped at 8 MiB; duplicate JSON keys,
+non-finite values, extra fields and invalid verdict variants are refused. Results
+bind image/snapshot/worklist/batch provenance and decide every assigned
+`(lane, candidate_id)` exactly once. Every decision retains adversarial reason,
+attacker advantage, applied canonical rules, mitigation analysis and confidence
+0–10. TRUE_POSITIVE requires reviewed root-cause and attacker/data-flow/impact
+and component/surface evidence. FALSE_POSITIVE requires a refuting mechanism and
+exactly one durable pivot describing what it enables, including evidence-backed
+absence of an attacker-controlled path. DUPLICATE requires an explicit in-snapshot
+lane/ID target and shared-root evidence. Pivots never automatically become candidates.
+
+Exact `root_cause_key` equality is the only automatic finding grouping rule;
+different keys remain separate even when similarity hints match. Duplicates may
+cross lanes and batches, but global transitive resolution must terminate at a
+TRUE_POSITIVE; self/missing/foreign targets, cycles and false-positive terminals
+refuse completion. The lexicographically first TRUE_POSITIVE supplies canonical
+scalars; sorted unions retain all contributors/components/surfaces, and confidence
+is the minimum across contributors, including duplicates. Finding IDs bind image,
+snapshot and root key; evidence rung is `static-reviewed`.
+
+Five dedicated tables own state: `cba_firmware_fp_runs` (generation/status),
+`cba_firmware_fp_receipts` (batch evidence/counts), `cba_firmware_fp_verdicts`
+(lane-qualified decisions), `cba_firmware_pivots` (one per false positive), and
+`cba_firmware_findings` (derived reviewed groups). Generic `cba_findings` and
+`cba_fp_verdicts` are untouched. Record installs canonical evidence at
+`RUN/artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json` before
+one immediate transaction and repeats mutable ownership checks under lock.
+Duplicate imports refuse without `--replace`; replacement affects only that
+image/snapshot/batch's receipt/verdicts/pivots, clears selected-image findings and
+returns its run to pending. Sibling batches/images and immutable artifacts survive.
+
+Check revalidates completed hunt/live root, canonical worklists/results, exact
+candidate coverage, receipt counts, pivot ownership and duplicate chains before
+installing canonical `findings.json` under the generation and content digest.
+It repeats checks under lock, atomically derives dedicated findings and marks
+complete. Empty or all-false-positive generations complete with zero findings.
+Unchanged completed rechecks verify existing artifacts/rows and preserve timestamps.
+Read/install/SQL/commit failures preserve prior SQL; unreferenced immutable
+artifacts can remain after failed publication.
+
+Changed selected-target acquisition, triage manifest, surface or hunt evidence
+invalidates all five review tables for that image inside the upstream transaction.
+Real hunt completion transitions and repairs to damaged durable hunt rows also
+invalidate review. Byte-identical upstream operations and reference/sibling image
+changes preserve it. Invalidation failure rolls back upstream publication too;
+final check independently refuses stale evidence. Triage remains upsert-only,
+and the inherited Stage 4d orphan-result scan can grow with retained generations.
+
+Success exits 0 with bounded scalar aggregates/provenance and artifact paths;
+`--json` exposes the same summary, never raw review evidence. Syntax errors exit 2;
+semantic flag and expected domain/filesystem/database errors exit 1. SQLite
+failures print exactly `fpcheck: database operation failed`. Public text escapes
+controls/non-ASCII, redacts the supplied root, and caps at 512 ASCII characters
+(plus newline for diagnostics); unexpected programming errors propagate.
+
+Static review does not fetch, carve, modify, execute, emulate or exploit firmware,
+settle runtime/hardware blockers, inspect new kernel/bootloader surfaces, assign
+final severity/CVSS, claim live reachability, compose chains or write disclosure
+reports. The Asus golden and monorepo/submodule decision remain milestone and
+restructure prerequisites. Deterministic harness success verifies contracts;
+paid semantic quality, recall and audit-cost improvement remain unmeasured.
+`make mutate` remains separate and opt-in.
 
 ## Layout
 
