@@ -503,37 +503,46 @@ def verified_findings_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.P
     Semantic arrays become immutable tuples. SQL timestamps are excluded and
     verified artifact descendants are returned as canonical run-relative paths.
     Pivots are context for follow-up, never reviewed findings or chain evidence.
+    An owned read transaction keeps all SQL reads in the verified generation;
+    existing caller transactions are neither opened nor ended here.
     """
     try:
-        run_dir = pathlib.Path(run_dir).absolute()
-        inputs, _, _, expected_rows, destination, digest = _verified_review(
-            con, run_dir, root, image_id, require_complete=True)
-        upstream, run, _, stored, _, _ = inputs
+        owned_transaction = not con.in_transaction
+        if owned_transaction:
+            con.execute("BEGIN")
+        try:
+            run_dir = pathlib.Path(run_dir).absolute()
+            inputs, _, _, expected_rows, destination, digest = _verified_review(
+                con, run_dir, root, image_id, require_complete=True)
+            upstream, run, _, stored, _, _ = inputs
 
-        def record(cls, row):
-            fields = {field.name: row[field.name] for field in dataclasses.fields(cls)}
-            fields["artifact_path"] = pathlib.Path(fields["artifact_path"]).absolute().relative_to(run_dir).as_posix()
-            if cls is VerifiedFirmwareFinding:
-                fields["contributors"] = tuple(VerifiedFirmwareContributor(**value)
-                    for value in json.loads(fields["contributors"]))
-                for name in ("lanes", "component_paths", "surface_ids"):
-                    fields[name] = tuple(json.loads(fields[name]))
-            return cls(**fields)
+            def record(cls, row):
+                fields = {field.name: row[field.name] for field in dataclasses.fields(cls)}
+                fields["artifact_path"] = pathlib.Path(fields["artifact_path"]).absolute().relative_to(run_dir).as_posix()
+                if cls is VerifiedFirmwareFinding:
+                    fields["contributors"] = tuple(VerifiedFirmwareContributor(**value)
+                        for value in json.loads(fields["contributors"]))
+                    for name in ("lanes", "component_paths", "surface_ids"):
+                        fields[name] = tuple(json.loads(fields[name]))
+                return cls(**fields)
 
-        findings = tuple(record(VerifiedFirmwareFinding, row) for row in expected_rows)
-        surface_ids = {identifier for row in findings for identifier in row.surface_ids}
-        component_paths = {path for row in findings for path in row.component_paths}
-        surfaces = tuple(record(VerifiedFirmwareSurface, row) for row in surface._query(con,
-            "SELECT * FROM cba_firmware_surfaces WHERE image_id=? ORDER BY surface_id", (upstream.image_id,))
-            if row["surface_id"] in surface_ids)
-        unknowns = tuple(record(VerifiedFirmwareUnknown, row) for row in surface._query(con,
-            "SELECT * FROM cba_unknowns WHERE image_id=? ORDER BY id", (upstream.image_id,))
-            if row["surface_id"] in surface_ids or row["component_path"] in component_paths)
-        pivots = tuple(record(VerifiedFirmwarePivot, row) for row in sorted(stored[1], key=lambda row: row["pivot_id"]))
-        return VerifiedFirmwareFindingsSnapshot(upstream.image_id, upstream.manifest_sha256,
-            upstream.surface_snapshot_sha256, run["candidate_snapshot_sha256"], run["worklist_sha256"],
-            (destination / "findings.json").relative_to(run_dir).as_posix(), digest,
-            findings, surfaces, unknowns, pivots)
+            findings = tuple(record(VerifiedFirmwareFinding, row) for row in expected_rows)
+            surface_ids = {identifier for row in findings for identifier in row.surface_ids}
+            component_paths = {path for row in findings for path in row.component_paths}
+            surfaces = tuple(record(VerifiedFirmwareSurface, row) for row in surface._query(con,
+                "SELECT * FROM cba_firmware_surfaces WHERE image_id=? ORDER BY surface_id", (upstream.image_id,))
+                if row["surface_id"] in surface_ids)
+            unknowns = tuple(record(VerifiedFirmwareUnknown, row) for row in surface._query(con,
+                "SELECT * FROM cba_unknowns WHERE image_id=? ORDER BY id", (upstream.image_id,))
+                if row["surface_id"] in surface_ids or row["component_path"] in component_paths)
+            pivots = tuple(record(VerifiedFirmwarePivot, row) for row in sorted(stored[1], key=lambda row: row["pivot_id"]))
+            return VerifiedFirmwareFindingsSnapshot(upstream.image_id, upstream.manifest_sha256,
+                upstream.surface_snapshot_sha256, run["candidate_snapshot_sha256"], run["worklist_sha256"],
+                (destination / "findings.json").relative_to(run_dir).as_posix(), digest,
+                findings, surfaces, unknowns, pivots)
+        finally:
+            if owned_transaction:
+                con.rollback()
     except (sqlite3.Error, OSError, ValueError, db.DbError, hunt.HuntError, surface.SurfaceError) as exc:
         raise FpcheckError("Cannot verify firmware findings snapshot") from exc
 

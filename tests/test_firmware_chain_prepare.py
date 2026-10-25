@@ -230,3 +230,40 @@ def test_snapshot_refuses_status_ownership_provenance_and_artifact_drift(review,
         snapshot(review)
     assert state(con) == before and con.total_changes == writes and files(run) == artifacts
     assert not con.in_transaction
+
+
+@pytest.mark.parametrize('caller_transaction', [False, True])
+@pytest.mark.parametrize('changed', ['surface', 'unknown'])
+def test_snapshot_keeps_verified_sql_view_when_writer_changes_post_verification_rows(
+        prepared, tmp_path, monkeypatch, caller_transaction, changed):
+    # A real WAL writer commits at the verification/construction boundary. The
+    # returned records must still be the generation actually verified, and any
+    # caller-owned transaction must remain owned by the caller.
+    context = rich_review(prepared, tmp_path, 1)
+    con, run, _ = context
+    con.execute('PRAGMA journal_mode=WAL')
+    expected = firmware_fpcheck.verified_findings_snapshot(*context)
+    original = firmware_fpcheck._verified_review
+    sql = ("UPDATE cba_firmware_surfaces SET reach_evidence='unverified writer bytes' WHERE surface_id='http-c'"
+           if changed == 'surface' else
+           "UPDATE cba_unknowns SET question='unverified writer bytes' WHERE id='component-only'")
+    if caller_transaction:
+        con.execute('BEGIN')
+    before, writes, artifacts = state(con), con.total_changes, files(run)
+    def change_after_verification(*args, **kwargs):
+        verified = original(*args, **kwargs)
+        with sqlite3.connect(run / 'audit.db', timeout=0.1) as writer:
+            writer.execute(sql)
+        return verified
+    monkeypatch.setattr(firmware_fpcheck, '_verified_review', change_after_verification)
+    value = firmware_fpcheck.verified_findings_snapshot(*context)
+    assert value == expected
+    assert con.total_changes == writes and files(run) == artifacts
+    assert con.in_transaction is caller_transaction
+    if caller_transaction:
+        assert state(con) == before
+        con.rollback()
+    with sqlite3.connect(run / 'audit.db') as observer:
+        assert observer.execute('SELECT count(*) FROM ' + (
+            "cba_firmware_surfaces WHERE reach_evidence='unverified writer bytes'" if changed == 'surface' else
+            "cba_unknowns WHERE question='unverified writer bytes'")).fetchone()[0] == 1
