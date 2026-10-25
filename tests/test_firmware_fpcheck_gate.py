@@ -103,6 +103,11 @@ def test_receipted_empty_hunt_completes_with_zero_findings(tmp_path):
         before, writes = state(con), con.total_changes
         assert firmware_fpcheck.check(con, run, root) == result
         assert state(con) == before and con.total_changes == writes
+        frozen = firmware_fpcheck.verified_findings_snapshot(con, run, root)
+        assert frozen.findings == frozen.surfaces == frozen.unknowns == frozen.pivots == ()
+        assert frozen.findings_artifact_path == pathlib.Path(result.artifact_path).relative_to(run).as_posix()
+        assert frozen.findings_artifact_sha256 == hashlib.sha256(pathlib.Path(result.artifact_path).read_bytes()).hexdigest()
+        assert state(con) == before and con.total_changes == writes
 
 
 def test_all_false_positives_complete_without_findings_and_preserve_every_pivot(review):
@@ -206,7 +211,10 @@ def test_refusal_also_revalidates_previously_complete_state(review, damage):
     else:
         con.execute('UPDATE cba_firmware_fp_runs SET completed_at=NULL')
     con.commit()
-    before = state(con)
+    before, writes = state(con), con.total_changes
+    with pytest.raises(firmware_fpcheck.FpcheckError):
+        firmware_fpcheck.verified_findings_snapshot(con, run, root)
+    assert state(con) == before and con.total_changes == writes and not con.in_transaction
     with pytest.raises(firmware_fpcheck.FpcheckError):
         check(review)
     assert state(con) == before and not con.in_transaction

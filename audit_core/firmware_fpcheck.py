@@ -56,6 +56,102 @@ class FpcheckSummary:
     complete: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareContributor:
+    lane: str
+    candidate_id: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareFinding:
+    image_id: str
+    finding_id: str
+    candidate_snapshot_sha256: str
+    root_cause_key: str
+    canonical_lane: str
+    canonical_candidate_id: str
+    contributors: tuple[VerifiedFirmwareContributor, ...]
+    lanes: tuple[str, ...]
+    component_paths: tuple[str, ...]
+    surface_ids: tuple[str, ...]
+    title: str
+    bug_class: str
+    root_cause: str
+    attacker_position: str
+    data_flow: str
+    impact_hypothesis: str
+    evidence_summary: str
+    confidence: int
+    evidence_rung: str
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareSurface:
+    image_id: str
+    surface_id: str
+    component_path: str
+    entry_point: str
+    protocol: str
+    dispatch_path: str
+    handler: str
+    lifecycle_required: str
+    posture_required: str
+    auth_required: str
+    reachability: str
+    reach_evidence: str
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareUnknown:
+    id: str
+    image_id: str
+    component_path: str
+    surface_id: str | None
+    field: str
+    question: str
+    settling_observation: str
+    method: str
+    status: str
+    resolution: str | None
+    evidence: str | None
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwarePivot:
+    image_id: str
+    pivot_id: str
+    candidate_snapshot_sha256: str
+    source_lane: str
+    source_candidate_id: str
+    component_path: str
+    refuting_mechanism: str
+    enabled_observation: str
+    evidence: str
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareFindingsSnapshot:
+    image_id: str
+    manifest_sha256: str
+    surface_snapshot_sha256: str
+    candidate_snapshot_sha256: str
+    fpcheck_worklist_sha256: str
+    findings_artifact_path: str
+    findings_artifact_sha256: str
+    findings: tuple[VerifiedFirmwareFinding, ...]
+    surfaces: tuple[VerifiedFirmwareSurface, ...]
+    unknowns: tuple[VerifiedFirmwareUnknown, ...]
+    pivots: tuple[VerifiedFirmwarePivot, ...]
+
+
 def _identity(snapshot: hunt.VerifiedHuntSnapshot) -> dict[str, object]:
     lanes = {row.lane: row.worklist_sha256 for row in snapshot.lanes}
     return {"schema_version": 1, "image_id": snapshot.image_id,
@@ -364,6 +460,84 @@ def _derive(snapshot: hunt.VerifiedHuntSnapshot, run: dict, decisions: dict) -> 
     return findings
 
 
+def _verified_review(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path,
+                     image_id: str | None, *, require_complete: bool = False) -> tuple:
+    """Reconstruct all Stage 4f evidence; only the public check owns publication."""
+    from audit_core import firmware_fpcheck_results as results
+
+    inputs = _review_inputs(con, run_dir, root, image_id)
+    snapshot, run, receipts, _, prior_findings, decisions = inputs
+    if require_complete and run["status"] != "complete":
+        raise FpcheckError("Firmware review run must already be complete")
+    findings = _derive(snapshot, run, decisions)
+    content = surface.canonical_bytes(dict(schema_version=1, image_id=snapshot.image_id,
+        candidate_snapshot_sha256=run["candidate_snapshot_sha256"], worklist_sha256=run["worklist_sha256"],
+        results=[dict(batch_path=row["batch_path"], result_sha256=row["result_sha256"]) for row in receipts],
+        findings=findings))
+    digest = hashlib.sha256(content).hexdigest()
+    destination = run_dir / "artifacts/firmware-fpcheck" / run["worklist_sha256"] / digest
+    artifact_path = str(destination / "findings.json")
+    expected_rows = []
+    for finding in findings:
+        row = finding | dict(artifact_path=artifact_path, artifact_sha256=digest)
+        for field in ("contributors", "lanes", "component_paths", "surface_ids"):
+            row[field] = _cell(row[field])
+        db.TABLE_SPECS["cba_firmware_findings"].validate(row)
+        expected_rows.append(row)
+    expected_rows.sort(key=lambda row: row["finding_id"])
+    if run["status"] == "complete":
+        if ([{key: value for key, value in row.items() if key != "derived_at"} for row in prior_findings] != expected_rows
+                or any(not row["derived_at"] for row in prior_findings)):
+            raise FpcheckError("Completed firmware findings differ from canonical review derivation")
+        # A completed generation must already own its immutable evidence;
+        # silently rebuilding a missing artifact would conceal drift.
+        results._artifact_directories(run_dir, destination)
+        _checked_install(destination, {"findings.json": content})
+    return inputs, findings, content, expected_rows, destination, digest
+
+
+def verified_findings_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
+                               *, image_id: str | None = None) -> VerifiedFirmwareFindingsSnapshot:
+    """Freeze complete Stage 4f evidence read-only, including in caller transactions.
+
+    Semantic arrays become immutable tuples. SQL timestamps are excluded and
+    verified artifact descendants are returned as canonical run-relative paths.
+    Pivots are context for follow-up, never reviewed findings or chain evidence.
+    """
+    try:
+        run_dir = pathlib.Path(run_dir).absolute()
+        inputs, _, _, expected_rows, destination, digest = _verified_review(
+            con, run_dir, root, image_id, require_complete=True)
+        upstream, run, _, stored, _, _ = inputs
+
+        def record(cls, row):
+            fields = {field.name: row[field.name] for field in dataclasses.fields(cls)}
+            fields["artifact_path"] = pathlib.Path(fields["artifact_path"]).absolute().relative_to(run_dir).as_posix()
+            if cls is VerifiedFirmwareFinding:
+                fields["contributors"] = tuple(VerifiedFirmwareContributor(**value)
+                    for value in json.loads(fields["contributors"]))
+                for name in ("lanes", "component_paths", "surface_ids"):
+                    fields[name] = tuple(json.loads(fields[name]))
+            return cls(**fields)
+
+        findings = tuple(record(VerifiedFirmwareFinding, row) for row in expected_rows)
+        surface_ids = {identifier for row in findings for identifier in row.surface_ids}
+        component_paths = {path for row in findings for path in row.component_paths}
+        surfaces = tuple(record(VerifiedFirmwareSurface, row) for row in surface._query(con,
+            "SELECT * FROM cba_firmware_surfaces WHERE image_id=? ORDER BY surface_id", (upstream.image_id,))
+            if row["surface_id"] in surface_ids)
+        unknowns = tuple(record(VerifiedFirmwareUnknown, row) for row in surface._query(con,
+            "SELECT * FROM cba_unknowns WHERE image_id=? ORDER BY id", (upstream.image_id,))
+            if row["surface_id"] in surface_ids or row["component_path"] in component_paths)
+        pivots = tuple(record(VerifiedFirmwarePivot, row) for row in sorted(stored[1], key=lambda row: row["pivot_id"]))
+        return VerifiedFirmwareFindingsSnapshot(upstream.image_id, upstream.manifest_sha256,
+            upstream.surface_snapshot_sha256, run["candidate_snapshot_sha256"], run["worklist_sha256"],
+            (destination / "findings.json").relative_to(run_dir).as_posix(), digest,
+            findings, surfaces, unknowns, pivots)
+    except (sqlite3.Error, OSError, ValueError, db.DbError, hunt.HuntError, surface.SurfaceError) as exc:
+        raise FpcheckError("Cannot verify firmware findings snapshot") from exc
+
+
 def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
           *, image_id: str | None = None) -> FpcheckSummary:
     """Verify all review evidence and atomically complete one static generation."""
@@ -374,32 +548,9 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | path
         if con.in_transaction:
             raise FpcheckError("Firmware review check requires a connection without an active transaction")
         run_dir = pathlib.Path(run_dir).absolute()
-        inputs = _review_inputs(con, run_dir, root, image_id)
-        snapshot, run, receipts, _, prior_findings, decisions = inputs
-        findings = _derive(snapshot, run, decisions)
-        content = surface.canonical_bytes(dict(schema_version=1, image_id=snapshot.image_id,
-            candidate_snapshot_sha256=run["candidate_snapshot_sha256"], worklist_sha256=run["worklist_sha256"],
-            results=[dict(batch_path=row["batch_path"], result_sha256=row["result_sha256"]) for row in receipts],
-            findings=findings))
-        digest = hashlib.sha256(content).hexdigest()
-        destination = run_dir / "artifacts/firmware-fpcheck" / run["worklist_sha256"] / digest
+        inputs, findings, content, expected_rows, destination, _ = _verified_review(con, run_dir, root, image_id)
+        snapshot, run, _, _, _, decisions = inputs
         artifact_path = str(destination / "findings.json")
-        expected_rows = []
-        for finding in findings:
-            row = finding | dict(artifact_path=artifact_path, artifact_sha256=digest)
-            for field in ("contributors", "lanes", "component_paths", "surface_ids"):
-                row[field] = _cell(row[field])
-            db.TABLE_SPECS["cba_firmware_findings"].validate(row)
-            expected_rows.append(row)
-        expected_rows.sort(key=lambda row: row["finding_id"])
-        if run["status"] == "complete":
-            if ([{key: value for key, value in row.items() if key != "derived_at"} for row in prior_findings] != expected_rows
-                    or any(not row["derived_at"] for row in prior_findings)):
-                raise FpcheckError("Completed firmware findings differ from canonical review derivation")
-            # A completed generation must already own its immutable evidence;
-            # silently rebuilding a missing artifact would conceal drift.
-            results._artifact_directories(run_dir, destination)
-            _checked_install(destination, {"findings.json": content})
         results._artifact_directories(run_dir, destination)
         surface.atomic_install(destination, {"findings.json": content})
         con.execute("BEGIN IMMEDIATE")
