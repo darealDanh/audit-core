@@ -42,6 +42,24 @@ HUNT_DISPOSITIONS = ("analyzed", "not_applicable", "not_audited")
 FIRMWARE_FP_RUN_STATES = ("pending", "complete")
 FIRMWARE_FP_VERDICTS = ("TRUE_POSITIVE", "FALSE_POSITIVE", "DUPLICATE")
 FIRMWARE_FP_EVIDENCE_RUNGS = ("static-reviewed",)
+FIRMWARE_CHAIN_RUN_STATES = ("pending", "complete")
+FIRMWARE_CHAIN_DISPOSITIONS = ("chained", "standalone", "unchainable", "blocked")
+FIRMWARE_CHAIN_COMPLETENESS = ("complete", "blocked")
+FIRMWARE_CHAIN_PRE_AUTH = ("yes", "no", "unknown")
+FIRMWARE_CHAIN_EVIDENCE_RUNGS = ("static-chained",)
+FIRMWARE_CHAIN_CAPABILITY_KINDS = (
+    "credential-possession", "session-possession", "file-read", "file-write",
+    "config-read", "config-write", "command-execution", "code-execution",
+    "ipc-access", "network-reachability", "firmware-update-control",
+    "persistent-execution", "reboot-control", "physical-access", "other-specific")
+FIRMWARE_CHAIN_LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
+                                   "cloud-registered", "post-reset")
+FIRMWARE_CHAIN_POSTURE_STATES = ("SoftAP-setup", "STA-LAN", "WAN-exposed", "BLE",
+                                 "cloud-tunnel-only")
+FIRMWARE_CHAIN_AUTH_STATES = ("pre-auth", "session", "admin", "local-shell", "physical-UART")
+FIRMWARE_CHAIN_TRANSITION_KINDS = ("direct", "reboot", "service-restart", "factory-reset", "reprovision")
+FIRMWARE_CHAIN_METHODS = ("static", "emulate", "hardware")
+FIRMWARE_CHAIN_AXES = ("authentication", "lifecycle", "posture", "reachability")
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -558,6 +576,183 @@ def _validate_firmware_finding(row: dict[str, str]) -> None:
         _firmware_fp_array(row, column, nonempty=column != "surface_ids")
 
 
+def _firmware_chain_base(row: dict[str, str], table: str) -> None:
+    """Local scalar shape only; phase modules prove ownership and derivation."""
+    counts = tuple(column for column in TABLE_SPECS[table].required
+                   if column.endswith("_count") or column in ("confidence", "ordinal"))
+    _validate_surface_text(row, table, counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    for column, value in row.items():
+        if column in counts or value is None:
+            continue
+        _firmware_fp_text(value, column)
+        if column.endswith("_sha256"):
+            _validate_sha256(row, column)
+        if column.endswith("_path"):
+            _firmware_fp_path(value, column, absolute=True)
+        if column in ("finding_id", "chain_id", "blocker_id", "producer_finding_id", "consumer_finding_id"):
+            _validate_surface_identifier(row, column)
+    if "confidence" in counts and int(row["confidence"]) > 10:
+        raise DbError("confidence requires an integer 0-10")
+
+
+def _firmware_chain_unique(values: list, column: str, *, ordered: bool = False) -> None:
+    if len(set(values)) != len(values):
+        raise DbError(f"{column} must not repeat an entry")
+    if not ordered and values != sorted(values):
+        raise DbError(f"{column} requires sorted entries")
+
+
+def _firmware_chain_ids(row: dict[str, str], column: str, *, minimum: int = 0,
+                        ordered: bool = False) -> list:
+    values = _hunt_json_array(row, column)
+    if len(values) < minimum:
+        raise DbError(f"{column} requires at least {minimum} entries")
+    for value in values:
+        _validate_surface_identifier({column: value}, column)
+    _firmware_chain_unique(values, column, ordered=ordered)
+    return values
+
+
+def _firmware_chain_axes(values: object, column: str) -> None:
+    if not isinstance(values, list) or not values:
+        raise DbError(f"{column} requires at least one affected axis")
+    for value in values:
+        if value not in FIRMWARE_CHAIN_AXES:
+            raise DbError(f"{column} has an invalid affected axis")
+    _firmware_chain_unique(values, column)
+
+
+def _firmware_chain_refs(row: dict[str, str], column: str, *, initial: bool = False,
+                         supplemental: bool = False) -> None:
+    values = _hunt_json_array(row, column)
+    if not supplemental and not values:
+        raise DbError(f"{column} requires at least one evidence reference")
+    for value in values:
+        _firmware_fp_text(value, column)
+        match = re.fullmatch(r"(finding|surface|unknown):([A-Za-z0-9][A-Za-z0-9._:-]{0,127})#([a-z_]+)", value)
+        if match is None:
+            raise DbError(f"{column} requires machine-addressable evidence references")
+        kind, _, field = match.groups()
+        fields = {"finding": ("root_cause", "attacker_position", "data_flow", "impact_hypothesis", "evidence_summary"),
+                  "surface": ("reach_evidence",), "unknown": ("evidence",)}
+        if (field not in fields[kind] or (supplemental and kind == "finding")
+                or (not supplemental and not initial and kind != "finding")
+                or (initial and (kind == "unknown" or
+                     (kind == "finding" and field not in ("attacker_position", "evidence_summary"))))):
+            raise DbError(f"{column} has an invalid evidence variant")
+    _firmware_chain_unique(values, column)
+
+
+def _firmware_chain_state(row: dict[str, str], column: str, sentinel: str) -> None:
+    raw = row[column]
+    try:
+        values = json.loads(raw)
+        canonical = json.dumps(values, sort_keys=True, ensure_ascii=False,
+                               allow_nan=False, separators=(",", ":"))
+        canonical.encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise DbError(f"{column} requires canonical UTF-8 JSON") from exc
+    if (raw != canonical or not isinstance(values, dict)
+            or set(values) != {"lifecycle", "posture", "authentication"}):
+        raise DbError(f"{column} requires exactly lifecycle, posture, authentication")
+    for axis, allowed in (("lifecycle", FIRMWARE_CHAIN_LIFECYCLE_STATES),
+                           ("posture", FIRMWARE_CHAIN_POSTURE_STATES),
+                           ("authentication", FIRMWARE_CHAIN_AUTH_STATES)):
+        if values[axis] not in (*allowed, sentinel):
+            raise DbError(f"{column} has an invalid {axis} state")
+
+
+def _validate_firmware_chain_run(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chain_runs")
+    one_of("status", FIRMWARE_CHAIN_RUN_STATES)(row)
+    for column in ("graph_path", "graph_sha256", "completed_at"):
+        if row["status"] == "pending" and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for a pending chain run")
+        if row["status"] == "complete":
+            _firmware_fp_text(row.get(column), column)
+
+
+def _validate_firmware_chain_receipt(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chain_receipts")
+
+
+def _validate_firmware_chain_disposition(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chain_dispositions")
+    one_of("disposition", FIRMWARE_CHAIN_DISPOSITIONS)(row)
+    arrays = {column: _firmware_chain_ids(row, column) for column in
+              ("chain_ids", "existing_unknown_ids", "blocker_ids", "pivot_followup_ids")}
+    if bool(arrays["chain_ids"]) != (row["disposition"] == "chained"):
+        raise DbError("chain_ids must be non-empty exactly for a chained disposition")
+    if row["disposition"] == "blocked" and not (arrays["existing_unknown_ids"] or arrays["blocker_ids"]):
+        raise DbError("a blocked disposition requires existing_unknown_ids or blocker_ids")
+    if arrays["pivot_followup_ids"] and row["disposition"] not in ("unchainable", "blocked"):
+        raise DbError("pivot_followup_ids are only valid for unchainable or blocked dispositions")
+
+
+def _validate_firmware_chain_unknown(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chain_unknowns")
+    one_of("method", FIRMWARE_CHAIN_METHODS)(row)
+    one_of("status", ("open",))(row)
+    _firmware_chain_axes(_hunt_json_array(row, "axes"), "axes")
+    findings = _firmware_chain_ids(row, "affected_finding_ids")
+    edges = _hunt_json_array(row, "affected_edges")
+    identities = []
+    for edge in edges:
+        if not isinstance(edge, dict) or set(edge) != {"chain_id", "ordinal"}:
+            raise DbError("affected_edges require exactly chain_id and ordinal")
+        try:
+            _validate_surface_identifier(edge, "chain_id")
+            if isinstance(edge["ordinal"], bool) or not isinstance(edge["ordinal"], int):
+                raise DbError("ordinal requires an integer")
+            _validate_nonnegative_integers(edge, ("ordinal",))
+        except DbError as exc:
+            raise DbError(f"affected_edges: {exc}") from exc
+        identities.append((edge["chain_id"], edge["ordinal"]))
+    _firmware_chain_unique(identities, "affected_edges")
+    if not findings and not edges:
+        raise DbError("affected_finding_ids or affected_edges must be non-empty")
+
+
+def _validate_firmware_chain(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chains")
+    for column, allowed in (("initial_lifecycle", FIRMWARE_CHAIN_LIFECYCLE_STATES),
+                            ("initial_posture", FIRMWARE_CHAIN_POSTURE_STATES),
+                            ("initial_authentication", FIRMWARE_CHAIN_AUTH_STATES),
+                            ("pre_auth", FIRMWARE_CHAIN_PRE_AUTH),
+                            ("completeness", FIRMWARE_CHAIN_COMPLETENESS),
+                            ("evidence_rung", FIRMWARE_CHAIN_EVIDENCE_RUNGS)):
+        one_of(column, allowed)(row)
+    _firmware_chain_ids(row, "member_ids", minimum=2, ordered=True)
+    _firmware_chain_refs(row, "initial_evidence_refs", initial=True)
+    blockers = [_firmware_chain_ids(row, column) for column in ("existing_unknown_ids", "blocker_ids")]
+    if any(blockers) != (row["completeness"] == "blocked"):
+        raise DbError("completeness must be blocked exactly when blocker references are present")
+
+
+def _validate_firmware_chain_edge(row: dict[str, str]) -> None:
+    _firmware_chain_base(row, "cba_firmware_chain_edges")
+    one_of("capability_kind", FIRMWARE_CHAIN_CAPABILITY_KINDS)(row)
+    one_of("transition_kind", FIRMWARE_CHAIN_TRANSITION_KINDS)(row)
+    if row["capability_kind"] == "other-specific" and re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*:[^\s:]+(?::[^\s:]+)*", row["link_key"]) is None:
+        raise DbError("link_key for other-specific requires a namespace-like resource key")
+    for column in ("producer_evidence_refs", "consumer_evidence_refs", "supplemental_evidence_refs"):
+        _firmware_chain_refs(row, column, supplemental=column == "supplemental_evidence_refs")
+    _firmware_chain_state(row, "required_state", "any")
+    _firmware_chain_state(row, "result_state", "unchanged")
+    _firmware_chain_ids(row, "blocker_ids")
+    unknowns = _hunt_json_array(row, "existing_unknowns")
+    identities = []
+    for unknown in unknowns:
+        if not isinstance(unknown, dict) or set(unknown) != {"unknown_id", "axes"}:
+            raise DbError("existing_unknowns require exactly unknown_id and axes")
+        _validate_surface_identifier({"existing_unknowns": unknown["unknown_id"]}, "existing_unknowns")
+        _firmware_chain_axes(unknown["axes"], "existing_unknowns")
+        identities.append(unknown["unknown_id"])
+    _firmware_chain_unique(identities, "existing_unknowns")
+
+
 def _validate_diff_entry(row: dict[str, str]) -> None:
     change = row.get("change")
     if change not in DIFF_CHANGES:
@@ -783,6 +978,59 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "bug_class", "root_cause", "attacker_position", "data_flow", "impact_hypothesis",
                   "evidence_summary", "confidence", "evidence_rung", "artifact_path", "artifact_sha256"),
         primary_key=("image_id", "finding_id"), validate=_validate_firmware_finding),
+    "cba_firmware_chain_runs": TableSpec(
+        columns=("image_id", "manifest_sha256", "surface_snapshot_sha256", "candidate_snapshot_sha256",
+                 "fpcheck_artifact_path", "fpcheck_artifact_sha256", "worklist_path", "worklist_sha256",
+                 "finding_count", "surface_count", "unknown_count", "pivot_count", "status", "graph_path",
+                 "graph_sha256", "prepared_at", "completed_at"),
+        required=("image_id", "manifest_sha256", "surface_snapshot_sha256", "candidate_snapshot_sha256",
+                  "fpcheck_artifact_path", "fpcheck_artifact_sha256", "worklist_path", "worklist_sha256",
+                  "finding_count", "surface_count", "unknown_count", "pivot_count", "status"),
+        primary_key=("image_id",), validate=_validate_firmware_chain_run),
+    "cba_firmware_chain_receipts": TableSpec(
+        columns=("image_id", "candidate_snapshot_sha256", "worklist_sha256", "result_path", "result_sha256",
+                 "disposition_count", "blocker_count", "chain_count", "edge_count", "recorded_at"),
+        required=("image_id", "candidate_snapshot_sha256", "worklist_sha256", "result_path", "result_sha256",
+                  "disposition_count", "blocker_count", "chain_count", "edge_count"),
+        primary_key=("image_id", "candidate_snapshot_sha256"), validate=_validate_firmware_chain_receipt),
+    "cba_firmware_chain_dispositions": TableSpec(
+        columns=("image_id", "finding_id", "candidate_snapshot_sha256", "disposition", "explanation",
+                 "chain_ids", "existing_unknown_ids", "blocker_ids", "pivot_followup_ids", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "finding_id", "candidate_snapshot_sha256", "disposition", "explanation",
+                  "chain_ids", "existing_unknown_ids", "blocker_ids", "pivot_followup_ids", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("image_id", "finding_id"), validate=_validate_firmware_chain_disposition),
+    "cba_firmware_chain_unknowns": TableSpec(
+        columns=("image_id", "blocker_id", "candidate_snapshot_sha256", "question", "settling_observation",
+                 "method", "axes", "affected_finding_ids", "affected_edges", "status", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "blocker_id", "candidate_snapshot_sha256", "question", "settling_observation",
+                  "method", "axes", "affected_finding_ids", "affected_edges", "status", "artifact_path",
+                  "artifact_sha256"),
+        primary_key=("image_id", "blocker_id"), validate=_validate_firmware_chain_unknown),
+    "cba_firmware_chains": TableSpec(
+        columns=("image_id", "chain_id", "candidate_snapshot_sha256", "title", "summary", "member_ids",
+                 "initial_attacker_position", "initial_evidence_refs", "initial_lifecycle", "initial_posture",
+                 "initial_authentication", "pre_auth", "confidence", "completeness", "existing_unknown_ids",
+                 "blocker_ids", "evidence_rung", "artifact_path", "artifact_sha256", "derived_at"),
+        required=("image_id", "chain_id", "candidate_snapshot_sha256", "title", "summary", "member_ids",
+                  "initial_attacker_position", "initial_evidence_refs", "initial_lifecycle", "initial_posture",
+                  "initial_authentication", "pre_auth", "confidence", "completeness", "existing_unknown_ids",
+                  "blocker_ids", "evidence_rung", "artifact_path", "artifact_sha256"),
+        primary_key=("image_id", "chain_id"), validate=_validate_firmware_chain),
+    "cba_firmware_chain_edges": TableSpec(
+        columns=("image_id", "chain_id", "ordinal", "candidate_snapshot_sha256", "producer_finding_id",
+                 "consumer_finding_id", "capability_kind", "link_key", "produced_capability",
+                 "required_precondition", "producer_evidence_refs", "consumer_evidence_refs",
+                 "supplemental_evidence_refs", "required_state", "result_state", "transition_kind",
+                 "confidence", "existing_unknowns", "blocker_ids", "artifact_path", "artifact_sha256", "derived_at"),
+        required=("image_id", "chain_id", "ordinal", "candidate_snapshot_sha256", "producer_finding_id",
+                  "consumer_finding_id", "capability_kind", "link_key", "produced_capability",
+                  "required_precondition", "producer_evidence_refs", "consumer_evidence_refs",
+                  "supplemental_evidence_refs", "required_state", "result_state", "transition_kind",
+                  "confidence", "existing_unknowns", "blocker_ids", "artifact_path", "artifact_sha256"),
+        primary_key=("image_id", "chain_id", "ordinal"), validate=_validate_firmware_chain_edge),
 }
 
 

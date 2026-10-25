@@ -47,20 +47,31 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                 "location, root_cause, impact, created_at) VALUES "
                 "('old-finding', 'G1', 'Original', 'HIGH', 8, 'src/a.c:1', "
                 "'unchecked length', 'overwrite', '2026-01-03 04:05:06')")
+    if baseline == "baseline-stage4b.sql":
+        con.execute("INSERT INTO cba_binfacts (path, image_id, machine, bits, endian, elf_type, recorded_at) "
+                    "VALUES ('bin/httpd', 'image.1', 'mips', 32, 'big', 'EXEC', '2026-01-04 05:06:07')")
+        con.execute("INSERT INTO cba_services (name, image_id, start_source, evidence, recorded_at) "
+                    "VALUES ('httpd', 'image.1', 'etc/init.d/S50httpd', "
+                    "'init invokes /bin/httpd', '2026-01-04 05:06:07')")
+    firmware_tables = ("cba_binfacts", "cba_services") if baseline == "baseline-stage4b.sql" else ()
+    preserved_tables = ("cba_patterns", "cba_findings", *firmware_tables)
     con.commit()
     old_rows = {table: con.execute(f"SELECT * FROM {table}").fetchall()
-                for table in ("cba_patterns", "cba_findings")}
+                for table in preserved_tables}
     old_columns = {table: tuple(row[1] for row in con.execute(f"PRAGMA table_info({table})"))
                    for table in old_rows}
     con.close()
     result = workspace.apply_schema(path)
-    assert len(result.tables) == 32
+    assert len(result.tables) == 38
     con = db.connect(path)
     try:
         for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",
                       "cba_hunt_runs", "cba_hunt_receipts", "cba_hunt_candidates",
                       "cba_firmware_fp_runs", "cba_firmware_fp_receipts",
-                      "cba_firmware_fp_verdicts", "cba_firmware_pivots", "cba_firmware_findings"):
+                      "cba_firmware_fp_verdicts", "cba_firmware_pivots", "cba_firmware_findings",
+                      "cba_firmware_chain_runs", "cba_firmware_chain_receipts",
+                      "cba_firmware_chain_dispositions", "cba_firmware_chain_unknowns",
+                      "cba_firmware_chains", "cba_firmware_chain_edges"):
             assert db.rows(con, table) == []
         for table in old_rows:
             assert [tuple(row) for row in con.execute(
