@@ -1,7 +1,7 @@
 # Stage 4g Firmware Chain Design
 
 **Date:** 2026-10-25  
-**Status:** proposed  
+**Status:** approved
 **Consumes:** completed Stage 4f firmware static review  
 **Produces:** complete, static-only firmware exploit-chain evidence
 
