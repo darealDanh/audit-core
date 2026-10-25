@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-25 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merged into local `main` at `8119af1`, not pushed ·
-**Current verification:** Stage 4f implementation/documentation: 4,164 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-10-25 · **Branch:** local `main`; Stage 4f merged by fast-forward at `303232e`, not pushed ·
+**Current verification:** merged Stage 4f tree: 4,164 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -21,17 +21,15 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4e are merged to local `main`.** Stage 4e
-(`hunt`) is merged at `8119af1`; nothing has been pushed. Stage 4f firmware
-`fpcheck` implementation and documentation/inventory are complete on this feature
-branch, from approved design `b4f6e0f` and plan `61177ce`. The slice includes
+**Stages 0 through 3c and Stages 4a-4f are merged to local `main`.** Stage 4f
+firmware `fpcheck` is merged by fast-forward at `303232e`; nothing has been
+pushed. It was built from approved design `b4f6e0f` and plan `61177ce`. The slice includes
 five-table row contracts, verified completed-hunt snapshots, deterministic review
 batches, strict results, atomic import, canonical reviewed findings, upstream
 invalidation, bounded CLI, worker brief and installed routing. Final review found
-JSON identity/path corruption; the final fix preserves machine-readable values
-and retains bounded human output. Controller-owned scoped re-review and
-integration remain pending. The next firmware slice
-is `chain`.
+JSON identity/path corruption; `303232e` preserves machine-readable values and
+retains bounded human output. The scoped re-review was clean. The next firmware
+slice is `chain`.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -47,7 +45,7 @@ Stage 5 has not started.
 | 4c | `diff` — image-scoped firmware comparison and agent brief | 10 implementation commits | local `main` | **merged locally** (`deb3eed`) — 8/8 gates, review fixes applied, no audit run; not pushed |
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
-| 4f | `fpcheck` — dedicated static firmware review | through `6ad048c` plus final JSON fix | feature branch | implementation/docs complete; controller scoped re-review and integration pending |
+| 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -436,9 +434,9 @@ Stage 4f design and plan. All eight gates passed; that summary is recorded
 in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
-and Stage 4d retains its orphan-candidate scan scaling limitation. Stage 4f
-implementation and documentation are complete on the feature branch; controller
-final review and integration remain pending. The next firmware slice is `chain`.
+and Stage 4d retains its orphan-candidate scan scaling limitation. Stage 4f is
+merged into local `main` at `303232e` after clean scoped final re-review. The
+next firmware slice is `chain`.
 The Asus golden and monorepo/submodule decision remain milestone/restructure
 prerequisites.
 
@@ -842,11 +840,11 @@ PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 all 8 gate(s) passed
 ```
 
-The final execution report records the authoritative post-documentation
+The final execution report recorded the authoritative post-documentation
 `make all` result. Historical Task 11 measurements above remain intact. The
-single final-fix wave is implemented; controller-owned scoped re-review and
-integration remain pending. No merge, push, mutation sweep, paid audit/milestone
-rerun or indicator snapshot ran. The next firmware slice is `chain`, retaining
+single final-fix wave passed scoped re-review and Stage 4f is merged into local
+`main` at `303232e`. No push, mutation sweep, paid audit/milestone rerun or
+indicator snapshot ran. The next firmware slice is `chain`, retaining
 triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
 and monorepo/submodule decision remain overall milestone/restructure
 prerequisites; static contracts do not establish semantic audit quality.
@@ -884,11 +882,11 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** `main` includes Stage 4e at `8119af1`.
+7. **Local changes are not pushed.** `main` includes Stage 4f at `303232e`.
    The earlier observation of 50 commits ahead of `origin/main` was measured
    on 2026-10-16 and is historical, not the current synchronization count.
-   Stage 4f design and plan are on `stage4f-firmware-fpcheck`. Nothing has
-   been pushed.
+   The former Stage 4f feature branch/worktree were removed after the local
+   fast-forward merge. Nothing has been pushed.
 
 ### Carried forward from Stage 0 and Stage 1, never actioned
 
@@ -1022,10 +1020,9 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Controller-owned scoped re-review/integration of Stage 4f, then firmware `chain`**.
-   Implementation and documentation/inventory are complete on this feature branch.
-   Final whole-branch review found JSON identity/path corruption; the single final
-   fix wave is implemented and awaits scoped re-review. No merge or push is claimed.
+1. **Implement firmware `chain` on the merged Stage 4f foundation.**
+   Stage 4f passed whole-branch review, its JSON fix passed scoped re-review, and
+   local `main` now contains the phase at `303232e`; nothing has been pushed.
    `chain` consumes dedicated reviewed firmware findings. Triage's upsert-only
    snapshots and Stage 4d retained-orphan scan scaling persist. The Asus golden
    and monorepo/submodule decision remain prerequisites for the overall Stage 4

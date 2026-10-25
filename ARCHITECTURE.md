@@ -386,9 +386,8 @@ not adjudicate false positives, assign final severity, fetch/carve/execute or
 emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. Firmware review is
-implemented as Stage 4f below. Its implementation and documentation are complete on the feature branch; controller-owned independent
-scoped re-review of the final JSON fix and integration remain pending. The next firmware slice is
-`chain`.
+implemented as Stage 4f below and merged into local `main` at `303232e` after
+clean scoped final re-review. The next firmware slice is `chain`.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -488,8 +487,7 @@ false-positive generations complete with zero findings. Only dedicated Stage 4f
 tables are written; generic finding/verdict tables are untouched. Atomic upstream
 invalidation and the bounded firmware `fpcheck` CLI are implemented. The firmware
 review brief, installed-user routing and full-phase documentation/inventory are
-complete on the branch; controller scoped re-review of the final JSON fix and
-integration remain pending.
+merged into local `main` at `303232e`; the scoped final re-review was clean.
 The eighth dispatch template, `references/briefs/firmware-fpcheck-brief.md`,
 uses the existing `brief` renderer with eight required path/provenance variables.
 `SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
@@ -507,9 +505,10 @@ all mode-specific flags before database I/O (syntax exit 2; semantic exit 1).
 Prepare accepts batch targets 1–200, default 20. The handler delegates to the
 phase boundaries and selects scalar counts/provenance plus artifact paths;
 check reports a finding count, excluding per-finding identifiers and review
-fields. Both output formats escape/cap public text at 512 ASCII characters,
-redact the supplied root and keep success stderr empty. Expected diagnostics
-are capped at 512 ASCII characters plus newline; SQLite errors print exactly
+fields. Human success fields escape/cap public text at 512 ASCII characters and
+redact the supplied root; machine JSON preserves the fixed scalar field set
+losslessly so identities and artifact paths remain reusable. Success stderr is
+empty. Expected diagnostics are capped at 512 ASCII characters plus newline; SQLite errors print exactly
 `fpcheck: database operation failed`;
 unexpected handler exceptions propagate after cleanup. No source-code generic
 verdict behavior or prose workflow name changes.

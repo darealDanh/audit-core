@@ -1,10 +1,9 @@
 # Session handoff
 
-**Written:** 2026-10-25 · **Branch:** `stage4f-firmware-fpcheck`; Stage 4e merge reconciliation recorded ·
-**Status:** Stage 4e merged into local `main` at `8119af1`, no push; Stage 4f
-implementation and documentation/inventory complete on this feature branch;
-controller-owned scoped re-review of the final JSON fix and integration pending. Next firmware
-slice: `chain`. **Verification:** `make all` passed all 8 gates; 4,164 full-suite
+**Written:** 2026-10-25 · **Branch:** local `main`; Stage 4f merged by fast-forward at `303232e`, not pushed ·
+**Status:** Stage 4f firmware `fpcheck` passed whole-branch review, its final JSON
+fix passed scoped re-review, and the complete phase is merged into local `main`.
+Next firmware slice: `chain`. **Verification:** merged-tree `make all` passed all 8 gates; 4,164 full-suite
 tests passed, 0/5,933 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -63,20 +62,19 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4f-firmware-fpcheck`; Stage 4d's merge point remains
-  `6eba6d6` and its last implementation remains `b14b4fb`. Stage 4e is
-  merged into local `main` at `8119af1`. Nothing has been pushed.
-- **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` are
-  committed on this feature branch; its five-table schema foundation and row
+- **Branch:** local `main`; Stage 4d's merge point remains `6eba6d6`, Stage 4e
+  remains merged at `8119af1`, and Stage 4f is merged by fast-forward at
+  `303232e`. Nothing has been pushed.
+- **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
+  committed on the feature branch and are now in local `main`; its five-table schema foundation and row
   contracts, the verified completed-hunt snapshot, deterministic review preparation,
   and image-scoped review invalidation helper are implemented.
   Strict result parsing/validation, atomic batch import and canonical reviewed finding
   derivation/completion, atomic upstream review invalidation and the bounded firmware
   `fpcheck` CLI are implemented, including the firmware review brief and installed-user
-  routing. Implementation and documentation/inventory are complete on this branch;
-  Final review found JSON identity/path corruption; the final fix preserves exact
-  machine values and retains bounded human output. Controller-owned scoped
-  re-review and integration remain pending.
+  routing. Final review found JSON identity/path corruption; `303232e` preserves
+  exact machine values and retains bounded human output. Scoped re-review was clean,
+  and implementation/documentation/inventory are merged into local `main`.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
@@ -170,10 +168,10 @@ These are not style preferences. Each one has a specific, known cost.
   unchanged hunt replacements also preserve lane completion after comparing durable
   receipts, coverage and candidates. Reference acquisition/triage and supplemental
   source/path edits do not change target ownership.
-- **Current next phase:** controller-owned scoped re-review of the final JSON fix and
-  integration of Stage 4f, then firmware `chain`. Implementation, installed routing
-  and documentation/inventory are complete on this branch. Ordinary source-code
-  fpcheck retains its workflow; no merge/push is claimed.
+- **Current next phase:** firmware `chain` on the merged Stage 4f foundation.
+  Implementation, installed routing and documentation/inventory are complete on
+  local `main`; the scoped final re-review was clean. Ordinary source-code fpcheck
+  retains its workflow; no push is claimed.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
@@ -189,7 +187,7 @@ These are not style preferences. Each one has a specific, known cost.
 ### Verify the state yourself
 
 ```bash
-cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit/.worktrees/stage4f-firmware-fpcheck
+cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit
 make all          # all eight gates
 ```
 
@@ -601,7 +599,8 @@ Triage remains upsert-only and the Stage 4d retained-orphan result scan scaling
 limit is inherited. Reviewer-authored root-cause keys can under-deduplicate;
 static review cannot settle runtime/hardware blockers. The Asus golden and
 monorepo/submodule decision remain overall milestone/restructure prerequisites.
-Paid semantic quality remains deferred. Controller final review remains required.
+Paid semantic quality remains deferred. At this historical Task 11 boundary,
+controller final review was still required.
 
 ### Stage 4f final-review JSON fix verification
 
@@ -634,11 +633,11 @@ PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 all 8 gate(s) passed
 ```
 
-The final execution report records the authoritative post-documentation
+The final execution report recorded the authoritative post-documentation
 `make all` result. Historical Task 11 measurements above remain intact. The
-single final-fix wave is implemented; controller-owned scoped re-review and
-integration remain pending. No merge, push, mutation sweep, paid audit/milestone
-rerun or indicator snapshot ran. The next firmware slice is `chain`, retaining
+single final-fix wave passed scoped re-review and Stage 4f is merged into local
+`main` at `303232e`. No push, mutation sweep, paid audit/milestone rerun or
+indicator snapshot ran. The next firmware slice is `chain`, retaining
 triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
 and monorepo/submodule decision remain overall milestone/restructure
 prerequisites; static contracts do not establish semantic audit quality.
@@ -724,8 +723,8 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4e are merged to local `main`; Stage 4e is
-included at `8119af1`, not pushed. Stage 4c adds
+Stages 0 through 3c and Stages 4a-4f are merged to local `main`; Stage 4f is
+included at `303232e`, not pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -740,13 +739,12 @@ rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
 
-### Review/integrate Stage 4f, then implement firmware `chain`
+### Implement firmware `chain`
 
-Stage 4f implementation and documentation/inventory reconciliation are complete
-on `stage4f-firmware-fpcheck`. Independent whole-branch review found one Important
-JSON identity/path corruption issue. The single final-fix wave is implemented;
-controller-owned scoped re-review and integration remain pending.
-No Stage 4f merge or push is claimed. The next firmware slice is
+Stage 4f implementation and documentation/inventory reconciliation are merged
+into local `main` at `303232e`. Independent whole-branch review found one Important
+JSON identity/path corruption issue; the single final-fix wave passed scoped
+re-review. No push is claimed. The next firmware slice is
 `chain`, consuming dedicated reviewed findings with canonical contributors and
 static-reviewed evidence. Triage remains upsert-only; the Stage 4d retained-orphan
 scan performance limit persists. The Asus golden and monorepo/submodule decision
@@ -788,10 +786,9 @@ running the gate — that is the point of them; do not "fix" them.
 
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
-local `main`; Stage 4e merged `hunt` at `8119af1`. These phases and Stage 4f
-firmware `fpcheck` were built at zero audit cost.
-Stage 4f implementation/docs are complete on its feature branch; controller final
-review and integration remain pending. The next firmware slice is `chain`.
+local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
+`fpcheck` at `303232e`. These phases were built at zero audit cost. The next
+firmware slice is `chain`.
 The separate firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work
