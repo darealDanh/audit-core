@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import sqlite3
 import stat
 import unicodedata
 from collections.abc import Mapping
@@ -851,3 +852,124 @@ def validate(con, run_dir: str | pathlib.Path, result: GraphResult) -> Validated
     finally:
         if owned:
             con.rollback()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ImportSummary:
+    image_id: str
+    finding_count: int
+    disposition_count: int
+    blocker_count: int
+    chain_count: int
+    edge_count: int
+    complete_chains: int
+    blocked_chains: int
+    artifact_path: str
+
+
+_GRAPH_TABLES = ("cba_firmware_chain_edges", "cba_firmware_chains", "cba_firmware_chain_dispositions",
+                 "cba_firmware_chain_unknowns", "cba_firmware_chain_receipts")
+
+
+def _publication_state(con, result: GraphResult, *, replace: bool) -> dict:
+    """Retain selected-image rows so concurrent publication cannot be lost."""
+    from audit_core import surface
+
+    prior = {}
+    for table in ("cba_firmware_chain_runs", *_GRAPH_TABLES):
+        order = ",".join(db.TABLE_SPECS[table].primary_key)
+        prior[table] = surface._query(con, f"SELECT * FROM {table} WHERE image_id=? ORDER BY {order}",
+                                      (result.image_id,))
+    for receipt in prior["cba_firmware_chain_receipts"]:
+        if receipt["candidate_snapshot_sha256"] != result.candidate_snapshot_sha256:
+            continue
+        db.TABLE_SPECS["cba_firmware_chain_receipts"].validate(receipt)
+        if receipt["worklist_sha256"] != result.worklist_sha256:
+            raise FirmwareChainError("Existing chain receipt has different generation ownership")
+        if not replace:
+            raise FirmwareChainError("Chain result already imported; pass --replace to overwrite")
+    return prior
+
+
+def _result_directories(run_dir: pathlib.Path, destination: pathlib.Path) -> None:
+    """Refuse symlinked artifact ancestors before and after installation."""
+    parts = destination.relative_to(run_dir).parts
+    for depth in range(len(parts) + 1):
+        directory = run_dir.joinpath(*parts[:depth])
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            raise FirmwareChainError("Invalid firmware chain result directory")
+
+
+def _checked_result_install(run_dir: pathlib.Path, destination: pathlib.Path, content: bytes) -> None:
+    _result_directories(run_dir, destination)
+    if not destination.is_dir() or {p.name for p in destination.iterdir()} != {"result.json"}:
+        raise FirmwareChainError("Installed chain result has different artifacts")
+    path = destination / "result.json"
+    if path.is_symlink() or not path.is_file() or path.read_bytes() != content:
+        raise FirmwareChainError("Installed chain result differs before publication")
+
+
+def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+           result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
+    """Install canonical result bytes, then atomically publish one owned graph.
+
+    Retained provenance and selected-image state are rechecked under a write
+    lock before any mutation. Failure can leave an unreferenced immutable result,
+    but never a partial receipt, graph, or reset completion claim.
+    """
+    from audit_core import surface
+
+    started = False
+    try:
+        if con.in_transaction:
+            raise FirmwareChainError("Chain import requires a connection without an active transaction")
+        run_dir = pathlib.Path(run_dir).absolute()
+        validated = validate(con, run_dir, load(result_path))
+        result = validated.result
+        prior = _publication_state(con, result, replace=replace)
+        content = canonical_bytes(result)
+        digest = hashlib.sha256(content).hexdigest()
+        destination = run_dir / "artifacts/firmware-chain" / result.worklist_sha256 / digest
+        artifact_path = str(destination / "result.json")
+        _result_directories(run_dir, destination)
+        surface.atomic_install(destination, {"result.json": content})
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        if (validate(con, run_dir, result) != validated or
+                _publication_state(con, result, replace=replace) != prior):
+            raise FirmwareChainError("Firmware chain inputs changed before publication")
+        _checked_result_install(run_dir, destination, content)
+        ownership = (result.image_id, result.candidate_snapshot_sha256)
+        # Delete only the selected image's current candidate generation. A failed
+        # insert or commit restores every prior row, including completion state.
+        if replace:
+            for table in _GRAPH_TABLES:
+                con.execute(f"DELETE FROM {table} WHERE image_id=? AND candidate_snapshot_sha256=?", ownership)
+        db.put(con, "cba_firmware_chain_receipts", dict(image_id=result.image_id,
+            candidate_snapshot_sha256=result.candidate_snapshot_sha256, worklist_sha256=result.worklist_sha256,
+            result_path=artifact_path, result_sha256=digest, disposition_count=len(validated.dispositions),
+            blocker_count=len(validated.blockers), chain_count=len(validated.chains), edge_count=len(validated.edges)),
+            commit=False)
+        provenance = dict(artifact_path=artifact_path, artifact_sha256=digest)
+        for records, table in ((validated.dispositions, "cba_firmware_chain_dispositions"),
+                               (validated.blockers, "cba_firmware_chain_unknowns"),
+                               (validated.chains, "cba_firmware_chains"),
+                               (validated.edges, "cba_firmware_chain_edges")):
+            for row in records:
+                db.put(con, table, dataclasses.asdict(row) | provenance, commit=False)
+        con.execute("UPDATE cba_firmware_chain_runs SET status='pending',graph_path=NULL,graph_sha256=NULL,"
+                    "completed_at=NULL WHERE image_id=? AND candidate_snapshot_sha256=? AND worklist_sha256=?",
+                    (*ownership, result.worklist_sha256))
+        con.commit()
+        return ImportSummary(result.image_id, len(validated.dispositions), len(validated.dispositions),
+            len(validated.blockers), len(validated.chains), len(validated.edges),
+            sum(c.completeness == "complete" for c in validated.chains),
+            sum(c.completeness == "blocked" for c in validated.chains), artifact_path)
+    except Exception as exc:
+        if started:
+            con.rollback()
+        if isinstance(exc, (sqlite3.Error, db.DbError)):
+            raise FirmwareChainError("database operation failed") from exc
+        if isinstance(exc, (OSError, surface.SurfaceError)):
+            raise FirmwareChainError("Cannot publish firmware chain result") from exc
+        raise
