@@ -246,6 +246,17 @@ def test_nonmaterialized_all_standalone_and_specific_namespace_key(graph_case):
     assert checked.chains == checked.edges == () and len(checked.dispositions) == 4
 
 
+@pytest.mark.parametrize('key', [
+    'boot-loader: access', 'boot-loader:   access', 'boot-loader:   AcCeSs',
+    'boot-loader:\u00a0access', 'boot-loader:\taccess',
+    'boot-loader :access', 'boot-loader : access', 'access :startup-script',
+])
+def test_other_specific_generic_tokens_reject_component_padding(graph_case, key):
+    graph_case[3]['chains'][0]['edges'][0].update(capability_kind='other-specific', link_key=key)
+    with pytest.raises(results.FirmwareChainError):
+        validate(graph_case)
+
+
 def test_complete_upstream_run_requires_a_real_completion_timestamp(graph_case):
     graph_case[0].execute("UPDATE cba_firmware_fp_runs SET completed_at=' '")
     with pytest.raises(results.FirmwareChainError):

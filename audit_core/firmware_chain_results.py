@@ -777,7 +777,7 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
                 parts = edge.link_key.split(":", 1)
                 generic = {"generic", "other", "access", "capability", "resource", "state", "unknown", "any"}
                 if (len(parts) != 2 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", parts[0]) is None
-                        or not parts[1].strip() or any(p.casefold() in generic for p in parts)):
+                        or not parts[1].strip() or any(p.strip().casefold() in generic for p in parts)):
                     raise FirmwareChainError("other-specific requires a concrete namespace-like link key")
             required, after = dataclasses.asdict(edge.required_state), dataclasses.asdict(edge.result_state)
             for axis, value in required.items():
