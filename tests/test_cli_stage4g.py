@@ -370,3 +370,51 @@ def test_sqlite_cleanup_failures_have_fixed_diagnostic_and_connection_is_release
     assert audit.main(["chain", "--run", str(tmp_path), "--prepare", "--root", str(tmp_path / "root")]) == 1
     assert capsys.readouterr() == ("", "chain: database operation failed\n")
     assert con.closed
+
+
+@pytest.mark.parametrize("layout", ["absolute", "relative", "dot"])
+@pytest.mark.parametrize("broken_operation", ["resolve", "absolute", "both"])
+@pytest.mark.parametrize("failure_kind", ["open-db", "domain", "sqlite-cause"])
+def test_expected_diagnostics_survive_root_normalization_failures(tmp_path, monkeypatch, capsys,
+                                                                  layout, broken_operation, failure_kind):
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "PRIVATE_ROOT" if layout == "absolute" else pathlib.Path(
+        "PRIVATE_ROOT" if layout == "relative" else ".")
+    label = str(root) if layout != "dot" else "input.bin"
+    message = f"Cannot use {label}: private\n\x1b雪" + "x" * 1000
+    failure = db.DbError(message) if failure_kind == "open-db" else firmware_chain.FirmwareChainError(message)
+    if failure_kind == "sqlite-cause":
+        failure.__cause__ = sqlite3.OperationalError("PRIVATE_SQL")
+    con = sqlite3.connect(":memory:")
+    def opened(*args, **kwargs):
+        if failure_kind == "open-db":
+            raise failure
+        return con
+    monkeypatch.setattr(audit, "_open_db", opened)
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(firmware_chain, "prepare", fail)
+    for operation in ("resolve", "absolute"):
+        if broken_operation not in (operation, "both"):
+            continue
+        original = getattr(pathlib.Path, operation)
+        def unavailable(path, *args, _original=original, **kwargs):
+            if path == root:
+                raise OSError("PRIVATE normalization failure\n雪")
+            return _original(path, *args, **kwargs)
+        monkeypatch.setattr(pathlib.Path, operation, unavailable)
+    try:
+        assert audit.main(["chain", "--run", str(tmp_path), "--prepare", "--root", str(root)]) == 1
+        out = capsys.readouterr()
+        assert out.out == "" and len(out.err) <= 513 and out.err.isascii()
+        if failure_kind == "sqlite-cause":
+            assert out.err == "chain: database operation failed\n"
+        else:
+            public_label = "input.bin" if layout == "dot" else "<root>"
+            assert out.err.startswith(f"Cannot use {public_label}: private\\n\\u001b\\u96ea")
+            assert out.err.endswith("...\n") and "normalization failure" not in out.err
+        if failure_kind != "open-db":
+            with pytest.raises(sqlite3.ProgrammingError):
+                con.execute("SELECT 1")
+    finally:
+        con.close()

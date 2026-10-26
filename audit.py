@@ -522,8 +522,15 @@ def _bounded_cli_text(message: str, root: str | pathlib.Path | None = None) -> s
     """Redact the supplied root and bound terminal-facing text to 512 ASCII chars."""
     if root is not None:
         root_path = pathlib.Path(root).expanduser()
-        for private_path in sorted({str(root_path), str(root_path.resolve(strict=False))},
-                                   key=len, reverse=True):
+        # Diagnostics must still render when cwd lookup or canonicalization
+        # fails. Keep the lexical spelling independently of filesystem access.
+        private_paths = {str(root_path)} - {"."}
+        for normalize in (root_path.absolute, lambda: root_path.resolve(strict=False)):
+            try:
+                private_paths.add(str(normalize()))
+            except OSError:
+                pass
+        for private_path in sorted(private_paths, key=len, reverse=True):
             if private_path:
                 message = message.replace(private_path, "<root>")
     escaped = ""
@@ -1028,10 +1035,9 @@ def _cmd_firmware_chain(args: argparse.Namespace) -> int:
 
     run_dir = pathlib.Path(args.run).expanduser()
     root = pathlib.Path(args.root).expanduser() if args.root is not None else None
-    # A lexical relative root may appear in filesystem diagnostics. A bare
-    # dot must never be used as a substring redaction rule.
-    display_root = root if root is not None and str(root) != "." else (
-        root.absolute() if root is not None else None)
+    # The formatter computes lexical/canonical root variants defensively;
+    # diagnostic setup must not depend on cwd lookup or root resolution.
+    display_root = root
     expected_errors = (firmware_chain_mod.FirmwareChainError, db_mod.DbError,
                        OSError, sqlite3.Error)
     def diagnostic(exc):
