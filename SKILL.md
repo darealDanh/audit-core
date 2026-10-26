@@ -174,7 +174,7 @@ phases' summaries into a dispatch.
 
 ## Sub-Command Router
 
-The application workflow supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans. Stage 4e firmware hunt and Stage 4f firmware fpcheck use the separate file-backed routes below; firmware pivots are recorded through result import.
+The application workflow supports six phases (invoke them individually after the prior phase completes, or run the full pipeline), plus an automated **`source`** run that chains recon → audit → fpcheck → report unattended for source-only scans. Stage 4e firmware hunt, Stage 4f firmware fpcheck, and Stage 4g firmware chain use the separate file-backed routes below; firmware pivots are recorded through result import.
 
 ### Phase → workflow mapping
 
@@ -282,6 +282,51 @@ Deterministic code owns SQL, canonical artifact installation, and transitions;
 the final check resolves duplicates across lanes and batches. Worker DONE alone
 cannot certify Stage 4f completion. These static-reviewed firmware outputs carry
 no dynamic verification, severity, or generic finding promotion.
+
+### Stage 4g firmware chain
+
+After Stage 4f's global check passes, compose the current reviewed firmware
+findings with this dedicated route. The ordinary source-code `chain` proposal
+and human composition instructions remain in force for source findings; firmware
+uses a separate global worklist and dedicated tables. Read
+[references/briefs/firmware-chain-brief.md](references/briefs/firmware-chain-brief.md)
+for full finding dispositions, typed adjacent edges, middle-node continuity,
+state/reboot proof, blocker settlement, and adversarial review. Pivots are
+context-only follow-up hints, never chain nodes or proof.
+
+The orchestrator prepares the immutable global worklist:
+
+    python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --root ${ROOTFS} --prepare --json
+
+Use the returned worklist path, exact image ID, and candidate snapshot digest.
+Assign RESULT_PATH to the worker's writable result file. Render all seven
+variables, then dispatch only its path plus context the template cannot know
+to one global worker using the strongest available tier with high reasoning.
+Do not inline the worklist or evidence in the dispatch. Read incrementally;
+never partition by component or cap finding coverage.
+
+    python3 __SKILL_DIR__/audit.py brief --phase firmware-chain \
+      --unit global --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var db_path=${AUDIT_DIR}/audit.db \
+      --var rootfs=${ROOTFS} --var image_id=${IMAGE_ID} \
+      --var candidate_snapshot_sha256=${CANDIDATE_SNAPSHOT_SHA256} \
+      --var worklist_path=${WORKLIST_PATH} --var result_path=${RESULT_PATH}
+
+The worker writes strict result-only JSON and returns exactly
+`firmware-chain <DONE|PARTIAL|FAILED> rows=<n> artifact=<path> [flags=<csv>]`;
+rows counts finding dispositions. Preserve PARTIAL checkpoints and resume the
+same immutable global assignment without fabricated dispositions. Import only
+a complete result, including a truthful empty result when there are no findings:
+
+    python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+Deterministic code owns SQL, canonical identities, artifact installation, and
+completion. Worker DONE alone cannot certify Stage 4g completion. The final
+check independently revalidates current provenance, exact result bytes, full
+coverage, evidence ownership, and state continuity. Outputs are static-chained;
+no severity/CVSS, dynamic confirmation, runtime reachability, or exploit claim
+is authorized. Unsettled observations remain blockers for later dive/decide.
 
 ### Cross-client tool mapping
 
@@ -462,7 +507,7 @@ To begin, route to the appropriate workflow:
 | File | Content |
 |---|---|
 | [references/phase0-source-detection.md](references/phase0-source-detection.md) | Source detection logic, IDA Pro MCP probing, user prompts |
-| [references/briefs/](references/briefs/) | The eight dispatch brief templates, including firmware hunt and fpcheck rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
+| [references/briefs/](references/briefs/) | The nine dispatch brief templates, including firmware hunt, fpcheck, and chain rendered by `audit.py brief`; `references/phase5-fp-check.md` holds the FP rules they cite |
 | [references/phase2-feature-mapping.md](references/phase2-feature-mapping.md) | Feature group taxonomy, the recon brief's `--var` values, mapping format |
 | [references/phase4-deep-audit.md](references/phase4-deep-audit.md) | The audit brief's `--var` values, finding schema, dedup |
 | [references/phase5-fp-check.md](references/phase5-fp-check.md) | Batching strategy, FP rules, verdict schema |

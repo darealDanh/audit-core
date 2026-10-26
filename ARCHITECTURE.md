@@ -522,6 +522,34 @@ milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;
 deterministic harness scoring only measures the existing baseline.
 
+### Stage 4g — installed global chain worker interface
+
+`references/briefs/firmware-chain-brief.md` renders through the existing `brief`
+mechanism with exactly seven required variables: `run_dir`, `db_path`, `rootfs`,
+`image_id`, `candidate_snapshot_sha256`, `worklist_path`, and `result_path`.
+`--phase firmware-chain --unit global` writes
+`briefs/firmware-chain-global-brief.md`. Dispatch carries that file's path;
+reviewed evidence stays in the immutable global worklist, read incrementally by
+one strongest-available worker. Coverage is never capped or split by component.
+
+`SKILL.md` routes firmware chain work through orchestrator `chain --prepare`,
+one worker, `chain --record`, and `chain --check`. The ordinary source-code
+chain proposal/human composition route is preserved. Worker output is strict
+bounded result-only JSON governed by `firmware_chain_results.py`, with a
+single return line:
+`firmware-chain <DONE|PARTIAL|FAILED> rows=<n> artifact=<path> [flags=<csv>]`.
+Rows counts finding dispositions, including zero for a truthful empty review.
+PARTIAL checkpoints preserve the same immutable assignment and cannot be
+imported as complete results.
+
+The brief requires every finding's disposition, reusable path membership,
+owned typed adjacent-edge evidence, middle-node continuity, carried device
+state, explicit boundary proof, and blockers with settling observations. Stage
+4f pivots remain follow-up context only. The worker owns neither SQL nor
+canonical installation, identities, receipts, derived claims, or completion.
+Static chain review authorizes no runtime, severity/CVSS, or exploit claims;
+settlement remains later dive/decide work.
+
 ### Stage 3's five quality mechanisms
 
 Each answers a named cause of a missed CRITICAL in the tplink post-mortem,

@@ -126,6 +126,45 @@ def test_installed_firmware_review_resolves_rules_and_renders(tmp_path, client):
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+@pytest.mark.parametrize("client", ("claude", "codex"))
+def test_installed_firmware_chain_renders_global_brief_and_route(tmp_path, client):
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
+    installed = subprocess.run(["bash", str(ROOT / "install.sh"), client],
+                               capture_output=True, text=True, env=env, cwd=ROOT)
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+    roots = [home / ".claude"] if client == "claude" else [home / ".agents", home / ".codex"]
+    for directory in roots:
+        target = directory / "skills" / "codebase-audit"
+        run = directory / "run"
+        variables = dict(run_dir=str(run), db_path=str(run / "audit.db"),
+                         rootfs=str(tmp_path / "rootfs"), image_id="router-target",
+                         candidate_snapshot_sha256="a" * 64,
+                         worklist_path=str(run / "files" / "worklist.json"),
+                         result_path=str(run / "files" / "chain-result.json"))
+        command = [sys.executable, str(target / "audit.py"), "brief", "--phase",
+                   "firmware-chain", "--unit", "global", "--run", str(run)]
+        for name, value in variables.items():
+            command.extend(["--var", f"{name}={value}"])
+        result = subprocess.run(command, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        output = run / "briefs" / "firmware-chain-global-brief.md"
+        assert result.stdout == f"{output}\n"
+        text = output.read_text()
+        assert "__SKILL_DIR__" not in text
+        for module in ("firmware_chain_results.py", "firmware_chain.py"):
+            assert str(target / "audit_core" / module) in text
+            assert (target / "audit_core" / module).is_file()
+        skill = (target / "SKILL.md").read_text()
+        assert "firmware-chain-brief.md" in skill
+        assert "Stage 4g firmware chain" in skill
+        assert f"python3 {target}/audit.py chain --run" in skill
+        assert not re.search(r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_]*\}", text)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
 def test_installed_skill_content_has_no_unsubstituted_skill_dir(tmp_path):
     """C1: `copy_template` only ever ran on the Claude launchers, so every
     `python3 __SKILL_DIR__/audit.py ...` in SKILL.md, workflows/ and
