@@ -132,4 +132,3 @@ def test_skill_routes_one_global_firmware_worker_separately_from_generic_chains(
     assert "ordinary source-code `chain`" in route
     assert "`audit.py chain` proposes; a human composes." in skill
     assert '"Each group\'s findings are independent"' in skill
-
