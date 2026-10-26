@@ -545,8 +545,11 @@ def test_damaged_first_lane_during_second_lane_install_cannot_be_published(ready
 
 # Complete dedicated review state is seeded independently of upstream publication.
 # These tests catch missing invalidation, cross-image deletes, and early commits.
+CHAIN_TABLES = ("cba_firmware_chain_runs", "cba_firmware_chain_receipts",
+                "cba_firmware_chain_dispositions", "cba_firmware_chain_unknowns",
+                "cba_firmware_chains", "cba_firmware_chain_edges")
 FP_TABLES = ("cba_firmware_fp_runs", "cba_firmware_fp_receipts", "cba_firmware_fp_verdicts",
-             "cba_firmware_pivots", "cba_firmware_findings")
+             "cba_firmware_pivots", "cba_firmware_findings", *CHAIN_TABLES)
 
 
 def seed_fp_state(con, image_id):
@@ -557,6 +560,13 @@ def seed_fp_state(con, image_id):
             values.update(status="complete", completed_at="retained")
         db.put(con, table, values)
     db.put(con, "cba_firmware_fp_verdicts", TP | {"image_id": image_id, "lane": "l-dark"})
+    from tests.test_firmware_chain_schema import ROWS as CHAIN_ROWS
+    for table, row in CHAIN_ROWS:
+        values = row | {"image_id": image_id}
+        if table == "cba_firmware_chain_runs":
+            values.update(status="complete", graph_path="retained/chains.json",
+                          graph_sha256="e" * 64, completed_at="retained")
+        db.put(con, table, values)
 
 
 def assert_fp_state(con, before, image_id, *, cleared):

@@ -381,6 +381,83 @@ def _artifact_directories(run_dir: pathlib.Path, destination: pathlib.Path) -> N
             raise FpcheckError("Invalid firmware review artifact directory")
 
 
+def _publication_rows(validated: ValidatedBatch, artifact_path: str, digest: str) -> tuple:
+    """Project exactly the receipt, verdict and pivot records owned by a batch."""
+    result = validated.result
+    counts = {verdict: sum(row.verdict == verdict for row in result.decisions) for verdict in db.FIRMWARE_FP_VERDICTS}
+    provenance = {"image_id": result.image_id, "candidate_snapshot_sha256": result.candidate_snapshot_sha256,
+                  "artifact_path": artifact_path, "artifact_sha256": digest}
+    receipt_row = {"image_id": result.image_id,
+        "candidate_snapshot_sha256": result.candidate_snapshot_sha256, "worklist_sha256": result.worklist_sha256,
+        "batch_path": result.batch_path, "batch_sha256": result.batch_sha256,
+        "result_path": artifact_path, "result_sha256": digest,
+        "assigned_count": len(validated.assigned_candidates), "verdict_count": len(result.decisions),
+        "true_positive_count": counts["TRUE_POSITIVE"], "false_positive_count": counts["FALSE_POSITIVE"],
+        "duplicate_count": counts["DUPLICATE"], "pivot_count": counts["FALSE_POSITIVE"]}
+    verdicts, pivots = [], []
+    for decision in result.decisions:
+        row = dict.fromkeys(db.TABLE_SPECS["cba_firmware_fp_verdicts"].columns)
+        row.pop("reviewed_at")
+        row.update({field: getattr(decision, field) for field in ("lane", "candidate_id", "verdict", "reason",
+            "attacker_advantage", "mitigation_analysis", "confidence")})
+        row.update(provenance, batch_path=result.batch_path,
+                   rules_applied=surface.canonical_bytes(decision.rules_applied).decode().removesuffix("\n"))
+        if decision.true_positive is not None:
+            variant = dataclasses.asdict(decision.true_positive)
+            for field in ("attacker_position", "data_flow", "impact_hypothesis"):
+                variant["reviewed_" + field] = variant.pop(field)
+            for field in ("component_paths", "surface_ids"):
+                variant[field] = surface.canonical_bytes(variant[field]).decode().removesuffix("\n")
+            row.update(variant)
+        elif decision.false_positive is not None:
+            variant = decision.false_positive
+            row.update(refuting_mechanism=variant.refuting_mechanism, pivot_id=variant.pivot_id)
+            pivots.append(provenance | {"pivot_id": variant.pivot_id,
+                "source_lane": decision.lane, "source_candidate_id": decision.candidate_id,
+                "component_path": variant.component_path, "refuting_mechanism": variant.refuting_mechanism,
+                "enabled_observation": variant.enabled_observation, "evidence": variant.pivot_evidence})
+        else:
+            variant = decision.duplicate
+            row.update(duplicate_lane=variant.target_lane, duplicate_candidate_id=variant.target_candidate_id,
+                       dedup_evidence=variant.dedup_evidence)
+        verdicts.append(row)
+    return receipt_row, verdicts, pivots, counts
+
+
+def _same_publication(con: sqlite3.Connection, run_dir: pathlib.Path, validated: ValidatedBatch,
+                      receipt: dict | None, expected_receipt: dict, verdicts: list, pivots: list) -> bool:
+    """Preserve downstream chains only for exact durable review evidence."""
+    if receipt is None or not receipt["recorded_at"]:
+        return False
+    if {key: value for key, value in receipt.items() if key != "recorded_at"} != expected_receipt:
+        return False
+    result = validated.result
+    actual_verdicts = surface._query(con, "SELECT * FROM cba_firmware_fp_verdicts WHERE image_id=? "
+        "AND candidate_snapshot_sha256=? AND batch_path=?",
+        (result.image_id, result.candidate_snapshot_sha256, result.batch_path))
+    sources = set(validated.assigned_candidates) | {(row["lane"], row["candidate_id"]) for row in actual_verdicts}
+    actual_pivots = [row for row in surface._query(con, "SELECT * FROM cba_firmware_pivots WHERE image_id=? "
+        "AND candidate_snapshot_sha256=?", (result.image_id, result.candidate_snapshot_sha256))
+        if (row["source_lane"], row["source_candidate_id"]) in sources]
+    for actual, expected, timestamp in ((actual_verdicts, verdicts, "reviewed_at"),
+                                         (actual_pivots, pivots, "recorded_at")):
+        if any(not row[timestamp] for row in actual):
+            return False
+        projected = [{key: value for key, value in row.items() if key != timestamp} for row in actual]
+        if sorted(projected, key=repr) != sorted(expected, key=repr):
+            return False
+    run = surface._query(con, "SELECT * FROM cba_firmware_fp_runs WHERE image_id=?", (result.image_id,))[0]
+    if run["status"] == "pending":
+        return not con.execute("SELECT 1 FROM cba_firmware_findings WHERE image_id=?", (result.image_id,)).fetchone()
+    try:
+        # Root-free internal reconstruction keeps imports usable after extraction
+        # relocation while checking all completed findings and their artifact.
+        firmware_fpcheck._verified_review(con, run_dir, None, result.image_id, require_complete=True)
+    except FpcheckError:
+        return False
+    return True
+
+
 def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
            result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
     """Install canonical evidence before atomically publishing one owned batch."""
@@ -406,6 +483,15 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         receipt = _prior_receipt(con, result, replace=replace)
         _artifact_directories(run_dir, destination)
         firmware_fpcheck._checked_install(destination, {"result.json": content})
+        receipt_row, verdicts, pivots, counts = _publication_rows(validated, artifact_path, digest)
+        summary = ImportSummary(result.image_id, result.batch_path, len(validated.assigned_candidates),
+            counts["TRUE_POSITIVE"], counts["FALSE_POSITIVE"], counts["DUPLICATE"], counts["FALSE_POSITIVE"], artifact_path)
+        if _same_publication(con, run_dir, validated, receipt, receipt_row, verdicts, pivots):
+            con.commit()
+            return summary
+        from audit_core import firmware_chain
+
+        firmware_chain.invalidate(con, result.image_id, commit=False)
         ownership = (result.image_id, result.candidate_snapshot_sha256, result.batch_path)
         if receipt is not None:
             # Pivots have no batch column: join their lane-qualified source to
@@ -414,50 +500,26 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                 "AND EXISTS (SELECT 1 FROM cba_firmware_fp_verdicts v WHERE v.image_id=cba_firmware_pivots.image_id "
                 "AND v.candidate_snapshot_sha256=cba_firmware_pivots.candidate_snapshot_sha256 "
                 "AND v.lane=cba_firmware_pivots.source_lane AND v.candidate_id=cba_firmware_pivots.source_candidate_id "
-                "AND v.pivot_id=cba_firmware_pivots.pivot_id AND v.batch_path=?)", ownership)
+                "AND v.batch_path=?)", ownership)
+            # Also remove source-owned orphan pivots when a verdict was lost or
+            # its pivot ID drifted; ownership remains lane and generation scoped.
+            con.executemany("DELETE FROM cba_firmware_pivots WHERE image_id=? AND candidate_snapshot_sha256=? "
+                "AND source_lane=? AND source_candidate_id=?",
+                [(result.image_id, result.candidate_snapshot_sha256, lane, identifier)
+                 for lane, identifier in validated.assigned_candidates])
             con.execute("DELETE FROM cba_firmware_fp_verdicts WHERE image_id=? AND candidate_snapshot_sha256=? "
                 "AND batch_path=?", ownership)
             con.execute("DELETE FROM cba_firmware_fp_receipts WHERE image_id=? AND candidate_snapshot_sha256=? "
                 "AND batch_path=?", ownership)
-        counts = {verdict: sum(row.verdict == verdict for row in result.decisions) for verdict in db.FIRMWARE_FP_VERDICTS}
-        provenance = {"image_id": result.image_id, "candidate_snapshot_sha256": result.candidate_snapshot_sha256,
-                      "artifact_path": artifact_path, "artifact_sha256": digest}
-        db.put(con, "cba_firmware_fp_receipts", {"image_id": result.image_id,
-            "candidate_snapshot_sha256": result.candidate_snapshot_sha256, "worklist_sha256": result.worklist_sha256,
-            "batch_path": result.batch_path, "batch_sha256": result.batch_sha256,
-            "result_path": artifact_path, "result_sha256": digest,
-            "assigned_count": len(validated.assigned_candidates), "verdict_count": len(result.decisions),
-            "true_positive_count": counts["TRUE_POSITIVE"], "false_positive_count": counts["FALSE_POSITIVE"],
-            "duplicate_count": counts["DUPLICATE"], "pivot_count": counts["FALSE_POSITIVE"]}, commit=False)
-        for decision in result.decisions:
-            row = {field: getattr(decision, field) for field in ("lane", "candidate_id", "verdict", "reason",
-                "attacker_advantage", "mitigation_analysis", "confidence")}
-            row.update(provenance, batch_path=result.batch_path,
-                       rules_applied=surface.canonical_bytes(decision.rules_applied).decode().removesuffix("\n"))
-            if decision.true_positive is not None:
-                variant = dataclasses.asdict(decision.true_positive)
-                for field in ("attacker_position", "data_flow", "impact_hypothesis"):
-                    variant["reviewed_" + field] = variant.pop(field)
-                for field in ("component_paths", "surface_ids"):
-                    variant[field] = surface.canonical_bytes(variant[field]).decode().removesuffix("\n")
-                row.update(variant)
-            elif decision.false_positive is not None:
-                variant = decision.false_positive
-                row.update(refuting_mechanism=variant.refuting_mechanism, pivot_id=variant.pivot_id)
-                db.put(con, "cba_firmware_pivots", provenance | {"pivot_id": variant.pivot_id,
-                    "source_lane": decision.lane, "source_candidate_id": decision.candidate_id,
-                    "component_path": variant.component_path, "refuting_mechanism": variant.refuting_mechanism,
-                    "enabled_observation": variant.enabled_observation, "evidence": variant.pivot_evidence}, commit=False)
-            else:
-                variant = decision.duplicate
-                row.update(duplicate_lane=variant.target_lane, duplicate_candidate_id=variant.target_candidate_id,
-                           dedup_evidence=variant.dedup_evidence)
+        db.put(con, "cba_firmware_fp_receipts", receipt_row, commit=False)
+        for row in pivots:
+            db.put(con, "cba_firmware_pivots", row, commit=False)
+        for row in verdicts:
             db.put(con, "cba_firmware_fp_verdicts", row, commit=False)
         con.execute("DELETE FROM cba_firmware_findings WHERE image_id=?", (result.image_id,))
         con.execute("UPDATE cba_firmware_fp_runs SET status='pending',completed_at=NULL WHERE image_id=?", (result.image_id,))
         con.commit()
-        return ImportSummary(result.image_id, result.batch_path, len(validated.assigned_candidates),
-            counts["TRUE_POSITIVE"], counts["FALSE_POSITIVE"], counts["DUPLICATE"], counts["FALSE_POSITIVE"], artifact_path)
+        return summary
     except Exception as exc:
         if started:
             con.rollback()

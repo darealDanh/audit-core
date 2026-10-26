@@ -214,7 +214,10 @@ def _worklist(snapshot: hunt.VerifiedHuntSnapshot, batch_size: int) -> tuple[dic
 
 
 def invalidate(con: sqlite3.Connection, image_id: str, *, commit: bool = False) -> None:
-    """Delete exactly one image's Stage 4f state in the caller's transaction."""
+    """Delete one image's review and chain state in the caller's transaction."""
+    from audit_core import firmware_chain
+
+    firmware_chain.invalidate(con, image_id, commit=False)
     for table in ("cba_firmware_findings", "cba_firmware_pivots", "cba_firmware_fp_verdicts",
                   "cba_firmware_fp_receipts", "cba_firmware_fp_runs"):
         con.execute(f"DELETE FROM {table} WHERE image_id=?", (image_id,))
@@ -285,12 +288,18 @@ def _cell(value: object) -> str:
     return surface.canonical_bytes(value).decode().removesuffix("\n")
 
 
-def _review_inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path,
+def _review_inputs(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path | None,
                    image_id: str | None) -> tuple:
     """Rebuild every receipt-owned row from current immutable review evidence."""
     from audit_core import firmware_fpcheck_results as results
 
-    snapshot = hunt.verified_snapshot(con, run_dir, root, image_id=image_id)
+    # Imports verify retained evidence without requiring the live extraction.
+    # Public completion and snapshot callers always supply their live root.
+    if root is None:
+        selected = surface.verified_snapshot(con, run_dir, image_id=image_id).image_id
+        snapshot = results._snapshot(con, run_dir, selected)
+    else:
+        snapshot = hunt.verified_snapshot(con, run_dir, root, image_id=image_id)
     selected = snapshot.image_id
     runs = surface._query(con, "SELECT * FROM cba_firmware_fp_runs WHERE image_id=?", (selected,))
     if len(runs) != 1:
@@ -460,7 +469,7 @@ def _derive(snapshot: hunt.VerifiedHuntSnapshot, run: dict, decisions: dict) -> 
     return findings
 
 
-def _verified_review(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path,
+def _verified_review(con: sqlite3.Connection, run_dir: pathlib.Path, root: str | pathlib.Path | None,
                      image_id: str | None, *, require_complete: bool = False) -> tuple:
     """Reconstruct all Stage 4f evidence; only the public check owns publication."""
     from audit_core import firmware_fpcheck_results as results
@@ -507,6 +516,8 @@ def verified_findings_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.P
     existing caller transactions are neither opened nor ended here.
     """
     try:
+        if root is None:
+            raise FpcheckError("A live firmware root is required")
         owned_transaction = not con.in_transaction
         if owned_transaction:
             con.execute("BEGIN")
@@ -556,6 +567,8 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | path
     try:
         if con.in_transaction:
             raise FpcheckError("Firmware review check requires a connection without an active transaction")
+        if root is None:
+            raise FpcheckError("A live firmware root is required")
         run_dir = pathlib.Path(run_dir).absolute()
         inputs, findings, content, expected_rows, destination, _ = _verified_review(con, run_dir, root, image_id)
         snapshot, run, _, _, _, decisions = inputs
@@ -569,6 +582,9 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | path
         results._artifact_directories(run_dir, destination)
         _checked_install(destination, {"findings.json": content})
         if run["status"] != "complete":
+            from audit_core import firmware_chain
+
+            firmware_chain.invalidate(con, snapshot.image_id, commit=False)
             con.execute("DELETE FROM cba_firmware_findings WHERE image_id=?", (snapshot.image_id,))
             for row in expected_rows:
                 db.put(con, "cba_firmware_findings", row, commit=False)

@@ -484,3 +484,170 @@ def test_completed_recheck_never_recreates_graph_lost_after_initial_verification
     assert not graph.parent.exists()
     assert files(run) == {name:value for name,value in artifacts.items() if name != graph.relative_to(run).as_posix()}
     if operation == 'rename': assert (moved/'chains.json').read_bytes() == content
+
+
+@pytest.fixture
+def completed_with_sibling(graph_case):
+    """Retain real complete selected evidence and a sibling in all six tables."""
+    blocked(graph_case)
+    record(graph_case)
+    check(graph_case)
+    con = graph_case[0]
+    for table in ('cba_firmware_chain_runs', *GRAPH_TABLES):
+        assert rows(con, table), table
+        for row in rows(con, table):
+            db.put(con, table, row | {'image_id': 'target:雪%_|sibling'})
+    return graph_case
+
+
+def assert_chain_ownership(con, before, *, cleared):
+    for table in ('cba_firmware_chain_runs', *GRAPH_TABLES):
+        expected = [r for r in before[table] if r[0] != 'target'] if cleared else before[table]
+        assert state(con)[table] == expected, table
+
+
+@pytest.mark.parametrize('change', ['invalidate', 'prepare', 'complete'])
+def test_review_ownership_changes_clear_all_six_tables_only_for_selected_image(completed_with_sibling, change):
+    # Breaks: omitting any Stage 4f invalidation boundary, or deleting sibling state.
+    from audit_core import firmware_fpcheck
+    con, run, root = completed_with_sibling[:3]
+    if change == 'complete':
+        con.execute("UPDATE cba_firmware_fp_runs SET status='pending',completed_at=NULL WHERE image_id='target'")
+        con.commit()
+    before = state(con)
+    if change == 'invalidate':
+        firmware_fpcheck.invalidate(con, 'target', commit=True)
+    elif change == 'prepare':
+        firmware_fpcheck.prepare(con, run, root, batch_size=1)
+    else:
+        firmware_fpcheck.check(con, run, root)
+    assert_chain_ownership(con, before, cleared=True)
+    assert not con.in_transaction
+
+
+@pytest.mark.parametrize('operation', ['prepare', 'record', 'check'])
+def test_identical_review_operations_preserve_completed_chain_rows_and_timestamps(completed_with_sibling, operation):
+    # Breaks: replacing identical reviews or invalidating on a completed recheck.
+    from audit_core import firmware_fpcheck, firmware_fpcheck_results
+    con, run, root = completed_with_sibling[:3]
+    before, writes, artifacts = state(con), con.total_changes, files(run)
+    if operation == 'prepare':
+        firmware_fpcheck.prepare(con, run, root)
+    elif operation == 'record':
+        receipt = con.execute("SELECT result_path FROM cba_firmware_fp_receipts WHERE image_id='target'").fetchone()
+        firmware_fpcheck_results.record(con, run, receipt[0], replace=True)
+    else:
+        firmware_fpcheck.check(con, run, root)
+    assert state(con) == before and con.total_changes == writes
+    assert files(run) == artifacts and not con.in_transaction
+
+
+@pytest.mark.parametrize('change', ['reason', 'pivot', 'verdict', 'finding', 'damaged-receipt',
+    'damaged-verdict', 'missing-verdict', 'damaged-pivot', 'missing-pivot', 'stale-pivot', 'renamed-pivot',
+    'damaged-finding', 'missing-finding', 'stale-finding'])
+def test_review_result_replacement_invalidates_changed_or_repaired_evidence(completed_with_sibling, change):
+    # Breaks: trusting just a result digest while durable review evidence changed.
+    from audit_core import firmware_fpcheck_results
+    from tests.test_firmware_fpcheck_results import FP
+    con, run, _ = completed_with_sibling[:3]
+    receipt = con.execute("SELECT result_path FROM cba_firmware_fp_receipts WHERE image_id='target'").fetchone()
+    value = json.loads(pathlib.Path(receipt[0]).read_bytes())
+    tp = next(d for d in value['decisions'] if d['verdict'] == 'TRUE_POSITIVE')
+    fp = next(d for d in value['decisions'] if d['verdict'] == 'FALSE_POSITIVE')
+    if change == 'reason': tp['reason'] += ' Revised trace.'
+    elif change == 'pivot': fp['false_positive']['pivot_evidence'] += ' Revised trace.'
+    elif change == 'verdict': tp.update(verdict='FALSE_POSITIVE', true_positive=None, false_positive=FP | {'pivot_id': 'replacement-pivot'})
+    elif change == 'finding': tp['true_positive']['root_cause'] += ' Revised trace.'
+    elif change == 'damaged-receipt': con.execute("UPDATE cba_firmware_fp_receipts SET pivot_count=0 WHERE image_id='target'")
+    elif change == 'damaged-verdict': con.execute("UPDATE cba_firmware_fp_verdicts SET reason='corrupt' WHERE image_id='target'")
+    elif change == 'missing-verdict': con.execute("DELETE FROM cba_firmware_fp_verdicts WHERE image_id='target' AND candidate_id=?", (tp['candidate_id'],))
+    elif change == 'damaged-pivot': con.execute("UPDATE cba_firmware_pivots SET evidence='corrupt' WHERE image_id='target'")
+    elif change == 'missing-pivot': con.execute("DELETE FROM cba_firmware_pivots WHERE image_id='target'")
+    elif change in ('stale-pivot', 'renamed-pivot'):
+        row = dict(con.execute("SELECT * FROM cba_firmware_pivots WHERE image_id='target' LIMIT 1").fetchone())
+        if change == 'renamed-pivot':
+            con.execute("DELETE FROM cba_firmware_pivots WHERE image_id='target' AND pivot_id=?", (row['pivot_id'],))
+        db.put(con, 'cba_firmware_pivots', row | {'pivot_id': 'stale-pivot'})
+    elif change == 'damaged-finding': con.execute("UPDATE cba_firmware_findings SET root_cause='corrupt' WHERE image_id='target'")
+    elif change == 'missing-finding': con.execute("DELETE FROM cba_firmware_findings WHERE image_id='target'")
+    elif change == 'stale-finding':
+        row = dict(con.execute("SELECT * FROM cba_firmware_findings WHERE image_id='target' LIMIT 1").fetchone())
+        db.put(con, 'cba_firmware_findings', row | {'finding_id': 'stale-finding'})
+    con.commit()
+    path = run / 'replacement-review.json'
+    path.write_text(json.dumps(value))
+    before = state(con)
+    firmware_fpcheck_results.record(con, run, path, replace=True)
+    assert_chain_ownership(con, before, cleared=True)
+    row = con.execute("SELECT status,completed_at FROM cba_firmware_fp_runs WHERE image_id='target'").fetchone()
+    assert tuple(row) == ('pending', None)
+    assert con.execute("SELECT count(*) FROM cba_firmware_findings WHERE image_id='target'").fetchone()[0] == 0
+    assert not con.in_transaction
+    from audit_core import firmware_fpcheck
+    firmware_fpcheck.check(con, run, completed_with_sibling[2])
+    assert_chain_ownership(con, before, cleared=True)
+
+
+@pytest.mark.parametrize('operation,table,sql_action', [
+    ('prepare', 'cba_firmware_fp_runs', 'INSERT'),
+    ('record', 'cba_firmware_fp_receipts', 'INSERT'),
+    ('check', 'cba_firmware_findings', 'INSERT')])
+def test_review_failure_after_chain_deletion_restores_both_stages(completed_with_sibling, operation, table, sql_action):
+    # Breaks: committing Stage 4g invalidation outside the Stage 4f transaction.
+    from audit_core import firmware_fpcheck, firmware_fpcheck_results
+    con, run, root = completed_with_sibling[:3]
+    if operation == 'check':
+        con.execute("UPDATE cba_firmware_fp_runs SET status='pending',completed_at=NULL WHERE image_id='target'")
+        con.commit()
+    receipt = con.execute("SELECT result_path FROM cba_firmware_fp_receipts WHERE image_id='target'").fetchone()
+    value = json.loads(pathlib.Path(receipt[0]).read_bytes())
+    value['decisions'][0]['reason'] += ' Revised trace.'
+    path = run / 'replacement-review.json'
+    path.write_text(json.dumps(value))
+    con.execute(f"CREATE TEMP TRIGGER fail_review_publication BEFORE {sql_action} ON {table} "
+                "WHEN NEW.image_id='target' BEGIN SELECT RAISE(FAIL,'injected review publication'); END")
+    con.commit()
+    before = state(con)
+    trace = []
+    con.set_trace_callback(trace.append)
+    try:
+        with pytest.raises(firmware_fpcheck.FpcheckError):
+            if operation == 'prepare': firmware_fpcheck.prepare(con, run, root, batch_size=1)
+            elif operation == 'record': firmware_fpcheck_results.record(con, run, path, replace=True)
+            else: firmware_fpcheck.check(con, run, root)
+    finally:
+        con.set_trace_callback(None)
+    assert any(q.startswith('DELETE FROM cba_firmware_chain_runs ') for q in trace)
+    assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize('commit', [False, True])
+def test_review_invalidation_preserves_caller_transaction_for_chain_state(completed_with_sibling, commit):
+    from audit_core import firmware_fpcheck
+    con = completed_with_sibling[0]
+    before = state(con)
+    con.execute("UPDATE cba_firmware_fp_runs SET prepared_at='caller owned' WHERE image_id='target'")
+    firmware_fpcheck.invalidate(con, 'target', commit=commit)
+    assert_chain_ownership(con, before, cleared=True)
+    assert con.in_transaction is (not commit)
+    if not commit:
+        con.rollback()
+        assert state(con) == before
+
+
+def test_root_free_identical_review_import_is_readonly_and_public_root_verification_stays_required(completed_with_sibling):
+    # Breaks: making import require the extraction, or exposing the internal root bypass.
+    from audit_core import firmware_fpcheck, firmware_fpcheck_results
+    con, run, root = completed_with_sibling[:3]
+    root.rename(root.with_name('relocated-root'))
+    before, writes, artifacts = state(con), con.total_changes, files(run)
+    firmware_fpcheck._verified_review(con, run, None, 'target', require_complete=True)
+    receipt = con.execute("SELECT result_path FROM cba_firmware_fp_receipts WHERE image_id='target'").fetchone()
+    firmware_fpcheck_results.record(con, run, receipt[0], replace=True)
+    assert state(con) == before and con.total_changes == writes and files(run) == artifacts
+    for public in (firmware_fpcheck.check, firmware_fpcheck.verified_findings_snapshot):
+        for missing in (None, root):
+            with pytest.raises(firmware_fpcheck.FpcheckError):
+                public(con, run, missing)
+            assert state(con) == before and con.total_changes == writes and files(run) == artifacts
+    assert not con.in_transaction
