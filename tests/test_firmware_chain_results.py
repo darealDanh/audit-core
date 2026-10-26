@@ -419,3 +419,21 @@ def test_regular_file_loading_without_optional_posix_open_flags(tmp_path, monkey
     link.symlink_to(tmp_path / 'result.json')
     with pytest.raises(FirmwareChainError):
         results.load(link)
+
+
+@pytest.mark.parametrize('field,value', [('pre_auth', 'yes'), ('confidence', 10), ('completeness', 'complete'),
+    ('evidence_rung', 'dynamic'), ('chain_id', 'chosen')])
+def test_workers_cannot_supply_derived_chain_claims(tmp_path, field, value):
+    document = payload()
+    document['chains'][0][field] = value
+    with pytest.raises(FirmwareChainError):
+        load(tmp_path, document)
+
+
+@pytest.mark.parametrize('field,value', [('consumer_capability_kind', 'file-read'),
+    ('producer_link_key', '/etc/other'), ('consumer_link_key', '/etc/other')])
+def test_edge_contract_has_one_shared_capability_and_exact_link_key(tmp_path, field, value):
+    document = payload()
+    document['chains'][0]['edges'][0][field] = value
+    with pytest.raises(FirmwareChainError):
+        load(tmp_path, document)

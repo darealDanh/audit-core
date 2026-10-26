@@ -418,3 +418,436 @@ def load(path: str | pathlib.Path) -> GraphResult:
         return result
     except (OSError, ValueError, UnicodeError, RecursionError) as exc:
         raise FirmwareChainError("Cannot read firmware chain JSON") from exc
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ValidatedDisposition:
+    image_id: str
+    finding_id: str
+    candidate_snapshot_sha256: str
+    disposition: str
+    explanation: str
+    chain_ids: str
+    existing_unknown_ids: str
+    blocker_ids: str
+    pivot_followup_ids: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ValidatedBlocker:
+    image_id: str
+    blocker_id: str
+    candidate_snapshot_sha256: str
+    question: str
+    settling_observation: str
+    method: str
+    axes: str
+    affected_finding_ids: str
+    affected_edges: str
+    status: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ValidatedChain:
+    image_id: str
+    chain_id: str
+    candidate_snapshot_sha256: str
+    title: str
+    summary: str
+    member_ids: str
+    initial_attacker_position: str
+    initial_evidence_refs: str
+    initial_lifecycle: str
+    initial_posture: str
+    initial_authentication: str
+    pre_auth: str
+    confidence: int
+    completeness: str
+    existing_unknown_ids: str
+    blocker_ids: str
+    evidence_rung: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ValidatedEdge:
+    image_id: str
+    chain_id: str
+    ordinal: int
+    candidate_snapshot_sha256: str
+    producer_finding_id: str
+    consumer_finding_id: str
+    capability_kind: str
+    link_key: str
+    produced_capability: str
+    required_precondition: str
+    producer_evidence_refs: str
+    consumer_evidence_refs: str
+    supplemental_evidence_refs: str
+    required_state: str
+    result_state: str
+    transition_kind: str
+    confidence: int
+    existing_unknowns: str
+    blocker_ids: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ValidatedGraph:
+    result: GraphResult
+    blocker_ids: tuple[tuple[str, str], ...]
+    chain_ids: tuple[tuple[str, str], ...]
+    dispositions: tuple[ValidatedDisposition, ...]
+    blockers: tuple[ValidatedBlocker, ...]
+    chains: tuple[ValidatedChain, ...]
+    edges: tuple[ValidatedEdge, ...]
+
+
+# Stage 4d field names, deliberately independent of free-form reviewer axes.
+_UNKNOWN_AXES = {"auth": "authentication", "lifecycle": "lifecycle",
+                 "posture": "posture", "reachability": "reachability"}
+_GENERIC_CLAIMS = frozenset(("provides access", "could help exploitation", "same component"))
+_BOUNDARY_TERMS = {
+    "reboot": r"\breboot(?:s|ed|ing)?\b",
+    "service-restart": r"\bservice[- ]restart(?:s|ed|ing)?\b",
+    "factory-reset": r"\bfactory[- ]reset(?:s|ting)?\b",
+    "reprovision": r"\breprovision(?:s|ed|ing)?\b",
+}
+
+
+def _cell(value: object) -> str:
+    return _json_bytes(value).decode("utf-8").removesuffix("\n")
+
+
+def _retained_bytes(run_dir: pathlib.Path, relative: str, digest: str) -> bytes:
+    """Read only canonical, non-redirected descendants of the run directory."""
+    path = pathlib.PurePosixPath(relative)
+    if path.is_absolute() or path.as_posix() != relative or any(p in (".", "..") for p in path.parts):
+        raise FirmwareChainError("Invalid retained artifact path")
+    current = run_dir
+    for part in path.parts:
+        current /= part
+        if current.is_symlink():
+            raise FirmwareChainError("Retained artifact path is redirected")
+    if not current.is_file():
+        raise FirmwareChainError("Retained artifact must be a regular file")
+    content = current.read_bytes()
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise FirmwareChainError("Retained artifact hash differs")
+    return content
+
+
+def _review_index(con, run_dir: pathlib.Path, review: dict) -> list[dict]:
+    """Check root-free retained review identities and receipt accounting only."""
+    from audit_core import firmware_fpcheck, firmware_fpcheck_results, surface
+
+    destination = run_dir / "files/firmware-fpcheck" / review["worklist_sha256"]
+    if review["worklist_path"] != str(destination / "index.json"):
+        raise FirmwareChainError("Review index path is not canonical")
+    content = _retained_bytes(run_dir, (destination / "index.json").relative_to(run_dir).as_posix(),
+                              review["worklist_sha256"])
+    index = json.loads(content, object_pairs_hook=_pairs, parse_constant=_constant)
+    if not isinstance(index, dict) or type(index.get("schema_version")) is not int or index["schema_version"] != 1:
+        raise FirmwareChainError("Invalid review index")
+    batch_size = _integer(index.get("batch_size"), "review batch size", maximum=200)
+    if not batch_size:
+        raise FirmwareChainError("Invalid review batch size")
+    descriptors = {}
+    batches = _array(index.get("batches"), "review batches")
+    for batch in batches:
+        if not isinstance(batch, dict) or set(batch) != {"path", "sha256", "candidate_count"}:
+            raise FirmwareChainError("Invalid review batch descriptor")
+        path = _text(batch["path"], "review batch path")
+        if re.fullmatch(r"batch-[0-9]{4,}\.json", path) is None or path in descriptors:
+            raise FirmwareChainError("Invalid or repeated review batch path")
+        _digest(batch["sha256"], "review batch hash")
+        _integer(batch["candidate_count"], "review batch count", maximum=1000)
+        descriptors[path] = batch
+    expected = {key: review[key] for key in ("image_id", "manifest_sha256", "surface_snapshot_sha256",
+        "sink_worklist_sha256", "dark_worklist_sha256", "candidate_snapshot_sha256", "candidate_count")}
+    expected.update(schema_version=1, batch_size=batch_size, batches=batches)
+    if (_json_bytes(expected) != content or len(batches) != review["batch_count"] or not batches
+            or sum(batch["candidate_count"] for batch in batches) != review["candidate_count"]):
+        raise FirmwareChainError("Review index differs from current run")
+    receipts = surface._query(con, "SELECT * FROM cba_firmware_fp_receipts WHERE image_id=? ORDER BY batch_path", (review["image_id"],))
+    if len(receipts) != len(batches) or {r["batch_path"] for r in receipts} != descriptors.keys():
+        raise FirmwareChainError("Review receipts do not cover the index batches")
+    for receipt in receipts:
+        db.TABLE_SPECS["cba_firmware_fp_receipts"].validate(receipt)
+        batch = descriptors[receipt["batch_path"]]
+        if (receipt["candidate_snapshot_sha256"], receipt["worklist_sha256"], receipt["batch_sha256"], receipt["assigned_count"]) != (
+                review["candidate_snapshot_sha256"], review["worklist_sha256"], batch["sha256"], batch["candidate_count"]):
+            raise FirmwareChainError("Review receipt differs from retained index")
+        path = run_dir / "artifacts/firmware-fpcheck" / review["worklist_sha256"] / receipt["result_sha256"] / "result.json"
+        if receipt["result_path"] != str(path):
+            raise FirmwareChainError("Review result path is not canonical")
+        content = _retained_bytes(run_dir, path.relative_to(run_dir).as_posix(), receipt["result_sha256"])
+        try:
+            # Structural parsing and accounting only: final check owns upstream
+            # semantic reconstruction and live-root agreement.
+            result = firmware_fpcheck_results._parse(json.loads(content, object_pairs_hook=_pairs, parse_constant=_constant))
+        except firmware_fpcheck.FpcheckError as exc:
+            raise FirmwareChainError("Invalid retained review result") from exc
+        if (_json_bytes(dataclasses.asdict(result)) != content or
+                (result.image_id, result.candidate_snapshot_sha256, result.worklist_sha256, result.batch_path, result.batch_sha256) !=
+                (review["image_id"], review["candidate_snapshot_sha256"], review["worklist_sha256"], batch["path"], batch["sha256"])):
+            raise FirmwareChainError("Review result ownership differs")
+        counts = {verdict: sum(d.verdict == verdict for d in result.decisions) for verdict in db.FIRMWARE_FP_VERDICTS}
+        if tuple(receipt[key] for key in ("assigned_count", "verdict_count", "true_positive_count",
+                "false_positive_count", "duplicate_count", "pivot_count")) != (
+                len(result.decisions), len(result.decisions), counts["TRUE_POSITIVE"], counts["FALSE_POSITIVE"],
+                counts["DUPLICATE"], counts["FALSE_POSITIVE"]):
+            raise FirmwareChainError("Review receipt counts differ from retained result")
+    return receipts
+
+
+def _prepared_evidence(con, run_dir: pathlib.Path, result: GraphResult) -> dict:
+    """Rebuild the exact frozen boundary from current SQL; never access live roots.
+
+    Preparation and final check own live-root verification. Import-time validation
+    proves the retained generation's complete-run identity and every evidence row.
+    """
+    from audit_core import firmware_chain, surface
+
+    rows = surface._query(con, "SELECT * FROM cba_firmware_chain_runs WHERE image_id=?", (result.image_id,))
+    if len(rows) != 1:
+        raise FirmwareChainError("One prepared chain generation is required")
+    run = rows[0]
+    db.TABLE_SPECS["cba_firmware_chain_runs"].validate(run)
+    if (run["candidate_snapshot_sha256"], run["worklist_sha256"]) != (
+            result.candidate_snapshot_sha256, result.worklist_sha256):
+        raise FirmwareChainError("Result does not own the prepared generation")
+    destination = run_dir / "files/firmware-chain" / result.worklist_sha256
+    if run["worklist_path"] != str(destination / "worklist.json"):
+        raise FirmwareChainError("Prepared worklist path differs")
+    content = _retained_bytes(run_dir, (destination / "worklist.json").relative_to(run_dir).as_posix(), result.worklist_sha256)
+    firmware_chain._checked_install(destination, content)
+    frozen = json.loads(content, object_pairs_hook=_pairs, parse_constant=_constant)
+    if not isinstance(frozen, dict):
+        raise FirmwareChainError("Invalid prepared worklist")
+    reviews = surface._query(con, "SELECT * FROM cba_firmware_fp_runs WHERE image_id=?", (result.image_id,))
+    if len(reviews) != 1:
+        raise FirmwareChainError("One complete firmware review is required")
+    review = reviews[0]
+    db.TABLE_SPECS["cba_firmware_fp_runs"].validate(review)
+    if (review["status"] != "complete" or not isinstance(review["completed_at"], str)
+            or not review["completed_at"].strip()):
+        raise FirmwareChainError("Firmware review must remain complete")
+    for key in ("image_id", "manifest_sha256", "surface_snapshot_sha256", "candidate_snapshot_sha256"):
+        if frozen.get(key) != run[key] or review[key] != run[key]:
+            raise FirmwareChainError("Current review and prepared generation differ")
+    if frozen.get("fpcheck_worklist_sha256") != review["worklist_sha256"]:
+        raise FirmwareChainError("Current review worklist differs")
+    receipts = _review_index(con, run_dir, review)
+    artifact_relative = (pathlib.Path(run["fpcheck_artifact_path"])).relative_to(run_dir).as_posix()
+    if (frozen.get("findings_artifact_path"), frozen.get("findings_artifact_sha256")) != (
+            artifact_relative, run["fpcheck_artifact_sha256"]):
+        raise FirmwareChainError("Prepared findings artifact ownership differs")
+    artifact = _retained_bytes(run_dir, artifact_relative, run["fpcheck_artifact_sha256"])
+    expected_artifact = run_dir / "artifacts/firmware-fpcheck" / review["worklist_sha256"] / run["fpcheck_artifact_sha256"] / "findings.json"
+    if str(expected_artifact) != run["fpcheck_artifact_path"]:
+        raise FirmwareChainError("Findings artifact is not canonical")
+    rebuilt = {key: frozen[key] for key in ("schema_version", "image_id", "manifest_sha256", "surface_snapshot_sha256",
+        "candidate_snapshot_sha256", "fpcheck_worklist_sha256", "findings_artifact_path", "findings_artifact_sha256")}
+    components, surfaces = set(), set()
+    checked_artifacts = {(artifact_relative, run["fpcheck_artifact_sha256"])}
+    for collection, table, timestamp, identifier in (
+        ("findings", "cba_firmware_findings", "derived_at", "finding_id"),
+        ("surfaces", "cba_firmware_surfaces", "recorded_at", "surface_id"),
+        ("unknowns", "cba_unknowns", "recorded_at", "id"),
+        ("pivots", "cba_firmware_pivots", "recorded_at", "pivot_id")):
+        records = surface._query(con, f"SELECT * FROM {table} WHERE image_id=? ORDER BY {identifier}", (result.image_id,))
+        rebuilt[collection] = []
+        for row in records:
+            if collection == "surfaces" and row["surface_id"] not in surfaces:
+                continue
+            if collection == "unknowns" and row["surface_id"] not in surfaces and row["component_path"] not in components:
+                continue
+            db.TABLE_SPECS[table].validate(row)
+            row.pop(timestamp)
+            if collection == "findings":
+                for field in ("contributors", "lanes", "component_paths", "surface_ids"):
+                    row[field] = json.loads(row[field])
+                components.update(row["component_paths"])
+                surfaces.update(row["surface_ids"])
+                if (row["artifact_path"], row["artifact_sha256"]) != (str(expected_artifact), run["fpcheck_artifact_sha256"]):
+                    raise FirmwareChainError("Finding artifact ownership differs")
+            if collection in ("findings", "pivots") and row["candidate_snapshot_sha256"] != result.candidate_snapshot_sha256:
+                raise FirmwareChainError("Foreign candidate snapshot")
+            row["artifact_path"] = pathlib.Path(row["artifact_path"]).relative_to(run_dir).as_posix()
+            ownership = row["artifact_path"], row["artifact_sha256"]
+            if ownership not in checked_artifacts:
+                _retained_bytes(run_dir, *ownership)
+                checked_artifacts.add(ownership)
+            if collection == "pivots":
+                row["context_only"] = True
+            rebuilt[collection].append(row)
+        if run[collection[:-1] + "_count" if collection != "unknowns" else "unknown_count"] != len(rebuilt[collection]):
+            raise FirmwareChainError("Prepared evidence counts differ")
+    if (type(rebuilt["schema_version"]) is not int or rebuilt["schema_version"] != 1
+            or _json_bytes(rebuilt) != content):
+        raise FirmwareChainError("Prepared evidence differs from current SQL")
+    canonical = json.loads(artifact, object_pairs_hook=_pairs, parse_constant=_constant)
+    expected = dict(schema_version=1, image_id=result.image_id, candidate_snapshot_sha256=result.candidate_snapshot_sha256,
+        worklist_sha256=review["worklist_sha256"], results=[dict(batch_path=r["batch_path"], result_sha256=r["result_sha256"]) for r in receipts],
+        findings=[{key: value for key, value in row.items() if key not in ("artifact_path", "artifact_sha256")} for row in sorted(rebuilt["findings"], key=lambda r: r["root_cause_key"])])
+    if canonical != expected or _json_bytes(expected) != artifact or len(receipts) != review["batch_count"]:
+        raise FirmwareChainError("Canonical findings artifact differs from current review")
+    return rebuilt
+
+
+def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
+    findings = {row["finding_id"]: row for row in frozen["findings"]}
+    surfaces = {row["surface_id"]: row for row in frozen["surfaces"]}
+    unknowns = {row["id"]: row for row in frozen["unknowns"]}
+    pivots = {row["pivot_id"] for row in frozen["pivots"]}
+    blockers = {row.blocker_key: row for row in result.blockers}
+    blocker_ids = {key: canonical_blocker_id(result.image_id, result.candidate_snapshot_sha256, b) for key, b in blockers.items()}
+    chain_ids = {c.chain_key: canonical_chain_id(result.image_id, result.candidate_snapshot_sha256, c, blocker_ids) for c in result.chains}
+    memberships = {identifier: set() for identifier in findings}
+    for chain in result.chains:
+        for identifier in chain.member_ids:
+            if identifier not in findings or identifier in pivots:
+                raise FirmwareChainError("Chain members must be current reviewed findings")
+            memberships[identifier].add(chain.chain_key)
+    if {d.finding_id for d in result.dispositions} != findings.keys():
+        raise FirmwareChainError("Dispositions must cover every reviewed finding exactly")
+
+    def open_unknown(identifier):
+        if identifier not in unknowns or unknowns[identifier]["status"] != "open" or identifier in pivots:
+            raise FirmwareChainError("Blocker must be a current open unknown")
+        return unknowns[identifier]
+
+    def evidence(refs, *, owner=None, initial=False):
+        texts = []
+        for ref in refs:
+            kind, identifier, field = _EVIDENCE_PATTERN.fullmatch(ref).groups()
+            if identifier in pivots:
+                raise FirmwareChainError("Pivots cannot supply evidence")
+            rows = {"finding": findings, "surface": surfaces, "unknown": unknowns}[kind]
+            if identifier not in rows:
+                raise FirmwareChainError("Unresolved or foreign evidence reference")
+            if kind == "finding" and identifier != owner:
+                raise FirmwareChainError("Evidence must be owned by the specified finding")
+            if initial and kind == "surface" and identifier not in findings[owner]["surface_ids"]:
+                raise FirmwareChainError("Initial surface evidence must belong to the first finding")
+            if kind == "unknown" and rows[identifier]["status"] != "resolved":
+                raise FirmwareChainError("Only resolved unknowns can supply evidence")
+            texts.append(_text(rows[identifier][field], "retained evidence"))
+        return texts
+
+    for blocker in result.blockers:
+        if not set(blocker.affected_finding_ids) <= findings.keys() or set(blocker.affected_finding_ids) & pivots:
+            raise FirmwareChainError("Blocker affected findings must be reviewed findings")
+    dispositions = []
+    for d in result.dispositions:
+        if set(d.chain_keys) != memberships[d.finding_id] or (bool(d.chain_keys) != (d.disposition == "chained")):
+            raise FirmwareChainError("Disposition membership differs from graph membership")
+        if not set(d.pivot_followup_ids) <= pivots:
+            raise FirmwareChainError("Unknown pivot follow-up")
+        for identifier in d.existing_unknown_ids:
+            open_unknown(identifier)
+        for key in d.blocker_keys:
+            if d.finding_id not in blockers[key].affected_finding_ids:
+                raise FirmwareChainError("Disposition blocker does not affect its finding")
+        dispositions.append(ValidatedDisposition(result.image_id, d.finding_id, result.candidate_snapshot_sha256,
+            d.disposition, d.explanation, _cell(sorted(chain_ids[k] for k in d.chain_keys)),
+            _cell(d.existing_unknown_ids), _cell(sorted(blocker_ids[k] for k in d.blocker_keys)), _cell(d.pivot_followup_ids)))
+    validated_chains, validated_edges = [], []
+    for chain in result.chains:
+        evidence(chain.initial_evidence_refs, owner=chain.member_ids[0], initial=True)
+        carried = dataclasses.asdict(chain.initial_state)
+        chain_unknowns, chain_blockers = set(), set()
+        # Finding-level blockers are conservatively relevant even when the worker
+        # omits a corresponding edge reference or disposition annotation.
+        for b in result.blockers:
+            if set(b.affected_finding_ids) & set(chain.member_ids) or any(r.chain_key == chain.chain_key for r in b.affected_edges):
+                chain_blockers.add(blocker_ids[b.blocker_key])
+        for d in result.dispositions:
+            if d.finding_id in chain.member_ids:
+                chain_unknowns.update(d.existing_unknown_ids)
+                chain_blockers.update(blocker_ids[k] for k in d.blocker_keys)
+        for ordinal, edge in enumerate(chain.edges):
+            producer = evidence(edge.producer_evidence_refs, owner=edge.producer_finding_id)
+            consumer = evidence(edge.consumer_evidence_refs, owner=edge.consumer_finding_id)
+            evidence(edge.supplemental_evidence_refs)
+            for claim in (edge.produced_capability, edge.required_precondition):
+                if claim.strip().casefold().rstrip('.!') in _GENERIC_CLAIMS:
+                    raise FirmwareChainError("Generic transition claim")
+            if edge.capability_kind == "other-specific":
+                parts = edge.link_key.split(":", 1)
+                generic = {"generic", "other", "access", "capability", "resource", "state", "unknown", "any"}
+                if (len(parts) != 2 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", parts[0]) is None
+                        or not parts[1].strip() or any(p.casefold() in generic for p in parts)):
+                    raise FirmwareChainError("other-specific requires a concrete namespace-like link key")
+            required, after = dataclasses.asdict(edge.required_state), dataclasses.asdict(edge.result_state)
+            for axis, value in required.items():
+                if value != "any" and value != carried[axis]:
+                    raise FirmwareChainError("State requirement is not satisfied by the carried state")
+            if edge.transition_kind == "direct":
+                if any(after[axis] not in ("unchanged", carried[axis]) for axis in ("lifecycle", "posture")):
+                    raise FirmwareChainError("Direct edge cannot change lifecycle or posture")
+            else:
+                # This is an explicit-boundary presence check, not a prose truth
+                # oracle. Both retained sides must name the claimed boundary.
+                pattern = _BOUNDARY_TERMS[edge.transition_kind]
+                if not all(any(re.search(pattern, text, re.IGNORECASE) for text in side) for side in (producer, consumer)):
+                    raise FirmwareChainError("Transition boundary requires explicit producer and consumer evidence")
+            carried.update({axis: value for axis, value in after.items() if value != "unchanged"})
+            for ref in edge.existing_unknowns:
+                unknown = open_unknown(ref.unknown_id)
+                if ref.axes != (_UNKNOWN_AXES.get(unknown["field"], "reachability"),):
+                    raise FirmwareChainError("Unknown axes differ from the frozen field mapping")
+                chain_unknowns.add(ref.unknown_id)
+            for key in edge.blocker_keys:
+                b = blockers[key]
+                if (AffectedEdgeRef(chain.chain_key, ordinal) not in b.affected_edges and
+                        not set(b.affected_finding_ids) & {edge.producer_finding_id, edge.consumer_finding_id}):
+                    raise FirmwareChainError("Edge blocker does not affect this edge")
+                chain_blockers.add(blocker_ids[key])
+            row = dataclasses.asdict(edge)
+            del row["blocker_keys"]
+            for key in ("producer_evidence_refs", "consumer_evidence_refs", "supplemental_evidence_refs", "required_state", "result_state", "existing_unknowns"):
+                row[key] = _cell(row[key])
+            validated_edges.append(ValidatedEdge(image_id=result.image_id, chain_id=chain_ids[chain.chain_key], ordinal=ordinal,
+                candidate_snapshot_sha256=result.candidate_snapshot_sha256, blocker_ids=_cell(sorted(blocker_ids[k] for k in edge.blocker_keys)), **row))
+        blocked = bool(chain_unknowns or chain_blockers)
+        pre_auth = "no" if chain.initial_state.authentication != "pre-auth" else "unknown" if blocked else "yes"
+        validated_chains.append(ValidatedChain(result.image_id, chain_ids[chain.chain_key], result.candidate_snapshot_sha256,
+            chain.title, chain.summary, _cell(chain.member_ids), chain.initial_attacker_position, _cell(chain.initial_evidence_refs),
+            chain.initial_state.lifecycle, chain.initial_state.posture, chain.initial_state.authentication, pre_auth,
+            min([findings[f]["confidence"] for f in chain.member_ids] + [e.confidence for e in chain.edges]),
+            "blocked" if blocked else "complete", _cell(sorted(chain_unknowns)), _cell(sorted(chain_blockers)), "static-chained"))
+    validated_blockers = tuple(ValidatedBlocker(result.image_id, blocker_ids[b.blocker_key], result.candidate_snapshot_sha256,
+        b.question, b.settling_observation, b.method, _cell(b.axes), _cell(b.affected_finding_ids),
+        _cell(sorted((dict(chain_id=chain_ids[r.chain_key], ordinal=r.ordinal) for r in b.affected_edges),
+                     key=lambda r: (r["chain_id"], r["ordinal"]))), "open") for b in result.blockers)
+    return ValidatedGraph(result, tuple(sorted(blocker_ids.items())), tuple(sorted(chain_ids.items())),
+        tuple(dispositions), validated_blockers, tuple(validated_chains), tuple(validated_edges))
+
+
+def validate(con, run_dir: str | pathlib.Path, result: GraphResult) -> ValidatedGraph:
+    """Prove current ownership, coverage, transitions and conservative derivation.
+
+    No writes, artifact installs, or live-root reads occur. An owned read snapshot
+    is ended only when this call opened it; caller transactions remain untouched.
+    """
+    import sqlite3
+    owned = False
+    try:
+        if not isinstance(result, GraphResult):
+            raise FirmwareChainError("Expected a GraphResult")
+        # Frozen dataclasses can also be built directly: recheck their full wire
+        # contract rather than trusting that every caller used load().
+        result = _parse(json.loads(canonical_bytes(result)))
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        frozen = _prepared_evidence(con, pathlib.Path(run_dir).absolute(), result)
+        return _validate_graph(result, frozen)
+    except sqlite3.Error as exc:
+        raise FirmwareChainError("database operation failed") from exc
+    except (OSError, ValueError, KeyError, TypeError, db.DbError) as exc:
+        raise FirmwareChainError("Cannot validate firmware chain evidence") from exc
+    finally:
+        if owned:
+            con.rollback()
