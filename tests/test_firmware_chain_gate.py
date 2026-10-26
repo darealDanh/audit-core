@@ -651,3 +651,34 @@ def test_root_free_identical_review_import_is_readonly_and_public_root_verificat
                 public(con, run, missing)
             assert state(con) == before and con.total_changes == writes and files(run) == artifacts
     assert not con.in_transaction
+
+
+@pytest.mark.parametrize('damage', ['deleted', 'renamed'])
+def test_restored_review_result_directory_invalidates_completed_chains(completed_with_sibling, damage):
+    # Breaks: treating restored artifact bytes as an intact, idempotent replacement.
+    import shutil
+    from audit_core import firmware_fpcheck, firmware_fpcheck_results
+    con, run, root = completed_with_sibling[:3]
+    retained = pathlib.Path(con.execute(
+        "SELECT result_path FROM cba_firmware_fp_receipts WHERE image_id='target'").fetchone()[0])
+    content = retained.read_bytes()
+    submitted = run / 'resubmitted-review.json'
+    submitted.write_bytes(content)
+    moved = run / 'renamed-review-result'
+    if damage == 'deleted':
+        shutil.rmtree(retained.parent)
+    else:
+        retained.parent.rename(moved)
+    assert not retained.parent.exists()
+    before = state(con)
+    imported = firmware_fpcheck_results.record(con, run, submitted, replace=True)
+    assert_chain_ownership(con, before, cleared=True)
+    assert retained.read_bytes() == content and imported.artifact_path == str(retained)
+    if damage == 'renamed':
+        assert (moved / 'result.json').read_bytes() == content
+    row = con.execute("SELECT status,completed_at FROM cba_firmware_fp_runs WHERE image_id='target'").fetchone()
+    assert tuple(row) == ('pending', None)
+    assert con.execute("SELECT count(*) FROM cba_firmware_findings WHERE image_id='target'").fetchone()[0] == 0
+    assert not con.in_transaction
+    assert firmware_fpcheck.check(con, run, root).complete
+    assert_chain_ownership(con, before, cleared=True)

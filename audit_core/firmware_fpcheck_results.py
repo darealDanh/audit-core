@@ -475,6 +475,9 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         destination = run_dir / "artifacts/firmware-fpcheck" / generation / digest
         artifact_path = str(destination / "result.json")
         _artifact_directories(run_dir, destination)
+        # Restoring missing retained evidence must not become an identical no-op
+        # merely because installation makes its bytes exact again.
+        artifact_missing = not destination.exists()
         surface.atomic_install(destination, {"result.json": content})
         con.execute("BEGIN IMMEDIATE")
         started = True
@@ -486,7 +489,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         receipt_row, verdicts, pivots, counts = _publication_rows(validated, artifact_path, digest)
         summary = ImportSummary(result.image_id, result.batch_path, len(validated.assigned_candidates),
             counts["TRUE_POSITIVE"], counts["FALSE_POSITIVE"], counts["DUPLICATE"], counts["FALSE_POSITIVE"], artifact_path)
-        if _same_publication(con, run_dir, validated, receipt, receipt_row, verdicts, pivots):
+        if not artifact_missing and _same_publication(con, run_dir, validated, receipt, receipt_row, verdicts, pivots):
             con.commit()
             return summary
         from audit_core import firmware_chain
