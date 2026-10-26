@@ -412,3 +412,17 @@ def test_coverage_record_json_is_parseable(tmp_path):
     payload = json.loads(r.stdout)
     assert payload["analyzed"] == 1
     assert "recorded as analyzed" in r.stderr
+
+
+def test_chain_missing_database_remains_a_syntax_error(tmp_path):
+    for flags in ([], ["--json"], ["--compose", "C1", "--findings", "G1-F1,G2-F1"]):
+        result = run("chain", *flags)
+        assert result.returncode == 2 and result.stdout == ""
+        assert "--db" in result.stderr and "Traceback" not in result.stderr
+
+
+def test_generic_chain_json_proposal_keeps_existing_public_shape(tmp_path):
+    dbp = seeded(tmp_path)
+    result = run("chain", "--db", dbp, "--json")
+    assert result.returncode == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {"candidates": [], "findings_scanned": 1, "without_precondition": 1, "truncated": False, "unexamined": 0}

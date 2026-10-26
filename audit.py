@@ -45,6 +45,8 @@ from audit_core import hunt as hunt_mod  # noqa: E402
 from audit_core import hunt_results as hunt_results_mod  # noqa: E402
 from audit_core import firmware_fpcheck as firmware_fpcheck_mod  # noqa: E402
 from audit_core import firmware_fpcheck_results as firmware_fpcheck_results_mod  # noqa: E402
+from audit_core import firmware_chain as firmware_chain_mod  # noqa: E402
+from audit_core import firmware_chain_results as firmware_chain_results_mod  # noqa: E402
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -1008,7 +1010,108 @@ def cmd_dedup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_firmware_chain(args: argparse.Namespace) -> int:
+    """Delegate firmware operations and expose only scalar provenance/counts."""
+    if args.replace and args.record is None:
+        error = "--replace requires --record"
+    elif args.record is not None and args.root is not None:
+        error = "--root is only valid for prepare or check"
+    elif args.record is not None and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    elif (args.prepare or args.check) and args.root is None:
+        error = "--root is required for chain prepare or check"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    # A lexical relative root may appear in filesystem diagnostics. A bare
+    # dot must never be used as a substring redaction rule.
+    display_root = root if root is not None and str(root) != "." else (
+        root.absolute() if root is not None else None)
+    expected_errors = (firmware_chain_mod.FirmwareChainError, db_mod.DbError,
+                       OSError, sqlite3.Error)
+    def diagnostic(exc):
+        return _hunt_error_message(exc, display_root, verb="chain")
+    try:
+        con = _open_db(str(run_dir / "audit.db"), error_message=diagnostic)
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(diagnostic(exc), file=sys.stderr)
+        return 1
+    if con is None:
+        return 1
+    failure = None
+    try:
+        if args.prepare:
+            result = firmware_chain_mod.prepare(con, run_dir, root, image_id=args.image_id)
+            fields = ("image_id", "manifest_sha256", "surface_snapshot_sha256",
+                      "candidate_snapshot_sha256", "generation", "worklist_path", "worklist_sha256",
+                      "finding_count", "surface_count", "unknown_count", "pivot_count")
+        elif args.record is not None:
+            result = firmware_chain_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace)
+            fields = ("image_id", "finding_count", "disposition_count", "blocker_count",
+                      "chain_count", "edge_count", "complete_chains", "blocked_chains", "artifact_path")
+        else:
+            result = firmware_chain_mod.check(con, run_dir, root, image_id=args.image_id)
+            fields = ("image_id", "finding_count", "disposition_count", "blocker_count",
+                      "complete_chains", "blocked_chains", "artifact_path", "complete")
+        payload = {field: getattr(result, field) for field in fields}
+        if args.check:
+            payload["chain_count"] = len(result.chains)
+    except Exception as exc:
+        failure = exc
+    finally:
+        try:
+            if failure is not None and con.in_transaction:
+                con.rollback()
+        except Exception as exc:
+            if failure is None or isinstance(failure, expected_errors):
+                exc.__context__ = failure
+                failure = exc
+        finally:
+            try:
+                con.close()
+            except Exception as exc:
+                if failure is None or isinstance(failure, expected_errors):
+                    exc.__context__ = failure
+                    failure = exc
+    if failure is not None:
+        if isinstance(failure, expected_errors):
+            print(diagnostic(failure), file=sys.stderr)
+            return 1
+        raise failure
+
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        if args.prepare:
+            lines = [f"chain prepared {payload['image_id']}: {payload['finding_count']} finding(s), "
+                     f"{payload['surface_count']} surface(s), {payload['unknown_count']} unknown(s), "
+                     f"{payload['pivot_count']} pivot(s)",
+                     f"candidate snapshot sha256 {payload['candidate_snapshot_sha256']}",
+                     f"worklist sha256 {payload['worklist_sha256']}", payload["worklist_path"]]
+        else:
+            counts = (f"{payload['finding_count']} finding(s), {payload['disposition_count']} disposition(s), "
+                      f"{payload['blocker_count']} blocker(s), {payload['chain_count']} chain(s), "
+                      f"{payload['complete_chains']} complete chain(s), {payload['blocked_chains']} blocked chain(s)")
+            if args.record is not None:
+                lines = [f"chain recorded {payload['image_id']}: {counts}, {payload['edge_count']} edge(s)"]
+            else:
+                status = "complete" if payload["complete"] else "pending"
+                lines = [f"chain {payload['image_id']}: {counts}, {status}"]
+            lines.append(payload["artifact_path"])
+        for line in lines:
+            print(_bounded_cli_text(line, display_root))
+    return 0
+
+
 def cmd_chain(args: argparse.Namespace) -> int:
+    if args.run is not None:
+        return _cmd_firmware_chain(args)
     composing = bool(args.compose)
     con = _open_db(args.db, read_only=not composing)
     if con is None:
@@ -1370,8 +1473,25 @@ HANDLERS = {
 }
 
 
+class _AuditArgumentParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        if parsed.verb == "chain":
+            firmware_mode = parsed.prepare or parsed.record is not None or parsed.check
+            if parsed.run is not None:
+                if not firmware_mode:
+                    self.error("chain --run requires one of --prepare, --record, or --check")
+                for name in ("compose", "findings", "attacker_position", "completeness",
+                             "pre_auth", "blocking_unknowns"):
+                    if getattr(parsed, name) is not None:
+                        self.error(f"--{name.replace('_', '-')} cannot be mixed with --run")
+            elif firmware_mode or parsed.root is not None or parsed.image_id is not None:
+                self.error("firmware chain flags require --run")
+        return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="audit.py")
+    p = _AuditArgumentParser(prog="audit.py")
     sub = p.add_subparsers(dest="verb", required=True)
     sub.add_parser("selftest", help="verify the vendored core is importable")
     b = sub.add_parser("budget", help="economics report for session transcripts")
@@ -1542,7 +1662,15 @@ def build_parser() -> argparse.ArgumentParser:
     dd.add_argument("--db", required=True, metavar="AUDIT_DB")
     dd.add_argument("--json", action="store_true")
     ch = sub.add_parser("chain", help="propose cross-group finding pairs, or record a composed chain")
-    ch.add_argument("--db", required=True, metavar="AUDIT_DB")
+    chain_route = ch.add_mutually_exclusive_group(required=True)
+    chain_route.add_argument("--db", metavar="AUDIT_DB")
+    chain_route.add_argument("--run", metavar="RUN", help="firmware run directory")
+    chain_mode = ch.add_mutually_exclusive_group()
+    chain_mode.add_argument("--prepare", action="store_true", help="prepare a firmware chain worklist")
+    chain_mode.add_argument("--record", metavar="RESULT", help="import firmware chain review JSON")
+    chain_mode.add_argument("--check", action="store_true", help="verify and complete firmware chains")
+    ch.add_argument("--root", metavar="ROOT", help="live firmware root for prepare or check")
+    ch.add_argument("--image-id", metavar="ID", help="select the firmware image")
     ch.add_argument("--compose", default=None, metavar="CHAIN_ID",
                     help="record a chain instead of proposing")
     ch.add_argument("--findings", default=None, metavar="ID,ID,...",

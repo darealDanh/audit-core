@@ -326,3 +326,20 @@ def test_a_finding_is_not_its_own_enabler(con):
              "cookie_jar to an unauthenticated caller")
     finding(con, "G1-F1", "G1", impact=text_, attacker_position=text_)
     assert chains.propose(con).candidates == ()
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_cli_generic_route_preserves_proposal_bytes_and_readonly_access(con, monkeypatch, capsys, json_output):
+    import dataclasses
+    import json
+    import audit
+    finding(con, "G1-F1", "G1", impact="leaks session_token klap_handshake2 cookie_jar")
+    finding(con, "G2-F1", "G2", attacker_position="requires session_token klap_handshake2 cookie_jar")
+    proposal = chains.propose(con)
+    expected = json.dumps(dataclasses.asdict(proposal), indent=2) if json_output else chains.render(proposal)
+    def opened(path, *, read_only):
+        assert path == "generic.db" and read_only is True
+        return con
+    monkeypatch.setattr(audit, "_open_db", opened)
+    assert audit.main(["chain", "--db", "generic.db", *(["--json"] if json_output else [])]) == 0
+    assert capsys.readouterr() == (expected + "\n", "")
