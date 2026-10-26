@@ -456,3 +456,31 @@ def test_current_completion_ignores_and_preserves_complete_historical_generation
         assert [r for r in state(con)[table] if r[index] == old] == [r for r in before[table] if r[index] == old]
     before,writes = state(con),con.total_changes
     assert check(graph_case) == summary and state(con) == before and con.total_changes == writes
+
+
+@pytest.mark.parametrize('operation',['remove','rename'])
+def test_completed_recheck_never_recreates_graph_lost_after_initial_verification(graph_case,monkeypatch,tmp_path,operation):
+    import shutil
+    con,run,*_ = graph_case
+    record(graph_case)
+    summary = check(graph_case)
+    graph = pathlib.Path(summary.artifact_path)
+    content = graph.read_bytes()
+    before,writes,artifacts = state(con),con.total_changes,files(run)
+    original = firmware_chain._completion_evidence
+    changed = False
+    moved = tmp_path/'removed-completed-graph'
+    def lost_after_verification(*args,**kwargs):
+        nonlocal changed
+        evidence = original(*args,**kwargs)
+        if not changed:
+            changed = True
+            if operation == 'remove': shutil.rmtree(graph.parent)
+            else: graph.parent.rename(moved)
+        return evidence
+    monkeypatch.setattr(firmware_chain,'_completion_evidence',lost_after_verification)
+    with pytest.raises(firmware_chain.FirmwareChainError): check(graph_case)
+    assert state(con) == before and con.total_changes == writes and not con.in_transaction
+    assert not graph.parent.exists()
+    assert files(run) == {name:value for name,value in artifacts.items() if name != graph.relative_to(run).as_posix()}
+    if operation == 'rename': assert (moved/'chains.json').read_bytes() == content

@@ -284,13 +284,15 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | path
         snapshot, prior, validated, content, destination, digest = evidence
         artifact_path = str(destination / "chains.json")
         results._result_directories(run_dir, destination)
-        surface.atomic_install(destination, {"chains.json": content})
+        pending = prior["cba_firmware_chain_runs"][0]["status"] != "complete"
+        if pending:
+            surface.atomic_install(destination, {"chains.json": content})
         con.execute("BEGIN IMMEDIATE")
         started = True
         if _completion_evidence(con, run_dir, root, image_id) != evidence:
             raise FirmwareChainError("Firmware chain inputs changed before completion")
         _checked_graph_install(run_dir, destination, content)
-        if prior["cba_firmware_chain_runs"][0]["status"] != "complete":
+        if pending:
             for table in ("cba_firmware_chain_edges", "cba_firmware_chains"):
                 con.execute(f"DELETE FROM {table} WHERE image_id=? AND candidate_snapshot_sha256=?",
                             (snapshot.image_id, snapshot.candidate_snapshot_sha256))
