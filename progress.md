@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-25 · **Branch:** local `main`; Stage 4f merged by fast-forward at `303232e`, not pushed ·
-**Current verification:** merged Stage 4f tree: 4,164 full-suite tests passed; `make all` passed all 8 gates, 0/5,933 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-10-27 · **Branch:** `stage4g-firmware-chain`; Stage 4g implemented and review-clean through `661c3c9`, not merged or pushed ·
+**Current verification:** Stage 4g feature tree: 5,897 full-suite tests passed; `make all` passed all 8 gates, 0/7,385 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -23,13 +23,15 @@ benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a-4f are merged to local `main`.** Stage 4f
 firmware `fpcheck` is merged by fast-forward at `303232e`; nothing has been
-pushed. It was built from approved design `b4f6e0f` and plan `61177ce`. The slice includes
+pushed. Stage 4g firmware `chain` is implemented on the unmerged
+`stage4g-firmware-chain` branch through `661c3c9`, from approved design
+`00edb44` and plan `380b075`. The Stage 4f slice includes
 five-table row contracts, verified completed-hunt snapshots, deterministic review
 batches, strict results, atomic import, canonical reviewed findings, upstream
 invalidation, bounded CLI, worker brief and installed routing. Final review found
 JSON identity/path corruption; `303232e` preserves machine-readable values and
 retains bounded human output. The scoped re-review was clean. The next firmware
-slice is `chain`.
+slice after Stage 4g integration is `dive`.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -46,6 +48,7 @@ Stage 5 has not started.
 | 4d | `surface` — exact-root preparation, atomic results, completion gate, agent brief | through `b14b4fb` | local `main` | **merged locally** (`6eba6d6`) — 8/8 gates, no audit run; not pushed |
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
+| 4g | `chain` — global static firmware evidence graphs | through `661c3c9` | branch `stage4g-firmware-chain` | **implemented, unmerged**; whole-branch review clean after one fix wave; 8/8 gates, no audit run; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -66,7 +69,7 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-Read-only scoring of the existing audit remains unchanged through Stage 4f.
+Read-only scoring of the existing audit remains unchanged through Stage 4g.
 This does not measure the effect of new behavior: the Stage 2/3 audit reruns
 remain deferred, so no recall, precision, or audit-cost improvement is claimed.
 
@@ -849,6 +852,54 @@ triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
 and monorepo/submodule decision remain overall milestone/restructure
 prerequisites; static contracts do not establish semantic audit quality.
 
+### Stage 4g — global static firmware evidence graphs
+
+Stage 4g is implemented on the isolated `stage4g-firmware-chain` branch through
+`661c3c9`; integration into local `main` and any push remain pending explicit
+operator action. Six dedicated tables retain one image/snapshot-owned chain run,
+its immutable result receipt, one disposition for every current Stage 4f finding,
+open blockers, deterministic chains, and ordered typed edges. The overloaded
+`chain` CLI preserves ordinary source-code proposal/composition behavior while
+adding explicit firmware `--prepare`, `--record`, and `--check` modes.
+
+Preparation consumes a verified complete Stage 4f findings snapshot and installs
+one immutable global worklist. Strict bounded JSON permits finding reuse across
+multiple chains, requires exact dispositions, binds producer/consumer-owned
+evidence to typed capability/link identities, and mechanically carries lifecycle,
+posture, and authentication state across direct, reboot, service-restart,
+factory-reset, and reprovision transitions. Unresolved Stage 4d unknowns and new
+blockers remain explicit and settleable; pivots are context-only and can never be
+nodes or evidence. Import installs canonical result bytes before one immediate
+transaction; completion independently reconstructs all receipt-owned rows,
+derives deterministic `static-chained` graphs, and revalidates live root plus
+current Stage 4f evidence. Upstream Stage 4f changes invalidate all six selected-
+image tables atomically while preserving sibling images and historical snapshots.
+
+The ninth installed brief assigns the complete immutable worklist to one strongest
+global worker and routes prepare → file-backed brief → record → check. Workers own
+result JSON only, never SQL, artifacts, identities, receipts, derived claims, or
+completion. Static chains do not establish runtime reachability, semantic
+causality beyond retained evidence, severity/CVSS, exploitability, or successful
+exploitation; those questions remain for `dive`/`decide` and live verification.
+
+The independent whole-branch review found two Important cross-layer invariants:
+`other-specific` link keys differed between semantic validation and persistence,
+and nonmaterialized dispositions could retain unresolved references. Commit
+`661c3c9` unified link validation and rejects contradictory standalone/
+unchainable dispositions; scoped re-review marked both addressed with no new
+Critical or Important issue. Focused Stage 4f/4g regression passed 2,547 tests;
+coverage passed 0/7,385 statements with no allowances. The current full harness
+passes all eight gates: 5,897 tests; 29 verbs; 38 schema tables, 37 contracted;
+four migrations plus current schema on both frozen baselines; 6 CRLF and 224 LF
+files; 55 features, 15 stages, and 21 open-item records; 116 installed Markdown
+files; 0/7,385 uncovered statements; benchmark recall 9/19, 45 findings,
+precision 39/40, and $73.15 per match.
+
+No mutation sweep, paid semantic audit/milestone rerun, Asus golden, or indicator
+snapshot ran. Triage remains upsert-only and Stage 4d retains its orphan-result
+scan scaling limit. The separate firmware skill tree and monorepo/submodule
+decision remain open. After Stage 4g is merged, the next firmware slice is `dive`.
+
 ---
 
 ## 3. What was deliberately not done
@@ -882,7 +933,8 @@ These are recorded in the gate documents and in `feature_lists.json`'s
    now preserves columns the caller did not pass). The Stage 3 fix-wave report
    had claimed this earlier; that claim was wrong at the time and is kept in
    SESSION_HANDOFF §6 so it is not trusted.
-7. **Local changes are not pushed.** `main` includes Stage 4f at `303232e`.
+7. **Local changes are not pushed.** `main` includes Stage 4f at `303232e`;
+   Stage 4g remains unmerged on `stage4g-firmware-chain` through `661c3c9`.
    The earlier observation of 50 commits ahead of `origin/main` was measured
    on 2026-10-16 and is historical, not the current synchronization count.
    The former Stage 4f feature branch/worktree were removed after the local
@@ -1020,13 +1072,14 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Implement firmware `chain` on the merged Stage 4f foundation.**
-   Stage 4f passed whole-branch review, its JSON fix passed scoped re-review, and
-   local `main` now contains the phase at `303232e`; nothing has been pushed.
-   `chain` consumes dedicated reviewed firmware findings. Triage's upsert-only
-   snapshots and Stage 4d retained-orphan scan scaling persist. The Asus golden
-   and monorepo/submodule decision remain prerequisites for the overall Stage 4
-   milestone/restructure; paid semantic quality remains unmeasured.
+1. **Merge Stage 4g, then implement firmware `dive`.** Stage 4g is implemented
+   and review-clean through `661c3c9` on `stage4g-firmware-chain`, but is not
+   merged or pushed. `dive` must consume only completed, current `static-chained`
+   graphs and explicitly settle blockers/runtime reachability rather than treating
+   static correlation as causality. Triage's upsert-only snapshots and Stage 4d
+   retained-orphan scan scaling persist. The Asus golden and monorepo/submodule
+   decision remain prerequisites for the overall Stage 4 milestone/restructure;
+   paid semantic quality remains unmeasured.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

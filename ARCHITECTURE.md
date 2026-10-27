@@ -10,9 +10,10 @@ For *how to pick the work back up*, read
 ## 1. The thing being built
 
 This repository currently ships **one skill, made of two different kinds of
-material**. Its shared core now also contains the first six vertical phases
+material**. Its shared core now also contains the first eight vertical phases
 of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, `diff`,
-`surface`, and `hunt`); the separate firmware skill tree does not exist yet.
+`surface`, `hunt`, `fpcheck`, and `chain`); the separate firmware skill tree
+does not exist yet.
 
 | Material | What it is | Who executes it |
 |---|---|---|
@@ -180,7 +181,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 1131 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f review row validation. |
+| `db.py` | 1401 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f/4g review and chain row validation. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -200,8 +201,10 @@ databases need triage of both acquired images to populate the new manifests.
 | `surface_results.py` | 458 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
 | `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
 | `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
-| `firmware_fpcheck.py` | 428 | Prepare immutable review batches, verify complete review evidence, resolve global duplicates, derive canonical reviewed findings, atomically complete a generation, and invalidate one image's review state. |
-| `firmware_fpcheck_results.py` | 466 | Parse bounded review results, validate assignments and ownership without writes, and atomically import canonical batch receipts, verdicts and pivots. |
+| `firmware_fpcheck.py` | 604 | Prepare immutable review batches, verify complete review evidence, resolve global duplicates, derive canonical reviewed findings, atomically complete a generation, and invalidate one image's review and derived chain state. |
+| `firmware_fpcheck_results.py` | 531 | Parse bounded review results, validate assignments and ownership without writes, atomically import canonical batch receipts/verdicts/pivots, and preserve or invalidate derived chain state on exact replacement. |
+| `firmware_chain.py` | 323 | Prepare one immutable global findings worklist, invalidate image-owned graphs, reconstruct exact receipt-owned graph state, derive the deterministic graph artifact, and atomically complete the current snapshot. |
+| `firmware_chain_results.py` | 977 | Parse bounded hostile chain JSON, enforce complete dispositions/evidence ownership/typed links/device-state continuity, derive stable graph identities, and publish canonical receipts and rows atomically. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 164 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -215,7 +218,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 54 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-eight verbs
+### The twenty-nine verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -223,12 +226,12 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
-qualify  acquire  triage  diff  surface  hunt          firmware phases
+qualify  acquire  triage  diff  surface  hunt  fpcheck firmware phases
 ```
 
-### The firmware boundary through Stage 4e
+### The firmware boundary through Stage 4g
 
-Stages 4b through 4e add firmware behavior to the shared core without pretending that the
+Stages 4b through 4g add firmware behavior to the shared core without pretending that the
 separate `firmware-audit` skill exists. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
 writes file, ELF, and evidenced boot-service rows; it does not infer open ports
@@ -387,7 +390,8 @@ emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below and merged into local `main` at `303232e` after
-clean scoped final re-review. The next firmware slice is `chain`.
+clean scoped final re-review. Stage 4g `chain` is implemented on its unmerged
+feature branch; the next firmware slice after integration is `dive`.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -522,7 +526,72 @@ milestone, and the monorepo/submodule decision remains open for the restructure.
 Audit quality remains unmeasured until the deferred paid milestone runs;
 deterministic harness scoring only measures the existing baseline.
 
-### Stage 4g — installed global chain worker interface
+### Stage 4g — global static firmware evidence graphs
+
+Stage 4g is implemented on `stage4g-firmware-chain` through `661c3c9`, pending
+explicit merge. It consumes only a verified complete Stage 4f findings snapshot
+and writes six dedicated tables: `cba_firmware_chain_runs`,
+`cba_firmware_chain_receipts`, `cba_firmware_chain_dispositions`,
+`cba_firmware_chain_unknowns`, `cba_firmware_chains`, and
+`cba_firmware_chain_edges`. Every row is image- and candidate-snapshot-owned;
+generic `cba_chains` and source-code findings remain untouched.
+
+```bash
+python3 audit.py chain --run RUN --prepare --root ROOT [--image-id ID] [--json]
+python3 audit.py chain --run RUN --record RESULT.json [--replace] [--json]
+python3 audit.py chain --run RUN --check --root ROOT [--image-id ID] [--json]
+```
+
+`firmware_chain.prepare` reuses the Stage 4f verified snapshot boundary, installs
+one canonical global worklist beneath `files/firmware-chain/<snapshot>`, then
+takes `BEGIN IMMEDIATE`, repeats live-root/upstream/installed-byte checks, and
+publishes one pending run. Same inputs preserve current chain state; changed
+inputs invalidate only the selected image's six tables. Stage 4f prepare, import,
+repair, completion, and invalidation paths call that SQL-only invalidator inside
+their owning transaction, so stale derived graphs cannot survive changed review
+evidence. Sibling images and valid historical snapshots remain isolated.
+
+`firmware_chain_results` accepts bounded strict UTF-8 JSON with no duplicate or
+unknown keys and no non-finite/coerced values. Exact disposition coverage is
+mandatory even for an empty generation. Findings may participate in multiple
+chains; chained membership must match graph membership, while standalone and
+unchainable findings cannot carry unresolved blocker references. Each adjacent
+edge binds a typed capability and semantic link identity to producer- and
+consumer-owned retained evidence. Middle findings must both consume and produce
+the carried state. Lifecycle, posture and authentication continuity is mechanical;
+direct transitions cannot magically change lifecycle/posture, while reboot,
+service-restart, factory-reset and reprovision require explicit retained evidence
+on both sides. Stage 4d unknowns must remain open and carry frozen axes; new
+blockers include a settling observation and static/emulate/hardware method.
+Stage 4f pivots may guide follow-up only and cannot be graph nodes or evidence.
+
+`record` validates against the immutable worklist and current retained Stage 4f
+SQL/artifacts without live-root access, installs canonical result bytes beneath
+`artifacts/firmware-chain/<snapshot>/<result-sha256>/result.json`, then takes one
+immediate transaction and repeats mutable provenance, receipt ownership and
+installed-byte checks. It replaces only the current selected-image generation,
+publishes one receipt and exact disposition/blocker/chain/edge rows, and leaves
+the run pending. SQL failures preserve prior state and may leave only an
+unreferenced immutable artifact.
+
+`firmware_chain.check` re-enters the live-root/Stage 4f verified boundary,
+reparses the immutable result, and reconstructs every receipt-owned row rather
+than trusting imported SQL. It derives stable image/snapshot-bound chain and
+blocker IDs, `pre_auth` (`yes`, `no`, or `unknown`), completeness, minimum
+confidence, and the sole evidence rung `static-chained`. A deterministic
+`graph.json` installs before one locked final revalidation and completion update.
+Completed rechecks never repair missing/corrupt artifacts or rows and preserve
+timestamps without writes. Static graphs encode evidence-backed composition;
+they do not prove runtime reachability, semantic causality beyond that evidence,
+severity/CVSS, exploitability, or successful exploitation.
+
+The firmware modes overload the existing `chain` verb without changing ordinary
+source-code proposal and human composition. Semantic flag errors fail before DB
+I/O; prepare/check require root, record alone accepts replace, output is a bounded
+scalar whitelist, and expected diagnostics are escaped/root-redacted/capped while
+unexpected exceptions propagate after cleanup.
+
+#### Installed global chain worker interface
 
 `references/briefs/firmware-chain-brief.md` renders through the existing `brief`
 mechanism with exactly seven required variables: `run_dir`, `db_path`, `rootfs`,
@@ -549,6 +618,13 @@ state, explicit boundary proof, and blockers with settling observations. Stage
 canonical installation, identities, receipts, derived claims, or completion.
 Static chain review authorizes no runtime, severity/CVSS, or exploit claims;
 settlement remains later dive/decide work.
+
+Whole-branch review found and fixed two cross-layer invariant mismatches in
+`661c3c9`; scoped re-review reported no remaining Critical/Important issue.
+Stage 4g is implemented but unmerged and unpushed. The next firmware slice after
+integration is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
+orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
+audit, separate firmware skill tree, and monorepo/submodule decision remain open.
 
 ### Stage 3's five quality mechanisms
 
