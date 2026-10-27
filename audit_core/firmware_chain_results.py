@@ -237,6 +237,9 @@ def _disposition(value: object) -> FindingDisposition:
         raise FirmwareChainError("chain_keys must be non-empty exactly for a chained disposition")
     if disposition == "blocked" and not (arrays["existing_unknown_ids"] or arrays["blocker_keys"]):
         raise FirmwareChainError("A blocked disposition requires an existing unknown or new blocker")
+    if disposition in ("standalone", "unchainable") and (
+            arrays["existing_unknown_ids"] or arrays["blocker_keys"]):
+        raise FirmwareChainError("Unresolved references require a blocked or chained disposition")
     if arrays["pivot_followup_ids"] and disposition not in ("unchainable", "blocked"):
         raise FirmwareChainError("Pivot follow-ups require an unchainable or blocked disposition")
     return FindingDisposition(_identifier(row["finding_id"], "finding_id"), disposition,
@@ -743,6 +746,8 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
     for d in result.dispositions:
         if set(d.chain_keys) != memberships[d.finding_id] or (bool(d.chain_keys) != (d.disposition == "chained")):
             raise FirmwareChainError("Disposition membership differs from graph membership")
+        if d.disposition in ("standalone", "unchainable") and (d.existing_unknown_ids or d.blocker_keys):
+            raise FirmwareChainError("Unresolved references require a blocked or chained disposition")
         if not set(d.pivot_followup_ids) <= pivots:
             raise FirmwareChainError("Unknown pivot follow-up")
         for identifier in d.existing_unknown_ids:
@@ -774,12 +779,9 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
             for claim in (edge.produced_capability, edge.required_precondition):
                 if claim.strip().casefold().rstrip('.!') in _GENERIC_CLAIMS:
                     raise FirmwareChainError("Generic transition claim")
-            if edge.capability_kind == "other-specific":
-                parts = edge.link_key.split(":", 1)
-                generic = {"generic", "other", "access", "capability", "resource", "state", "unknown", "any"}
-                if (len(parts) != 2 or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", parts[0]) is None
-                        or not parts[1].strip() or any(p.strip().casefold() in generic for p in parts)):
-                    raise FirmwareChainError("other-specific requires a concrete namespace-like link key")
+            if (edge.capability_kind == "other-specific" and
+                    not db.firmware_chain_other_specific_link_key(edge.link_key)):
+                raise FirmwareChainError("other-specific requires a concrete namespace-like link key")
             required, after = dataclasses.asdict(edge.required_state), dataclasses.asdict(edge.result_state)
             for axis, value in required.items():
                 if value != "any" and value != carried[axis]:

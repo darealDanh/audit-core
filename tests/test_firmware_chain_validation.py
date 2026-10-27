@@ -246,6 +246,42 @@ def test_nonmaterialized_all_standalone_and_specific_namespace_key(graph_case):
     assert checked.chains == checked.edges == () and len(checked.dispositions) == 4
 
 
+def test_other_specific_firmware_path_with_spaces_is_sql_ready_and_recordable(graph_case):
+    graph_case[3]['chains'][0]['edges'][0].update(
+        capability_kind='other-specific', link_key='boot-resource:/etc/My Config/startup')
+    checked = validate(graph_case)
+    edge, *_ = checked.edges
+    row = dataclasses.asdict(edge) | dict(
+        artifact_path=str(graph_case[1] / 'result.json'), artifact_sha256='a' * 64)
+    db.TABLE_SPECS['cba_firmware_chain_edges'].validate(row)
+
+
+@pytest.mark.parametrize('disposition', ['standalone', 'unchainable'])
+def test_semantic_validation_rejects_nonblocked_disposition_with_unresolved_reference(graph_case, disposition):
+    _, run, _, value, _ = graph_case
+    path = run / 'chain-result.json'
+    path.write_text(json.dumps(value))
+    parsed = results.load(path)
+    original = parsed.dispositions[-1]
+    contradictory = dataclasses.replace(
+        original, disposition=disposition, existing_unknown_ids=('overlap',))
+    forged = dataclasses.replace(parsed, dispositions=parsed.dispositions[:-1] + (contradictory,))
+    frozen = results._prepared_evidence(graph_case[0], run, parsed)
+    with pytest.raises(results.FirmwareChainError, match='[Uu]nresolved|blocked'):
+        results._validate_graph(forged, frozen)
+
+
+def test_chained_member_may_retain_unresolved_references_for_blocked_chain(graph_case):
+    value = graph_case[3]
+    value['blockers'] = [blocker(value)]
+    value['dispositions'][0].update(existing_unknown_ids=['overlap'], blocker_keys=['boot'])
+    checked = validate(graph_case)
+    assert checked.dispositions[0].disposition == 'chained'
+    assert (checked.chains[0].pre_auth, checked.chains[0].completeness) == ('unknown', 'blocked')
+    assert json.loads(checked.chains[0].existing_unknown_ids) == ['overlap']
+    assert json.loads(checked.chains[0].blocker_ids) == [checked.blockers[0].blocker_id]
+
+
 @pytest.mark.parametrize('key', [
     'boot-loader: access', 'boot-loader:   access', 'boot-loader:   AcCeSs',
     'boot-loader:\u00a0access', 'boot-loader:\taccess',

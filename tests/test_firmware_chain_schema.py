@@ -252,6 +252,8 @@ def test_chain_local_variants_require_their_fields(con, table, row, changes, col
     (ROWS[0][0], RUN | {"status": "complete", "graph_path": "/run/artifacts/chains.json",
                       "graph_sha256": "b" * 64, "completed_at": "2026-10-25 01:02:03"}),
     (ROWS[2][0], DISPOSITION | {"disposition": "chained", "chain_ids": '["chain.1"]'}),
+    (ROWS[2][0], DISPOSITION | {"disposition": "chained", "chain_ids": '["chain.1"]',
+                               "existing_unknown_ids": '["unknown.1"]', "blocker_ids": '["blocker.1"]'}),
     (ROWS[2][0], DISPOSITION | {"disposition": "blocked", "blocker_ids": '["blocker.1"]'}),
     (ROWS[2][0], DISPOSITION | {"disposition": "unchainable", "pivot_followup_ids": '["pivot.1"]'}),
     (ROWS[3][0], BLOCKER | {"affected_finding_ids": '[]', "affected_edges": '[{"chain_id":"chain.1","ordinal":0}]'}),
@@ -262,6 +264,32 @@ def test_chain_local_variants_require_their_fields(con, table, row, changes, col
 def test_chain_legal_variants_do_not_require_referenced_rows(con, table, row):
     db.put(con, table, row)
     assert len(db.rows(con, table)) == 1
+
+
+def test_other_specific_row_accepts_concrete_firmware_path_with_spaces(con):
+    row = EDGE | {'capability_kind': 'other-specific',
+                  'link_key': 'boot-resource:/etc/My Config/startup'}
+    db.put(con, 'cba_firmware_chain_edges', row)
+    assert db.rows(con, 'cba_firmware_chain_edges')[0]['link_key'] == row['link_key']
+
+
+@pytest.mark.parametrize('value', [
+    1,
+    ' boot-resource:/etc/startup',
+    'boot-resource:' + '界' * 1365,
+    'boot-resource:\ud800',
+    'boot-resource:/etc/start\x00up',
+])
+def test_shared_other_specific_predicate_rejects_noncanonical_hostile_values(value):
+    assert not db.firmware_chain_other_specific_link_key(value)
+
+
+@pytest.mark.parametrize('disposition', ['standalone', 'unchainable'])
+@pytest.mark.parametrize('field', ['existing_unknown_ids', 'blocker_ids'])
+def test_nonblocked_nonmaterialized_rows_reject_unresolved_references(con, disposition, field):
+    row = DISPOSITION | {'disposition': disposition, field: '["unresolved.1"]'}
+    with pytest.raises(db.DbError, match='[Uu]nresolved|blocked'):
+        db.put(con, 'cba_firmware_chain_dispositions', row)
 
 
 @pytest.mark.parametrize("table,row,column", [(table, row, column) for table, row in ROWS for column in row

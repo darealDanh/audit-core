@@ -95,6 +95,21 @@ def test_blocked_and_only_nonchain_graphs_complete_truthfully(graph_case, kind):
     else: assert summary.chains == ()
 
 
+@pytest.mark.parametrize('disposition', ['standalone', 'unchainable'])
+def test_completion_rejects_nonblocked_disposition_with_unresolved_reference(graph_case, disposition):
+    con = graph_case[0]
+    record(graph_case)
+    finding_id = graph_case[3]['dispositions'][-1]['finding_id']
+    con.execute(
+        'UPDATE cba_firmware_chain_dispositions SET disposition=?, existing_unknown_ids=? WHERE finding_id=?',
+        (disposition, '["overlap"]', finding_id))
+    con.commit()
+    before = state(con)
+    with pytest.raises(firmware_chain.FirmwareChainError):
+        check(graph_case)
+    assert state(con) == before and not con.in_transaction
+
+
 def test_empty_receipted_unicode_generation_completes_and_missing_receipt_refuses(tmp_path):
     run = workspace.init_run(tmp_path/'project')
     image = '路由器|r1|雪:%_\n"'

@@ -13,6 +13,7 @@ import json
 import pathlib
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass
 from typing import Callable
 
@@ -686,6 +687,9 @@ def _validate_firmware_chain_disposition(row: dict[str, str]) -> None:
         raise DbError("chain_ids must be non-empty exactly for a chained disposition")
     if row["disposition"] == "blocked" and not (arrays["existing_unknown_ids"] or arrays["blocker_ids"]):
         raise DbError("a blocked disposition requires existing_unknown_ids or blocker_ids")
+    if row["disposition"] in ("standalone", "unchainable") and (
+            arrays["existing_unknown_ids"] or arrays["blocker_ids"]):
+        raise DbError("unresolved references require a blocked or chained disposition")
     if arrays["pivot_followup_ids"] and row["disposition"] not in ("unchainable", "blocked"):
         raise DbError("pivot_followup_ids are only valid for unchainable or blocked dispositions")
 
@@ -734,8 +738,8 @@ def _validate_firmware_chain_edge(row: dict[str, str]) -> None:
     _firmware_chain_base(row, "cba_firmware_chain_edges")
     one_of("capability_kind", FIRMWARE_CHAIN_CAPABILITY_KINDS)(row)
     one_of("transition_kind", FIRMWARE_CHAIN_TRANSITION_KINDS)(row)
-    if row["capability_kind"] == "other-specific" and re.fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9._-]*:[^\s:]+(?::[^\s:]+)*", row["link_key"]) is None:
+    if (row["capability_kind"] == "other-specific" and
+            not firmware_chain_other_specific_link_key(row["link_key"])):
         raise DbError("link_key for other-specific requires a namespace-like resource key")
     for column in ("producer_evidence_refs", "consumer_evidence_refs", "supplemental_evidence_refs"):
         _firmware_chain_refs(row, column, supplemental=column == "supplemental_evidence_refs")
@@ -751,6 +755,24 @@ def _validate_firmware_chain_edge(row: dict[str, str]) -> None:
         _firmware_chain_axes(unknown["axes"], "existing_unknowns")
         identities.append(unknown["unknown_id"])
     _firmware_chain_unique(identities, "existing_unknowns")
+
+
+def firmware_chain_other_specific_link_key(value: object) -> bool:
+    """Return whether a broad link key names one concrete custom resource."""
+    if not isinstance(value, str) or value != value.strip():
+        return False
+    try:
+        if len(value.encode("utf-8")) > 4096:
+            return False
+    except UnicodeError:
+        return False
+    if any(unicodedata.category(char) == "Cc" for char in value):
+        return False
+    parts = value.split(":", 1)
+    generic = {"generic", "other", "access", "capability", "resource", "state", "unknown", "any"}
+    return (len(parts) == 2 and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", parts[0]) is not None
+            and bool(parts[1].strip())
+            and all(part.strip().casefold() not in generic for part in parts))
 
 
 def _validate_diff_entry(row: dict[str, str]) -> None:

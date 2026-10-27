@@ -87,6 +87,14 @@ def test_first_import_exact_rows_canonical_artifact_counts_and_pending_run(graph
         summary.image_id = 'foreign'
 
 
+def test_import_persists_semantically_valid_other_specific_firmware_path(graph_case):
+    graph_case[3]['chains'][0]['edges'][0].update(
+        capability_kind='other-specific', link_key='boot-resource:/etc/My Config/startup')
+    summary = record(graph_case)
+    assert summary.edge_count == 2
+    assert rows(graph_case[0], 'cba_firmware_chain_edges')[0]['link_key'] == 'boot-resource:/etc/My Config/startup'
+
+
 def test_receipted_empty_generation_and_lossless_unicode_image(tmp_path):
     run = workspace.init_run(tmp_path / 'project')
     image = '路由器|r1|雪:%_\n"'

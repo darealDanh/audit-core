@@ -290,6 +290,21 @@ def test_empty_graph_and_nonmaterialized_disposition_variants(tmp_path):
     assert tuple(d.disposition for d in load(tmp_path, value).dispositions) == ('standalone', 'unchainable')
 
 
+@pytest.mark.parametrize('disposition,field', [
+    ('standalone', 'existing_unknown_ids'),
+    ('standalone', 'blocker_keys'),
+    ('unchainable', 'existing_unknown_ids'),
+    ('unchainable', 'blocker_keys'),
+])
+def test_nonmaterialized_nonblocked_dispositions_reject_unresolved_references(tmp_path, disposition, field):
+    value = payload()
+    row = value['dispositions'][-1]
+    row.update(disposition=disposition, existing_unknown_ids=[], blocker_keys=[], pivot_followup_ids=[])
+    row[field] = ['U1' if field == 'existing_unknown_ids' else 'boot']
+    with pytest.raises(FirmwareChainError, match='[Uu]nresolved|blocked'):
+        load(tmp_path, value)
+
+
 def test_member_path_and_endpoint_order_enter_identity(tmp_path):
     before = ids(load(tmp_path))
     value = payload()
