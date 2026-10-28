@@ -626,7 +626,7 @@ Whole-branch review found and fixed two cross-layer invariant mismatches in
 Final review then found that blocker-side affected findings could contradict
 nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
-the complete fix wave awaits its single scoped re-review. Stage 4g is implemented
+the complete fix wave is implemented and tested. Stage 4g is implemented
 but unmerged and unpushed. The next firmware slice after
 integration is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone

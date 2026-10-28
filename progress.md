@@ -893,7 +893,7 @@ Critical or Important issue. Final review then found that blocker-side affected
 findings could contradict nonmaterialized dispositions. Commit `7dad245`
 requires each such finding to carry a reciprocal blocked disposition and blocker
 reference; focused Stage 4f/4g regression passed 2,557 tests. The complete fix
-wave awaits its single scoped re-review. Coverage passes 0/7,392 statements with
+wave is implemented and tested. Coverage passes 0/7,392 statements with
 no allowances. The current full harness passes all eight gates: 5,902 tests; 29 verbs; 38 schema tables, 37 contracted;
 four migrations plus current schema on both frozen baselines; 6 CRLF and 224 LF
 files; 55 features, 15 stages, and 21 open-item records; 116 installed Markdown
@@ -1077,7 +1077,7 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Finish scoped re-review, merge Stage 4g, then implement firmware `dive`.** Stage 4g is implemented
+1. **Merge Stage 4g, then implement firmware `dive`.** Stage 4g is implemented
    through final-review fix `7dad245` on `stage4g-firmware-chain`, but is not
    merged or pushed. `dive` must consume only completed, current `static-chained`
    graphs and explicitly settle blockers/runtime reachability rather than treating

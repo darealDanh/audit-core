@@ -1,8 +1,8 @@
 # Session handoff
 
 **Written:** 2026-10-28 · **Branch:** `stage4g-firmware-chain`; Stage 4g implemented through final-review fix `7dad245`, not merged or pushed ·
-**Status:** Stage 4g firmware `chain` completed its final-review fix wave; the
-single scoped re-review is pending on the isolated feature branch.
+**Status:** Stage 4g firmware `chain` completed and tested its final-review fix
+wave on the isolated feature branch.
 Next firmware slice after integration: `dive`. **Verification:** feature-tree
 `make all` passed all 8 gates; 5,902 full-suite tests passed, 0/7,392
 unexecuted statements
@@ -192,7 +192,7 @@ These are not style preferences. Each one has a specific, known cost.
   further Important contradiction: a blocker could affect a nonmaterialized
   finding whose disposition omitted it. Commit `7dad245` requires a reciprocal
   blocked disposition and blocker reference and adds completion reconstruction
-  coverage; the complete final fix wave awaits its single scoped re-review.
+  coverage; the complete final fix wave is implemented and tested.
   Historical Stage 4d
   review: the controller reviewed `deb3eed..4394621` before Task 10.
   Both Important findings were fixed in `2550866` with regression evidence;
@@ -686,8 +686,8 @@ claims and completion stay deterministic.
 The whole-branch reviewer found two Important validation/persistence mismatches;
 `661c3c9` fixed both and scoped re-review was clean. Final review then found the
 blocker/disposition reciprocity mismatch fixed in `7dad245`; focused Stage 4f/4g
-regression passed 2,557 tests. The complete fix wave awaits its one scoped
-re-review. The authoritative post-documentation full-harness result is:
+regression passed 2,557 tests. The complete fix wave is implemented and tested.
+The authoritative post-documentation full-harness result is:
 
 ```text
 PASS  tests      5902 passed
@@ -811,8 +811,7 @@ implementation commit is `b14b4fb`, independent of the documentation commit.
 
 Stage 4g implementation and documentation/inventory reconciliation are complete
 on `stage4g-firmware-chain` through `7dad245`. Its final-review fix wave awaits
-the required single scoped re-review; no merge or push is claimed. Merge it only
-after that verdict before starting `dive`.
+integration; no merge or push is claimed. Merge it before starting `dive`.
 That slice must consume only current completed `static-chained` graphs, revisit
 blockers and unknowns with runtime/emulation/hardware evidence, and must not promote
 static correlation into causality, severity, exploitability, or successful-exploit
