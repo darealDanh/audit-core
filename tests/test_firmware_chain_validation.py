@@ -271,6 +271,31 @@ def test_semantic_validation_rejects_nonblocked_disposition_with_unresolved_refe
         results._validate_graph(forged, frozen)
 
 
+@pytest.mark.parametrize('disposition,unknowns', [
+    ('standalone', []), ('unchainable', []), ('blocked', ['component-only'])])
+def test_nonmaterialized_blocker_requires_reciprocal_blocked_disposition(
+        graph_case, disposition, unknowns):
+    value = graph_case[3]
+    finding_id = value['dispositions'][-1]['finding_id']
+    value['blockers'] = [blocker(value) | {
+        'affected_finding_ids': [finding_id], 'affected_edges': []}]
+    value['dispositions'][-1].update(
+        disposition=disposition, existing_unknown_ids=unknowns, blocker_keys=[])
+    with pytest.raises(results.FirmwareChainError, match='[Bb]locker|blocked'):
+        validate(graph_case)
+
+
+def test_nonmaterialized_blocker_accepts_reciprocal_blocked_disposition(graph_case):
+    value = graph_case[3]
+    finding_id = value['dispositions'][-1]['finding_id']
+    value['blockers'] = [blocker(value) | {
+        'affected_finding_ids': [finding_id], 'affected_edges': []}]
+    value['dispositions'][-1].update(disposition='blocked', blocker_keys=['boot'])
+    checked = validate(graph_case)
+    assert checked.dispositions[-1].disposition == 'blocked'
+    assert json.loads(checked.dispositions[-1].blocker_ids) == [checked.blockers[0].blocker_id]
+
+
 def test_chained_member_may_retain_unresolved_references_for_blocked_chain(graph_case):
     value = graph_case[3]
     value['blockers'] = [blocker(value)]

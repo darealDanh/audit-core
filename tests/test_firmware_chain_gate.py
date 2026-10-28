@@ -110,6 +110,36 @@ def test_completion_rejects_nonblocked_disposition_with_unresolved_reference(gra
     assert state(con) == before and not con.in_transaction
 
 
+def test_completion_rejects_legacy_nonmaterialized_blocker_mismatch(graph_case, monkeypatch):
+    con, run, _, value, _ = graph_case
+    finding_id = value['dispositions'][-1]['finding_id']
+    value['blockers'] = [blocker(value) | {
+        'affected_finding_ids': [finding_id], 'affected_edges': []}]
+    value['dispositions'][-1].update(disposition='blocked', blocker_keys=['boot'])
+    path = run / 'legacy-chain-result.json'
+    path.write_text(json.dumps(value))
+    real_validate = results.validate
+    valid = real_validate(con, run, results.load(path))
+
+    value['dispositions'][-1].update(disposition='standalone', blocker_keys=[])
+    result_disposition = dataclasses.replace(
+        valid.result.dispositions[-1], disposition='standalone', blocker_keys=())
+    forged_result = dataclasses.replace(
+        valid.result, dispositions=valid.result.dispositions[:-1] + (result_disposition,))
+    sql_disposition = dataclasses.replace(
+        valid.dispositions[-1], disposition='standalone', blocker_ids='[]')
+    forged = dataclasses.replace(
+        valid, result=forged_result, dispositions=valid.dispositions[:-1] + (sql_disposition,))
+
+    monkeypatch.setattr(results, 'validate', lambda *args, **kwargs: forged)
+    record(graph_case)
+    monkeypatch.setattr(results, 'validate', real_validate)
+    before = state(con)
+    with pytest.raises(firmware_chain.FirmwareChainError, match='[Bb]locker|blocked'):
+        check(graph_case)
+    assert state(con) == before and not con.in_transaction
+
+
 def test_empty_receipted_unicode_generation_completes_and_missing_receipt_refuses(tmp_path):
     run = workspace.init_run(tmp_path/'project')
     image = '路由器|r1|雪:%_\n"'

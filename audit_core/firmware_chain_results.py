@@ -742,6 +742,13 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
     for blocker in result.blockers:
         if not set(blocker.affected_finding_ids) <= findings.keys() or set(blocker.affected_finding_ids) & pivots:
             raise FirmwareChainError("Blocker affected findings must be reviewed findings")
+    disposition_by_finding = {d.finding_id: d for d in result.dispositions}
+    for blocker in result.blockers:
+        for finding_id in blocker.affected_finding_ids:
+            disposition = disposition_by_finding[finding_id]
+            if (not memberships[finding_id] and
+                    (disposition.disposition != "blocked" or blocker.blocker_key not in disposition.blocker_keys)):
+                raise FirmwareChainError("A blocker affecting a nonmaterialized finding requires a reciprocal blocked disposition")
     dispositions = []
     for d in result.dispositions:
         if set(d.chain_keys) != memberships[d.finding_id] or (bool(d.chain_keys) != (d.disposition == "chained")):

@@ -299,7 +299,7 @@ def test_graph_evidence_and_blocker_ownership_reject_specific_mismatch(graph_cas
         "settling_observation": "Observe the unrelated primitive",
         "method": "hardware",
         "axes": ["lifecycle"],
-        "affected_finding_ids": [value["dispositions"][-1]["finding_id"]],
+        "affected_finding_ids": [],
         "affected_edges": [{"chain_key": "a", "ordinal": 1}],
     }]
     value["chains"][0]["edges"][0]["blocker_keys"] = ["wrong-edge"]
