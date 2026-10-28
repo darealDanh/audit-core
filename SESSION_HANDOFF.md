@@ -1,9 +1,9 @@
 # Session handoff
 
-**Written:** 2026-10-28 · **Branch:** `stage4g-firmware-chain`; Stage 4g implemented through final-review fix `7dad245`, not merged or pushed ·
-**Status:** Stage 4g firmware `chain` completed and tested its final-review fix
-wave on the isolated feature branch.
-Next firmware slice after integration: `dive`. **Verification:** feature-tree
+**Written:** 2026-10-28 · **Branch:** local `main`; Stage 4g merged by fast-forward at `30ca3ba`, not pushed ·
+**Status:** Stage 4g firmware `chain` completed, passed scoped final re-review,
+and merged locally.
+Next firmware slice: `dive`. **Verification:** merged-tree
 `make all` passed all 8 gates; 5,902 full-suite tests passed, 0/7,392
 unexecuted statements
 
@@ -65,8 +65,8 @@ These are not style preferences. Each one has a specific, known cost.
 
 - **Branch:** local `main`; Stage 4d's merge point remains `6eba6d6`, Stage 4e
   remains merged at `8119af1`, and Stage 4f is merged by fast-forward at
-  `303232e`. Stage 4g is implemented on `stage4g-firmware-chain` through
-  `7dad245`, but is not merged. Nothing has been pushed.
+  `303232e`. Stage 4g is merged by fast-forward at `30ca3ba`. Nothing has been
+  pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
   committed on the feature branch and are now in local `main`; its five-table schema foundation and row
   contracts, the verified completed-hunt snapshot, deterministic review preparation,
@@ -178,7 +178,7 @@ These are not style preferences. Each one has a specific, known cost.
   routing are complete. Ordinary source-code `chain` proposal/human composition
   behavior remains compatible. Static chains do not prove runtime reachability,
   severity, exploitability or semantic causality beyond retained evidence.
-  Stage 4g remains unmerged and unpushed; `dive` is next after integration.
+  Stage 4g is merged locally and unpushed; `dive` is next.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
@@ -192,7 +192,7 @@ These are not style preferences. Each one has a specific, known cost.
   further Important contradiction: a blocker could affect a nonmaterialized
   finding whose disposition omitted it. Commit `7dad245` requires a reciprocal
   blocked disposition and blocker reference and adds completion reconstruction
-  coverage; the complete final fix wave is implemented and tested.
+  coverage; the complete final fix wave passed scoped re-review.
   Historical Stage 4d
   review: the controller reviewed `deb3eed..4394621` before Task 10.
   Both Important findings were fixed in `2550866` with regression evidence;
@@ -661,8 +661,8 @@ prerequisites; static contracts do not establish semantic audit quality.
 
 ### Stage 4g implementation and verification
 
-Stage 4g is implemented through `7dad245` on `stage4g-firmware-chain`; it is
-not merged or pushed. Approved design `00edb44` and plan `380b075` define a
+Stage 4g is merged into local `main` by fast-forward at `30ca3ba`; it is not
+pushed. Approved design `00edb44` and plan `380b075` define a
 dedicated six-table evidence graph over current Stage 4f reviewed findings.
 Preparation installs one immutable global worklist; every finding receives an
 exact chained/standalone/unchainable/blocked disposition and may participate in
@@ -686,7 +686,7 @@ claims and completion stay deterministic.
 The whole-branch reviewer found two Important validation/persistence mismatches;
 `661c3c9` fixed both and scoped re-review was clean. Final review then found the
 blocker/disposition reciprocity mismatch fixed in `7dad245`; focused Stage 4f/4g
-regression passed 2,557 tests. The complete fix wave is implemented and tested.
+regression passed 2,557 tests. The complete fix wave passed scoped re-review.
 The authoritative post-documentation full-harness result is:
 
 ```text
@@ -707,7 +707,7 @@ beyond retained evidence, severity/CVSS, exploitability, or successful
 exploitation. No mutation sweep, paid audit/milestone rerun, Asus golden, or
 indicator snapshot ran. Triage remains upsert-only; Stage 4d orphan-result scan
 scaling persists; the separate firmware skill tree and monorepo/submodule choice
-remain open. Merge Stage 4g first; firmware `dive` is the next slice.
+remain open. Firmware `dive` is the next slice.
 
 ### Historical Stage 4e merged-state verification
 
@@ -790,9 +790,8 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4f are merged to local `main`; Stage 4f is
-included at `303232e`, not pushed. Stage 4g is implemented on the isolated
-`stage4g-firmware-chain` branch through `7dad245`, not merged or pushed. Stage 4c adds
+Stages 0 through 3c and Stages 4a-4g are merged to local `main`; Stage 4f is
+included at `303232e` and Stage 4g at `30ca3ba`, not pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -807,11 +806,11 @@ rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
 
-### Merge Stage 4g, then implement firmware `dive`
+### Implement firmware `dive`
 
-Stage 4g implementation and documentation/inventory reconciliation are complete
-on `stage4g-firmware-chain` through `7dad245`. Its final-review fix wave awaits
-integration; no merge or push is claimed. Merge it before starting `dive`.
+Stage 4g implementation and documentation/inventory reconciliation are merged
+into local `main` at `30ca3ba`; no push is claimed. Start `dive` from this
+completed static-chain boundary.
 That slice must consume only current completed `static-chained` graphs, revisit
 blockers and unknowns with runtime/emulation/hardware evidence, and must not promote
 static correlation into causality, severity, exploitability, or successful-exploit
@@ -855,9 +854,8 @@ running the gate — that is the point of them; do not "fix" them.
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
-`fpcheck` at `303232e`; Stage 4g implements firmware `chain` through `7dad245`
-on its unmerged feature branch. These phases were built at zero audit cost. The
-next firmware slice after integration is `dive`.
+`fpcheck` at `303232e`; Stage 4g merged firmware `chain` at `30ca3ba`.
+These phases were built at zero audit cost. The next firmware slice is `dive`.
 The separate firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work

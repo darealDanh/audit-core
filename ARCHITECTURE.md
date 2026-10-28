@@ -390,8 +390,8 @@ emulate firmware, inspect kernel/bootloader code, or promote candidates into
 generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below and merged into local `main` at `303232e` after
-clean scoped final re-review. Stage 4g `chain` is implemented on its unmerged
-feature branch; the next firmware slice after integration is `dive`.
+clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
+`30ca3ba`; the next firmware slice is `dive`.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -528,8 +528,8 @@ deterministic harness scoring only measures the existing baseline.
 
 ### Stage 4g — global static firmware evidence graphs
 
-Stage 4g is implemented on `stage4g-firmware-chain` through `7dad245`, pending
-explicit merge. It consumes only a verified complete Stage 4f findings snapshot
+Stage 4g is merged into local `main` at `30ca3ba`, with no push. It consumes only
+a verified complete Stage 4f findings snapshot
 and writes six dedicated tables: `cba_firmware_chain_runs`,
 `cba_firmware_chain_receipts`, `cba_firmware_chain_dispositions`,
 `cba_firmware_chain_unknowns`, `cba_firmware_chains`, and
@@ -626,9 +626,8 @@ Whole-branch review found and fixed two cross-layer invariant mismatches in
 Final review then found that blocker-side affected findings could contradict
 nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
-the complete fix wave is implemented and tested. Stage 4g is implemented
-but unmerged and unpushed. The next firmware slice after
-integration is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
+the complete fix wave passed scoped re-review. Stage 4g is merged locally but
+unpushed. The next firmware slice is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
 
