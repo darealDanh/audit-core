@@ -528,7 +528,7 @@ deterministic harness scoring only measures the existing baseline.
 
 ### Stage 4g — global static firmware evidence graphs
 
-Stage 4g is implemented on `stage4g-firmware-chain` through `661c3c9`, pending
+Stage 4g is implemented on `stage4g-firmware-chain` through `7dad245`, pending
 explicit merge. It consumes only a verified complete Stage 4f findings snapshot
 and writes six dedicated tables: `cba_firmware_chain_runs`,
 `cba_firmware_chain_receipts`, `cba_firmware_chain_dispositions`,
@@ -549,7 +549,9 @@ publishes one pending run. Same inputs preserve current chain state; changed
 inputs invalidate only the selected image's six tables. Stage 4f prepare, import,
 repair, completion, and invalidation paths call that SQL-only invalidator inside
 their owning transaction, so stale derived graphs cannot survive changed review
-evidence. Sibling images and valid historical snapshots remain isolated.
+evidence. Sibling images remain isolated. Record/check can preserve valid older
+SQL generations, but upstream invalidation deletes every Stage 4g SQL generation
+for the selected image; immutable content-addressed artifacts remain.
 
 `firmware_chain_results` accepts bounded strict UTF-8 JSON with no duplicate or
 unknown keys and no non-finite/coerced values. Exact disposition coverage is
@@ -579,7 +581,7 @@ reparses the immutable result, and reconstructs every receipt-owned row rather
 than trusting imported SQL. It derives stable image/snapshot-bound chain and
 blocker IDs, `pre_auth` (`yes`, `no`, or `unknown`), completeness, minimum
 confidence, and the sole evidence rung `static-chained`. A deterministic
-`graph.json` installs before one locked final revalidation and completion update.
+`chains.json` installs before one locked final revalidation and completion update.
 Completed rechecks never repair missing/corrupt artifacts or rows and preserve
 timestamps without writes. Static graphs encode evidence-backed composition;
 they do not prove runtime reachability, semantic causality beyond that evidence,
@@ -621,7 +623,11 @@ settlement remains later dive/decide work.
 
 Whole-branch review found and fixed two cross-layer invariant mismatches in
 `661c3c9`; scoped re-review reported no remaining Critical/Important issue.
-Stage 4g is implemented but unmerged and unpushed. The next firmware slice after
+Final review then found that blocker-side affected findings could contradict
+nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
+disposition and blocker reference and adds independent completion-gate coverage;
+the complete fix wave awaits its single scoped re-review. Stage 4g is implemented
+but unmerged and unpushed. The next firmware slice after
 integration is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.

@@ -1,10 +1,10 @@
 # Session handoff
 
-**Written:** 2026-10-27 · **Branch:** `stage4g-firmware-chain`; Stage 4g implemented and review-clean through `661c3c9`, not merged or pushed ·
-**Status:** Stage 4g firmware `chain` passed whole-branch review after one scoped
-fix wave; durable implementation is complete on the isolated feature branch.
+**Written:** 2026-10-28 · **Branch:** `stage4g-firmware-chain`; Stage 4g implemented through final-review fix `7dad245`, not merged or pushed ·
+**Status:** Stage 4g firmware `chain` completed its final-review fix wave; the
+single scoped re-review is pending on the isolated feature branch.
 Next firmware slice after integration: `dive`. **Verification:** feature-tree
-`make all` passed all 8 gates; 5,897 full-suite tests passed, 0/7,385
+`make all` passed all 8 gates; 5,902 full-suite tests passed, 0/7,392
 unexecuted statements
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -66,7 +66,7 @@ These are not style preferences. Each one has a specific, known cost.
 - **Branch:** local `main`; Stage 4d's merge point remains `6eba6d6`, Stage 4e
   remains merged at `8119af1`, and Stage 4f is merged by fast-forward at
   `303232e`. Stage 4g is implemented on `stage4g-firmware-chain` through
-  `661c3c9`, but is not merged. Nothing has been pushed.
+  `7dad245`, but is not merged. Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
   committed on the feature branch and are now in local `main`; its five-table schema foundation and row
   contracts, the verified completed-hunt snapshot, deterministic review preparation,
@@ -188,7 +188,12 @@ These are not style preferences. Each one has a specific, known cost.
   cross-layer invariant defects. Commit `661c3c9` unified `other-specific` link
   acceptance across semantic validation/persistence and rejected unresolved
   references on standalone/unchainable dispositions. Scoped re-review marked
-  both addressed with no new Critical/Important issue. Historical Stage 4d
+  both addressed with no new Critical/Important issue. Final review found one
+  further Important contradiction: a blocker could affect a nonmaterialized
+  finding whose disposition omitted it. Commit `7dad245` requires a reciprocal
+  blocked disposition and blocker reference and adds completion reconstruction
+  coverage; the complete final fix wave awaits its single scoped re-review.
+  Historical Stage 4d
   review: the controller reviewed `deb3eed..4394621` before Task 10.
   Both Important findings were fixed in `2550866` with regression evidence;
   the scoped re-review was clean. Task 10 Step 2 is satisfied. Final whole-branch
@@ -656,7 +661,7 @@ prerequisites; static contracts do not establish semantic audit quality.
 
 ### Stage 4g implementation and verification
 
-Stage 4g is implemented through `661c3c9` on `stage4g-firmware-chain`; it is
+Stage 4g is implemented through `7dad245` on `stage4g-firmware-chain`; it is
 not merged or pushed. Approved design `00edb44` and plan `380b075` define a
 dedicated six-table evidence graph over current Stage 4f reviewed findings.
 Preparation installs one immutable global worklist; every finding receives an
@@ -669,26 +674,29 @@ settleable; Stage 4f pivots are context-only and never graph nodes or evidence.
 
 Canonical result publication is artifact-first and one-transaction. Final check
 reconstructs every receipt-owned row, revalidates current live-root/Stage 4f
-evidence, derives deterministic `static-chained` output, and preserves historical
-generations while completing only the current image/snapshot. Changed Stage 4f
-evidence invalidates all six current selected-image chain tables in the owning
-upstream transaction. The `chain` CLI adds firmware prepare/record/check without
+evidence, derives deterministic `static-chained` output, and can preserve older
+SQL generations while completing only the current image/snapshot. Changed Stage
+4f evidence invalidates every generation in all six selected-image chain tables
+in the owning upstream transaction; immutable content-addressed artifacts remain.
+The `chain` CLI adds firmware prepare/record/check without
 changing generic proposal/composition behavior. The installed global worker owns
 strict result JSON only; SQL, canonical artifacts, identities, receipts, derived
 claims and completion stay deterministic.
 
 The whole-branch reviewer found two Important validation/persistence mismatches;
-`661c3c9` fixed both and scoped re-review was clean. Focused Stage 4f/4g regression
-passed 2,547 tests. The authoritative post-documentation full-harness result is:
+`661c3c9` fixed both and scoped re-review was clean. Final review then found the
+blocker/disposition reciprocity mismatch fixed in `7dad245`; focused Stage 4f/4g
+regression passed 2,557 tests. The complete fix wave awaits its one scoped
+re-review. The authoritative post-documentation full-harness result is:
 
 ```text
-PASS  tests      5897 passed
+PASS  tests      5902 passed
 PASS  selftest   verbs 29 declared, all dispatchable / tables 38 in schema.sql, 37 under contract / migrations 4 plus current schema applied to both frozen baselines
 PASS  lint       skill lint: clean
 PASS  eol        6 CRLF files, 224 LF
 PASS  manifest   55 features, 15 stages, 21 open items, all paths and verbs resolve
 PASS  install    116 markdown files installed, 0 sentinel survivors, real install untouched
-PASS  coverage   0 unexecuted / 7385 statements, 0 allowed
+PASS  coverage   0 unexecuted / 7392 statements, 0 allowed
 PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
 
 all 8 gate(s) passed
@@ -784,7 +792,7 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 Stages 0 through 3c and Stages 4a-4f are merged to local `main`; Stage 4f is
 included at `303232e`, not pushed. Stage 4g is implemented on the isolated
-`stage4g-firmware-chain` branch through `661c3c9`, not merged or pushed. Stage 4c adds
+`stage4g-firmware-chain` branch through `7dad245`, not merged or pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -802,8 +810,9 @@ implementation commit is `b14b4fb`, independent of the documentation commit.
 ### Merge Stage 4g, then implement firmware `dive`
 
 Stage 4g implementation and documentation/inventory reconciliation are complete
-on `stage4g-firmware-chain` through `661c3c9`. Its whole-branch fix wave passed
-scoped re-review; no merge or push is claimed. Merge it before starting `dive`.
+on `stage4g-firmware-chain` through `7dad245`. Its final-review fix wave awaits
+the required single scoped re-review; no merge or push is claimed. Merge it only
+after that verdict before starting `dive`.
 That slice must consume only current completed `static-chained` graphs, revisit
 blockers and unknowns with runtime/emulation/hardware evidence, and must not promote
 static correlation into causality, severity, exploitability, or successful-exploit
@@ -847,7 +856,7 @@ running the gate — that is the point of them; do not "fix" them.
 Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shipped
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
-`fpcheck` at `303232e`; Stage 4g implements firmware `chain` through `661c3c9`
+`fpcheck` at `303232e`; Stage 4g implements firmware `chain` through `7dad245`
 on its unmerged feature branch. These phases were built at zero audit cost. The
 next firmware slice after integration is `dive`.
 The separate firmware skill tree does not exist yet.

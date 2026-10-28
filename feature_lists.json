@@ -108,15 +108,15 @@
       "id": "stage4g",
       "name": "chain - global static firmware evidence graphs",
       "status": "shipped",
-      "gate": "feature-tree make all: 8/8 gates; 5,897 tests; 0/7,385 uncovered statements; whole-branch review clean after one scoped fix wave; paid semantic milestone gates deferred",
-      "summary": "Implemented through 661c3c9 on stage4g-firmware-chain, not merged or pushed. Six dedicated image/snapshot-owned tables retain exact finding dispositions, settleable blockers, reusable deterministic chains and typed ordered edges with mechanical device-state continuity. Generic source-code chain behavior remains compatible. Static-chained evidence makes no runtime, severity or exploit claim. Dive is next after integration."
+      "gate": "feature-tree make all: 8/8 gates; 5,902 tests; 0/7,392 uncovered statements; final-review reciprocity fix complete and scoped re-review pending; paid semantic milestone gates deferred",
+      "summary": "Implemented through 7dad245 on stage4g-firmware-chain, not merged or pushed. Six dedicated image/snapshot-owned tables retain exact finding dispositions, reciprocal settleable blockers, reusable deterministic chains and typed ordered edges with mechanical device-state continuity. Generic source-code chain behavior remains compatible. Static-chained evidence makes no runtime, severity or exploit claim. Dive is next after integration."
     },
     {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Full firmware phase set and monorepo restructure. qualify, acquire/triage, diff, surface, hunt and fpcheck are merged as Stages 4a-4f; chain is implemented as Stage 4g on an unmerged feature branch through 661c3c9. Dive is next after integration. The Asus golden, monorepo/submodule decision and separate firmware skill tree remain open."
+      "summary": "Full firmware phase set and monorepo restructure. qualify, acquire/triage, diff, surface, hunt and fpcheck are merged as Stages 4a-4f; chain is implemented as Stage 4g on an unmerged feature branch through 7dad245. Dive is next after integration. The Asus golden, monorepo/submodule decision and separate firmware skill tree remain open."
     },
     {
       "id": "stage5",
@@ -179,7 +179,7 @@
         "docs/superpowers/plans/2026-10-25-stage4g-firmware-chain.md",
         "references/briefs/firmware-chain-brief.md"
       ],
-      "notes": "Implemented through 661c3c9 on stage4g-firmware-chain; not merged or pushed. One verified complete Stage 4f snapshot produces an immutable global worklist. Exact dispositions cover every finding and permit reusable chain membership. Typed adjacent edges bind semantic capability/link identity, producer/consumer-owned retained evidence and mechanically continuous lifecycle/posture/authentication state; explicit device boundaries need evidence on both sides. Stage 4d unknowns and new blockers remain settleable; pivots are context-only. Canonical artifact-first import and final reconstruction are snapshot/image-isolated, deterministic and atomically invalidated when Stage 4f evidence changes. The ninth installed brief assigns one strongest global worker while preserving generic source-code chain behavior. Static-chained evidence does not prove runtime reachability, severity, exploitability or semantic causality beyond retained evidence. Whole-branch review's two Important invariant findings were fixed in 661c3c9 and scoped re-review was clean. Dive is next after integration; triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
+      "notes": "Implemented through 7dad245 on stage4g-firmware-chain; not merged or pushed. One verified complete Stage 4f snapshot produces an immutable global worklist. Exact dispositions cover every finding and permit reusable chain membership. Typed adjacent edges bind semantic capability/link identity, producer/consumer-owned retained evidence and mechanically continuous lifecycle/posture/authentication state; explicit device boundaries need evidence on both sides. Stage 4d unknowns and new blockers remain settleable; blocker-side affected nonmaterialized findings require reciprocal blocked dispositions and references; pivots are context-only. Canonical artifact-first import and final reconstruction are snapshot/image-isolated, deterministic and atomically invalidated when Stage 4f evidence changes. The ninth installed brief assigns one strongest global worker while preserving generic source-code chain behavior. Static-chained evidence does not prove runtime reachability, severity, exploitability or semantic causality beyond retained evidence. Whole-branch review's two Important invariant findings were fixed in 661c3c9 and scoped re-review was clean; final review's blocker reciprocity finding was fixed in 7dad245 and awaits the one scoped re-review of the complete wave. Dive is next after integration; triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
     },
     {
       "id": "firmware-fpcheck",
@@ -1286,7 +1286,7 @@
       "id": "main-unpushed",
       "severity": "medium",
       "summary": "Local main has not been pushed.",
-      "note": "Previously closed after synchronization in Stage 3c. The 2026-10-16 observation that main was 50 commits ahead is historical. Local main includes Stage 4f at 303232e; Stage 4g remains on the unmerged stage4g-firmware-chain branch through 661c3c9. Nothing has been pushed.",
+      "note": "Previously closed after synchronization in Stage 3c. The 2026-10-16 observation that main was 50 commits ahead is historical. Local main includes Stage 4f at 303232e; Stage 4g remains on the unmerged stage4g-firmware-chain branch through 7dad245. Nothing has been pushed.",
       "destination": "repository synchronization",
       "status": "open"
     },
