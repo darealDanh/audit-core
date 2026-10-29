@@ -936,8 +936,9 @@ def _validate_firmware_dive_acquisition(row: dict[str, str]) -> None:
     one_of("kind", FIRMWARE_DIVE_ACQUISITION_KINDS)(row)
     paths = _firmware_dive_json(row, "evidence_paths", list, unordered=True)
     for value in paths:
-        if isinstance(value, str):
-            _firmware_fp_path(value, "evidence_paths")
+        if not isinstance(value, str):
+            raise DbError("evidence_paths requires string paths")
+        _firmware_fp_path(value, "evidence_paths")
     details = _firmware_dive_json(row, "details", dict)
     if "kind" in details and details["kind"] != row["kind"]:
         raise DbError("details kind must agree with acquisition kind")

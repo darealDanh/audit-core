@@ -339,3 +339,13 @@ def test_dive_dependency_kind_variants(con, kind):
 def test_dive_dependency_relative_path_cannot_be_absolute(con):
     with pytest.raises(db.DbError, match="relative_path"):
         db.put(con, ROWS[4][0], DEPENDENCY | {"relative_path": "/run/artifacts/graph.json"})
+
+
+@pytest.mark.parametrize("kind", ["probe", "capture"])
+@pytest.mark.parametrize("evidence_paths", ['[1]', '[null]', '[{}]', '[[]]', '[true]', '[1.5]'])
+def test_dive_acquisition_evidence_paths_reject_nonstring_entries_without_writes(con, kind, evidence_paths):
+    table = "cba_firmware_dive_acquisitions"
+    with pytest.raises(db.DbError, match="evidence_paths"):
+        db.put(con, table, ACQUISITION | {"kind": kind, "evidence_paths": evidence_paths})
+    assert db.rows(con, table) == []
+    assert not con.in_transaction
