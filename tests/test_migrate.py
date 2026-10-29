@@ -53,7 +53,10 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
         con.execute("INSERT INTO cba_services (name, image_id, start_source, evidence, recorded_at) "
                     "VALUES ('httpd', 'image.1', 'etc/init.d/S50httpd', "
                     "'init invokes /bin/httpd', '2026-01-04 05:06:07')")
-    firmware_tables = ("cba_binfacts", "cba_services") if baseline == "baseline-stage4b.sql" else ()
+        con.execute("INSERT INTO cba_images (id, vendor, model, version, role, path, sha256, acquired_at) "
+                    "VALUES ('image.1', 'Acme', 'R1', '1.0', 'target', 'image.bin', ?, '2026-01-01 01:02:03')",
+                    ("a" * 64,))
+    firmware_tables = ("cba_images", "cba_binfacts", "cba_services") if baseline == "baseline-stage4b.sql" else ()
     preserved_tables = ("cba_patterns", "cba_findings", *firmware_tables)
     con.commit()
     old_rows = {table: con.execute(f"SELECT * FROM {table}").fetchall()
@@ -62,7 +65,9 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                    for table in old_rows}
     con.close()
     result = workspace.apply_schema(path)
-    assert len(result.tables) == 38
+    assert len(result.tables) == 44
+    assert len(db.TABLE_SPECS) == 43
+    assert len(db.MIGRATIONS) == 4
     con = db.connect(path)
     try:
         for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",
@@ -71,12 +76,35 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                       "cba_firmware_fp_verdicts", "cba_firmware_pivots", "cba_firmware_findings",
                       "cba_firmware_chain_runs", "cba_firmware_chain_receipts",
                       "cba_firmware_chain_dispositions", "cba_firmware_chain_unknowns",
-                      "cba_firmware_chains", "cba_firmware_chain_edges"):
+                      "cba_firmware_chains", "cba_firmware_chain_edges",
+                      "cba_firmware_dive_runs", "cba_firmware_dive_questions",
+                      "cba_firmware_dive_receipts", "cba_firmware_dive_observations",
+                      "cba_firmware_dive_dependencies", "cba_firmware_dive_acquisitions"):
             assert db.rows(con, table) == []
         for table in old_rows:
             assert [tuple(row) for row in con.execute(
                 f"SELECT {', '.join(old_columns[table])} FROM {table}")] == old_rows[table]
         assert db.migrate(con) == []
+        # Retain the later firmware stages as well as the frozen baseline's
+        # rows when a migrated run is reopened and its schema applied again.
+        from tests.test_firmware_schema import (DIFF, DIFF_ENTRIES, HUNT_ROWS,
+                                                SURFACE, SURFACE_RUN, UNKNOWN)
+        from tests.test_firmware_fpcheck_schema import ROWS as fp_rows
+        from tests.test_firmware_chain_schema import ROWS as chain_rows
+
+        prior_rows = [
+            ("cba_firmware_files", {"image_id": "image.1", "path": "bin/httpd",
+                "kind": "file", "size": 12, "sha256": "a" * 64}),
+            ("cba_diffs", DIFF),
+            *[("cba_diff_entries", row) for row in DIFF_ENTRIES],
+            ("cba_surface_runs", SURFACE_RUN), ("cba_firmware_surfaces", SURFACE),
+            ("cba_unknowns", UNKNOWN), *HUNT_ROWS, *fp_rows, *chain_rows,
+        ]
+        for table, row in prior_rows:
+            db.put(con, table, row)
+        for table in {table for table, _ in prior_rows}:
+            old_rows[table] = [tuple(row) for row in con.execute(f"SELECT * FROM {table}")]
+            old_columns[table] = db.table_columns(con, table)
     finally:
         con.close()
     second = workspace.apply_schema(path)

@@ -16,6 +16,8 @@ EXPECTED_TABLES = [
     "cba_firmware_pivots", "cba_firmware_findings",
     "cba_firmware_chain_runs", "cba_firmware_chain_receipts", "cba_firmware_chain_dispositions",
     "cba_firmware_chain_unknowns", "cba_firmware_chains", "cba_firmware_chain_edges",
+    "cba_firmware_dive_runs", "cba_firmware_dive_questions", "cba_firmware_dive_receipts",
+    "cba_firmware_dive_observations", "cba_firmware_dive_dependencies", "cba_firmware_dive_acquisitions",
 ]
 
 

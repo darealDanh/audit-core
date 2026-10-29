@@ -61,6 +61,17 @@ FIRMWARE_CHAIN_AUTH_STATES = ("pre-auth", "session", "admin", "local-shell", "ph
 FIRMWARE_CHAIN_TRANSITION_KINDS = ("direct", "reboot", "service-restart", "factory-reset", "reprovision")
 FIRMWARE_CHAIN_METHODS = ("static", "emulate", "hardware")
 FIRMWARE_CHAIN_AXES = ("authentication", "lifecycle", "posture", "reachability")
+FIRMWARE_DIVE_RUN_STATES = ("pending", "complete")
+FIRMWARE_DIVE_ORIGINS = ("chain-blocker", "surface-unknown", "analyst", "conflict")
+FIRMWARE_DIVE_METHODS = ("static", "emulate", "hardware")
+FIRMWARE_DIVE_OUTCOMES = ("supported", "refuted", "inconclusive", "empty")
+FIRMWARE_DIVE_CONTRACT_MODES = ("boolean-claim", "value-discovery")
+FIRMWARE_DIVE_PREDICATES = ("state-value", "reachability", "edge-validity",
+                            "capability-present", "transition-observed")
+FIRMWARE_DIVE_EVIDENCE_RUNGS = ("static-resolved", "emulated-observed", "hardware-observed")
+FIRMWARE_DIVE_DEPENDENCY_KINDS = ("finding-artifact", "surface-artifact", "chain-artifact",
+                                  "extract-record", "probe-manifest", "hardware-capture")
+FIRMWARE_DIVE_ACQUISITION_KINDS = ("probe", "capture")
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -790,6 +801,148 @@ def _validate_diff_entry(row: dict[str, str]) -> None:
                       + ", ".join(missing))
 
 
+def _firmware_dive_base(row: dict[str, str], table: str) -> None:
+    """Local shapes only; phase modules establish ownership and derivation."""
+    counts = tuple(column for column in row
+                   if column.endswith("_count") or column in ("ordinal", "attempt_ordinal"))
+    _validate_surface_text(row, table, counts=counts)
+    _validate_nonnegative_integers(row, tuple(c for c in counts if row[c] is not None))
+    for column, value in row.items():
+        if value is None:
+            if column in TABLE_SPECS[table].required:
+                raise DbError(f"{column} requires a non-empty value")
+            continue
+        if column in counts:
+            continue
+        _firmware_fp_text(value, column)
+        if column.endswith("sha256") or column in (
+                "dive_generation", "question_id", "observation_id", "prior_observation_id", "acquisition_id"):
+            _validate_sha256(row, column)
+        if column.endswith("_path"):
+            _firmware_fp_path(value, column, absolute=column != "relative_path")
+    if row.get("attempt_ordinal") is not None and int(row["attempt_ordinal"]) < 1:
+        raise DbError("attempt_ordinal requires a positive integer")
+
+
+def _firmware_dive_json(row: dict[str, str], column: str, shape: type,
+                        *, unordered: bool = False, nonempty: bool = False) -> list | dict:
+    raw = row.get(column)
+    try:
+        value = json.loads(raw)
+        canonical = json.dumps(value, sort_keys=True, ensure_ascii=False,
+                               allow_nan=False, separators=(",", ":"))
+        canonical.encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise DbError(f"{column} requires canonical UTF-8 JSON") from exc
+    if not isinstance(value, shape) or raw != canonical:
+        raise DbError(f"{column} requires a canonical JSON {shape.__name__}")
+    if nonempty and not value:
+        raise DbError(f"{column} requires at least one entry")
+    if unordered:
+        keys = [json.dumps(item, sort_keys=True, ensure_ascii=False,
+                           allow_nan=False, separators=(",", ":")) for item in value]
+        if len(set(keys)) != len(keys) or keys != sorted(keys):
+            raise DbError(f"{column} requires sorted unique entries")
+    return value
+
+
+def _validate_firmware_dive_run(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_runs")
+    one_of("status", FIRMWARE_DIVE_RUN_STATES)(row)
+    for column in ("journal_path", "journal_sha256", "completed_at"):
+        if row["status"] == "pending" and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for a pending dive run")
+        if row["status"] == "complete":
+            _firmware_fp_text(row.get(column), column)
+    for column in ("supported_count", "refuted_count", "inconclusive_count"):
+        if row["status"] == "pending" and int(row[column]) != 0:
+            raise DbError(f"{column} must be zero for a pending dive run")
+
+
+def _validate_firmware_dive_question(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_questions")
+    one_of("origin", FIRMWARE_DIVE_ORIGINS)(row)
+    one_of("method", FIRMWARE_DIVE_METHODS)(row)
+    subjects = _firmware_dive_json(row, "subject_refs", list, unordered=True, nonempty=True)
+    for subject in subjects:
+        if not isinstance(subject, str):
+            raise DbError("subject_refs requires string references")
+        kind, separator, identity = subject.partition(":")
+        if not separator or kind not in ("finding", "surface-unknown", "chain-blocker", "edge", "chain"):
+            raise DbError("subject_refs has an invalid subject kind")
+        if kind in ("edge", "chain"):
+            _validate_sha256({"subject_refs": identity}, "subject_refs")
+        else:
+            _validate_surface_identifier({"subject_refs": identity}, "subject_refs")
+    axes = _firmware_dive_json(row, "axes", list, unordered=True, nonempty=True)
+    _firmware_chain_axes(axes, "axes")
+    supersedes = _firmware_dive_json(row, "supersedes_observation_ids", list, unordered=True)
+    for identity in supersedes:
+        _validate_sha256({"supersedes_observation_ids": identity}, "supersedes_observation_ids")
+    contract = _firmware_dive_json(row, "resolution_contract", dict)
+    for column, allowed in (("mode", FIRMWARE_DIVE_CONTRACT_MODES), ("predicate", FIRMWARE_DIVE_PREDICATES)):
+        if column in contract:
+            try:
+                one_of(column, allowed)(contract)
+                _firmware_fp_text(contract[column], column)
+            except DbError as exc:
+                raise DbError(f"resolution_contract: {exc}") from exc
+
+
+def _validate_firmware_dive_receipt(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_receipts")
+    one_of("receipt_kind", ("question", "empty"))(row)
+    one_of("outcome", FIRMWARE_DIVE_OUTCOMES)(row)
+    if re.fullmatch(r"firmware-dive-receipt-[0-9a-f]{64}", row["receipt_key"]) is None:
+        raise DbError("receipt_key requires firmware-dive-receipt-<sha256>")
+    for column in ("question_id", "attempt_ordinal", "packet_sha256"):
+        if row["receipt_kind"] == "empty" and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for an empty receipt")
+        if row["receipt_kind"] == "question" and row.get(column) is None:
+            raise DbError(f"{column} is required for a question receipt")
+    if (row["outcome"] == "empty") != (row["receipt_kind"] == "empty"):
+        raise DbError("outcome must agree with the receipt_kind empty variant")
+    if row["receipt_kind"] == "empty":
+        for column in ("dependency_count", "evidence_count", "successor_count"):
+            if int(row[column]) != 0:
+                raise DbError(f"{column} must be zero for an empty receipt")
+
+
+def _validate_firmware_dive_observation(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_observations")
+    one_of("outcome", FIRMWARE_DIVE_OUTCOMES[:3])(row)
+    conclusive = row["outcome"] != "inconclusive"
+    for column in ("resolution_effect", "evidence_rung"):
+        if not conclusive and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for an inconclusive observation")
+        if conclusive:
+            _firmware_fp_text(row.get(column), column)
+    if conclusive:
+        one_of("evidence_rung", FIRMWARE_DIVE_EVIDENCE_RUNGS)(row)
+        _firmware_dive_json(row, "resolution_effect", dict)
+    for column in ("dependency_refs", "evidence_refs"):
+        _firmware_dive_json(row, column, list, unordered=True, nonempty=conclusive)
+    _firmware_dive_json(row, "successor_questions", list, unordered=True)
+
+
+def _validate_firmware_dive_dependency(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_dependencies")
+    one_of("kind", FIRMWARE_DIVE_DEPENDENCY_KINDS)(row)
+    _firmware_dive_json(row, "source_provenance", dict)
+
+
+def _validate_firmware_dive_acquisition(row: dict[str, str]) -> None:
+    _firmware_dive_base(row, "cba_firmware_dive_acquisitions")
+    one_of("kind", FIRMWARE_DIVE_ACQUISITION_KINDS)(row)
+    paths = _firmware_dive_json(row, "evidence_paths", list, unordered=True)
+    for value in paths:
+        if isinstance(value, str):
+            _firmware_fp_path(value, "evidence_paths")
+    details = _firmware_dive_json(row, "details", dict)
+    if "kind" in details and details["kind"] != row["kind"]:
+        raise DbError("details kind must agree with acquisition kind")
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -1053,6 +1206,68 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "supplemental_evidence_refs", "required_state", "result_state", "transition_kind",
                   "confidence", "existing_unknowns", "blocker_ids", "artifact_path", "artifact_sha256"),
         primary_key=("image_id", "chain_id", "ordinal"), validate=_validate_firmware_chain_edge),
+    "cba_firmware_dive_runs": TableSpec(
+        columns=("image_id", "dive_generation", "manifest_sha256", "surface_snapshot_sha256",
+                 "candidate_snapshot_sha256", "chain_graph_path", "chain_graph_sha256",
+                 "analyst_manifest_path", "analyst_manifest_sha256", "journal_input_path",
+                 "journal_input_sha256", "question_index_path", "question_index_sha256",
+                 "question_count", "chain_blocker_count", "surface_unknown_count",
+                 "analyst_question_count", "retry_count", "conflict_count", "status",
+                 "journal_path", "journal_sha256", "supported_count", "refuted_count",
+                 "inconclusive_count", "prepared_at", "completed_at"),
+        required=("image_id", "dive_generation", "manifest_sha256", "surface_snapshot_sha256",
+                  "candidate_snapshot_sha256", "chain_graph_path", "chain_graph_sha256",
+                  "analyst_manifest_path", "analyst_manifest_sha256", "journal_input_path",
+                  "journal_input_sha256", "question_index_path", "question_index_sha256",
+                  "question_count", "chain_blocker_count", "surface_unknown_count",
+                  "analyst_question_count", "retry_count", "conflict_count", "status",
+                  "supported_count", "refuted_count", "inconclusive_count"),
+        primary_key=("image_id", "dive_generation"), validate=_validate_firmware_dive_run),
+    "cba_firmware_dive_questions": TableSpec(
+        columns=("image_id", "dive_generation", "question_id", "attempt_ordinal", "origin",
+                 "method", "question", "settling_observation", "subject_refs",
+                 "resolution_contract", "axes", "prior_observation_id",
+                 "supersedes_observation_ids", "packet_path", "packet_sha256", "ordinal",
+                 "recorded_at"),
+        required=("image_id", "dive_generation", "question_id", "attempt_ordinal", "origin",
+                  "method", "question", "settling_observation", "subject_refs",
+                  "resolution_contract", "axes", "supersedes_observation_ids", "packet_path",
+                  "packet_sha256", "ordinal"),
+        primary_key=("image_id", "dive_generation", "question_id"), validate=_validate_firmware_dive_question),
+    "cba_firmware_dive_receipts": TableSpec(
+        columns=("image_id", "dive_generation", "receipt_key", "receipt_kind", "question_id",
+                 "attempt_ordinal", "packet_sha256", "result_path", "result_sha256", "outcome",
+                 "dependency_count", "evidence_count", "successor_count", "recorded_at"),
+        required=("image_id", "dive_generation", "receipt_key", "receipt_kind", "result_path",
+                  "result_sha256", "outcome", "dependency_count", "evidence_count",
+                  "successor_count"),
+        primary_key=("image_id", "dive_generation", "receipt_key"), validate=_validate_firmware_dive_receipt),
+    "cba_firmware_dive_observations": TableSpec(
+        columns=("image_id", "dive_generation", "question_id", "attempt_ordinal", "observation_id",
+                 "outcome", "conclusion", "limitations", "resolution_effect", "evidence_rung",
+                 "dependency_refs", "evidence_refs", "successor_questions", "artifact_path",
+                 "artifact_sha256", "recorded_at"),
+        required=("image_id", "dive_generation", "question_id", "attempt_ordinal",
+                  "observation_id", "outcome", "conclusion", "limitations", "dependency_refs",
+                  "evidence_refs", "successor_questions", "artifact_path", "artifact_sha256"),
+        primary_key=("image_id", "dive_generation", "question_id"), validate=_validate_firmware_dive_observation),
+    "cba_firmware_dive_dependencies": TableSpec(
+        columns=("image_id", "dive_generation", "question_id", "ordinal", "observation_id", "kind",
+                 "logical_id", "relative_path", "sha256", "byte_count", "source_provenance",
+                 "recorded_at"),
+        required=("image_id", "dive_generation", "question_id", "ordinal", "observation_id",
+                  "kind", "logical_id", "relative_path", "sha256", "byte_count",
+                  "source_provenance"),
+        primary_key=("image_id", "dive_generation", "question_id", "ordinal"), validate=_validate_firmware_dive_dependency),
+    "cba_firmware_dive_acquisitions": TableSpec(
+        columns=("image_id", "dive_generation", "question_id", "acquisition_id", "kind",
+                 "contract_sha256", "spec_path", "spec_sha256", "manifest_path", "manifest_sha256",
+                 "evidence_paths", "details", "recorded_at"),
+        required=("image_id", "dive_generation", "question_id", "acquisition_id", "kind",
+                  "contract_sha256", "spec_path", "spec_sha256", "manifest_path",
+                  "manifest_sha256", "evidence_paths", "details"),
+        primary_key=("image_id", "dive_generation", "question_id", "acquisition_id"), validate=_validate_firmware_dive_acquisition),
+
 }
 
 
