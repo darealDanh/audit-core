@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-28 · **Branch:** local `main`; Stage 4g merged by fast-forward at `30ca3ba`, not pushed ·
-**Current verification:** merged local `main`: 5,902 full-suite tests passed; `make all` passed all 8 gates, 0/7,392 unexecuted statements; current gate measurements below · **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-10-29 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
+**Current verification:** Task 2 branch: `make all` 8/8 gates; 6,908 tests; 0/7,737 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -29,8 +29,9 @@ five-table row contracts, verified completed-hunt snapshots, deterministic revie
 batches, strict results, atomic import, canonical reviewed findings, upstream
 invalidation, bounded CLI, worker brief and installed routing. Final review found
 JSON identity/path corruption; `303232e` preserves machine-readable values and
-retains bounded human output. The scoped re-review was clean. The next firmware
-slice is `dive`.
+retains bounded human output. The scoped re-review was clean. Stage 4h firmware `dive` is now in progress
+on `stage4h-firmware-dive`; schema and verified graph snapshots are implemented,
+with integration and the remaining lifecycle tasks pending.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -48,6 +49,7 @@ Stage 5 has not started.
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
+| 4h | `dive` — runtime evidence settlement | through Task 2 | `stage4h-firmware-dive` | **in progress**; six-table schema and read-only graph snapshots implemented; integration pending |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -905,6 +907,36 @@ decision remain open. The next firmware slice is `dive`.
 
 ---
 
+### Stage 4h — schema and verified graph snapshot (in progress)
+
+Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
+contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
+sorted Stage 4g graph records with canonical run-relative artifact provenance.
+Current snapshots reconstruct completed SQL, receipts, graph bytes and live
+Stage 4f/source evidence without writes, including read-only SQLite and caller
+transactions. The explicit retained verifier selects one image/dive-generation
+owner and verifies its graph after Stage 4g SQL and worker files are deleted;
+the public current helper never falls back to retained history.
+
+The retained worklist hash is historical provenance, not a freshness equality.
+Retained verification rechecks current Stage 4f/source dependencies but cannot
+identify an administratively replaced, internally valid findings artifact under
+the same candidate identity: the owning dive row stores no findings-artifact
+digest. Tasks 4/8/9 must bind and recheck exact per-question/per-observation
+finding artifacts before conflict preparation or overlay use.
+
+Task 2 verification: `make all` passes all eight gates with 6,908 tests;
+29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations;
+57 features / 16 stages / 21 open items with all paths and verbs resolving;
+clean skill lint; 6 CRLF / 228 LF files; 116 installed markdown files with zero
+sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
+(zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
+precision 39/40 and $73.15 per match. This is deterministic verification, not a
+new paid semantic audit. Stage 4h remains in progress;
+Task 3's pure question/identity contracts are next, followed by preparation and
+the acquisition/result/completion/overlay/CLI/worker lifecycle. No new runtime
+claim, paid audit, mutation sweep, merge or push is claimed.
+
 ## 3. What was deliberately not done
 
 | Item | Why | Where it is recorded |
@@ -1076,8 +1108,13 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Implement firmware `dive`.** Stage 4g is merged into local `main` at
-   `30ca3ba` but is not pushed. `dive` must consume only completed, current `static-chained`
+1. **Continue Stage 4h firmware `dive` with Task 3.** The six-table schema and
+   read-only current/retained graph snapshots are implemented on
+   `stage4h-firmware-dive`; integration remains pending. Next are pure question
+   identities/contracts, then immutable preparation and the remaining lifecycle.
+   Exact finding-artifact currentness must be bound by Tasks 4/8/9.
+   Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
+   `dive` must consume only completed, current `static-chained`
    graphs and explicitly settle blockers/runtime reachability rather than treating
    static correlation as causality. Triage's upsert-only snapshots and Stage 4d
    retained-orphan scan scaling persist. The Asus golden and monorepo/submodule

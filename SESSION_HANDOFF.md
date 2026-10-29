@@ -1,11 +1,12 @@
 # Session handoff
 
-**Written:** 2026-10-28 · **Branch:** local `main`; Stage 4g merged by fast-forward at `30ca3ba`, not pushed ·
-**Status:** Stage 4g firmware `chain` completed, passed scoped final re-review,
-and merged locally.
-Next firmware slice: `dive`. **Verification:** merged-tree
-`make all` passed all 8 gates; 5,902 full-suite tests passed, 0/7,392
-unexecuted statements
+**Written:** 2026-10-29 · **Branch:** `stage4h-firmware-dive`; local `main`
+retains Stage 4g at `30ca3ba`, not pushed ·
+**Status:** Stage 4h firmware `dive` is in progress, integration pending.
+Task 1 schema and Task 2 verified graph snapshots are implemented; Task 3's
+pure question/identity contracts are next. **Verification:** Task 2 branch
+`make all`: 8/8 gates; 6,908 tests; 0/7,737 unexecuted statements (zero allowed).
+Measured gate details and historical Stage 4g results are preserved below.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -771,6 +772,36 @@ expected on any machine but the operator's, and is not a failure.
 
 ---
 
+### Stage 4h Task 1–2 handoff (in progress)
+
+Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
+contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
+sorted Stage 4g graph records with canonical run-relative artifact provenance.
+Current snapshots reconstruct completed SQL, receipts, graph bytes and live
+Stage 4f/source evidence without writes, including read-only SQLite and caller
+transactions. The explicit retained verifier selects one image/dive-generation
+owner and verifies its graph after Stage 4g SQL and worker files are deleted;
+the public current helper never falls back to retained history.
+
+The retained worklist hash is historical provenance, not a freshness equality.
+Retained verification rechecks current Stage 4f/source dependencies but cannot
+identify an administratively replaced, internally valid findings artifact under
+the same candidate identity: the owning dive row stores no findings-artifact
+digest. Tasks 4/8/9 must bind and recheck exact per-question/per-observation
+finding artifacts before conflict preparation or overlay use.
+
+Task 2 verification: `make all` passes all eight gates with 6,908 tests;
+29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations;
+57 features / 16 stages / 21 open items with all paths and verbs resolving;
+clean skill lint; 6 CRLF / 228 LF files; 116 installed markdown files with zero
+sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
+(zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
+precision 39/40 and $73.15 per match. This is deterministic verification, not a
+new paid semantic audit. Stage 4h remains in progress;
+Task 3's pure question/identity contracts are next, followed by preparation and
+the acquisition/result/completion/overlay/CLI/worker lifecycle. No new runtime
+claim, paid audit, mutation sweep, merge or push is claimed.
+
 ## 3. Standing instruction: do not run a full audit
 
 **Operator decision, 2026-10-07.** The benchmark gates are **deferred on
@@ -806,11 +837,15 @@ rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
 
-### Implement firmware `dive`
+### Continue firmware `dive` with Task 3
 
-Stage 4g implementation and documentation/inventory reconciliation are merged
-into local `main` at `30ca3ba`; no push is claimed. Start `dive` from this
-completed static-chain boundary.
+Stage 4h is in progress on `stage4h-firmware-dive`, with integration pending.
+The six-table schema and verified current/retained graph snapshots are implemented.
+Next implement pure question identities/contracts, then immutable preparation and
+the remaining acquisition/result/completion/overlay/CLI/worker lifecycle.
+Tasks 4/8/9 must bind and recheck exact finding-artifact provenance; the retained
+graph verifier alone does not establish that currentness. Stage 4g remains
+merged into local `main` at `30ca3ba`; no push is claimed.
 That slice must consume only current completed `static-chained` graphs, revisit
 blockers and unknowns with runtime/emulation/hardware evidence, and must not promote
 static correlation into causality, severity, exploitability, or successful-exploit

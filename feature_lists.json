@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
   "project": "codebase-audit",
-  "generated": "2026-10-27",
+  "generated": "2026-10-29",
   "schema_version": 1,
   "status_enum": [
     "shipped",
@@ -112,6 +112,13 @@
       "summary": "Merged into local main at 30ca3ba, not pushed. Six dedicated image/snapshot-owned tables retain exact finding dispositions, reciprocal settleable blockers, reusable deterministic chains and typed ordered edges with mechanical device-state continuity. Generic source-code chain behavior remains compatible. Static-chained evidence makes no runtime, severity or exploit claim. Dive is next."
     },
     {
+      "id": "stage4h",
+      "name": "dive - runtime evidence settlement (in progress)",
+      "status": "planned",
+      "gate": "Task 2 make all: 8/8 gates; 6,908 tests; 0/7,737 uncovered statements; integration and full-stage review pending",
+      "summary": "In progress on stage4h-firmware-dive; not merged or pushed. Tasks 1-2 implement six-table row contracts and read-only verified current/retained Stage 4g graph snapshots. Task 3 pure question identities/contracts is next; acquisition, result, completion, overlay, CLI and worker integration remain pending. Tasks 4/8/9 must bind exact finding-artifact currentness; retained worklist hashes establish historical provenance only."
+    },
+    {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
@@ -127,6 +134,47 @@
     }
   ],
   "features": [
+    {
+      "id": "firmware-dive-schema",
+      "name": "Firmware dive persistence contracts",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4h",
+      "verbs": [],
+      "modules": [
+        "audit_core/schema.sql",
+        "audit_core/db.py"
+      ],
+      "tests": [
+        "tests/test_firmware_dive_schema.py",
+        "tests/test_migrate.py"
+      ],
+      "docs": [
+        "ARCHITECTURE.md",
+        "SESSION_HANDOFF.md"
+      ],
+      "notes": "Implemented on stage4h-firmware-dive; integration pending. Six additive tables provide row-local contracts, canonical JSON and variant validation. Overall schema has 44 SQLite tables and 43 TableSpecs; four migrations remain unchanged. Cross-row semantics and exact nested domain schemas belong to later dive tasks."
+    },
+    {
+      "id": "firmware-dive-graph-snapshot",
+      "name": "Read-only verified current and retained firmware graph snapshots",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4h",
+      "verbs": [],
+      "modules": [
+        "audit_core/firmware_chain.py"
+      ],
+      "tests": [
+        "tests/test_firmware_dive_snapshot.py",
+        "tests/test_firmware_chain_gate.py"
+      ],
+      "docs": [
+        "ARCHITECTURE.md",
+        "SESSION_HANDOFF.md"
+      ],
+      "notes": "Implemented on stage4h-firmware-dive; integration pending. Frozen sorted records reconstruct current completed Stage 4g graphs without writes and support read-only SQLite/caller transactions. Explicit image/dive-generation-owned retained verification survives Stage 4g SQL/worklist/result deletion and rechecks current Stage 4f/source evidence. Current snapshots never fall back to history. Historical worklist hashes do not prove freshness; Tasks 4/8/9 must bind exact question/observation finding artifacts before conflict preparation or overlay use."
+    },
     {
       "id": "firmware-chain",
       "name": "Global static firmware evidence graph pipeline",

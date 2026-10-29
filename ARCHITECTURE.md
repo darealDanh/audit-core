@@ -631,6 +631,35 @@ unpushed. The next firmware slice is `dive`. Triage's upsert-only snapshots and 
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
 
+### Stage 4h — partial dive foundation
+
+Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
+Six additive tables retain dive runs, questions, receipts, observations,
+dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
+contracts; all four existing migrations are unchanged. Exact nested domain and
+cross-row lifecycle semantics belong to the remaining dive tasks.
+
+`firmware_chain.verified_graph_snapshot` reconstructs only a current completed
+Stage 4g publication, sharing canonical graph derivation with `check()` without
+calling that writing gate. Frozen nested records expose sorted semantic rows and
+canonical run-relative graph provenance. A single read transaction spans upstream
+and graph verification; read-only SQLite and caller transactions are supported.
+
+`verified_retained_graph_snapshot(..., image_id=..., dive_generation=...)`
+requires the explicitly owning dive-run row, canonical graph path/hash/bytes,
+and a verified current Stage 4f/source snapshot. It remains usable after Stage
+4g SQL and worker files are removed; it is never a fallback for the public
+current helper. Its embedded worklist hash is historical provenance. The dive
+row does not store the Stage 4f findings-artifact digest, so a valid replacement
+under the same candidate identity cannot be detected here; Tasks 4/8/9 must bind
+exact per-question/per-observation artifacts before conflict preparation or
+overlay use. Every returned graph row cites the verified `chains.json` artifact.
+
+Task 3's pure question/identity contracts are next. Acquisition, results,
+completion, overlays, CLI and worker routing remain pending. These helpers make
+no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
+and Stage 4d retained-orphan scan scaling.
+
 ### Stage 3's five quality mechanisms
 
 Each answers a named cause of a missed CRITICAL in the tplink post-mortem,

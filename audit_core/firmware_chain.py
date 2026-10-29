@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+import json
 import pathlib
 import sqlite3
 
@@ -11,6 +12,11 @@ from audit_core import db, firmware_fpcheck, surface
 
 class FirmwareChainError(Exception):
     """Firmware chain provenance or publication cannot be established."""
+
+
+# The results parser imports FirmwareChainError. Bind its module only after
+# that exception exists, while keeping public record annotations resolvable.
+from audit_core import firmware_chain_results
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -138,6 +144,109 @@ class FirmwareChainSummary:
     complete: bool
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareDisposition:
+    image_id: str
+    finding_id: str
+    candidate_snapshot_sha256: str
+    disposition: str
+    explanation: str
+    chain_ids: tuple[str, ...]
+    existing_unknown_ids: tuple[str, ...]
+    blocker_ids: tuple[str, ...]
+    pivot_followup_ids: tuple[str, ...]
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareAffectedEdge:
+    chain_id: str
+    ordinal: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareBlocker:
+    image_id: str
+    blocker_id: str
+    candidate_snapshot_sha256: str
+    question: str
+    settling_observation: str
+    method: str
+    axes: tuple[str, ...]
+    affected_finding_ids: tuple[str, ...]
+    affected_edges: tuple[VerifiedFirmwareAffectedEdge, ...]
+    status: str
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareChain:
+    image_id: str
+    chain_id: str
+    candidate_snapshot_sha256: str
+    title: str
+    summary: str
+    member_ids: tuple[str, ...]
+    initial_attacker_position: str
+    initial_evidence_refs: tuple[str, ...]
+    initial_lifecycle: str
+    initial_posture: str
+    initial_authentication: str
+    pre_auth: str
+    confidence: int
+    completeness: str
+    existing_unknown_ids: tuple[str, ...]
+    blocker_ids: tuple[str, ...]
+    evidence_rung: str
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareEdge:
+    image_id: str
+    chain_id: str
+    ordinal: int
+    candidate_snapshot_sha256: str
+    producer_finding_id: str
+    consumer_finding_id: str
+    capability_kind: str
+    link_key: str
+    produced_capability: str
+    required_precondition: str
+    producer_evidence_refs: tuple[str, ...]
+    consumer_evidence_refs: tuple[str, ...]
+    supplemental_evidence_refs: tuple[str, ...]
+    required_state: firmware_chain_results.State
+    result_state: firmware_chain_results.State
+    transition_kind: str
+    confidence: int
+    existing_unknowns: tuple[firmware_chain_results.ExistingUnknownRef, ...]
+    blocker_ids: tuple[str, ...]
+    artifact_path: str
+    artifact_sha256: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareGraphSnapshot:
+    image_id: str
+    manifest_sha256: str
+    surface_snapshot_sha256: str
+    candidate_snapshot_sha256: str
+    chain_worklist_sha256: str
+    graph_path: str
+    graph_sha256: str
+    findings: tuple[firmware_fpcheck.VerifiedFirmwareFinding, ...]
+    dispositions: tuple[VerifiedFirmwareDisposition, ...]
+    blockers: tuple[VerifiedFirmwareBlocker, ...]
+    chains: tuple[VerifiedFirmwareChain, ...]
+    edges: tuple[VerifiedFirmwareEdge, ...]
+    surfaces: tuple[firmware_fpcheck.VerifiedFirmwareSurface, ...]
+    unknowns: tuple[firmware_fpcheck.VerifiedFirmwareUnknown, ...]
+
+
 _COMPLETION_TABLES = ("cba_firmware_chain_runs", "cba_firmware_chain_receipts",
     "cba_firmware_chain_dispositions", "cba_firmware_chain_unknowns", "cba_firmware_chains",
     "cba_firmware_chain_edges")
@@ -177,6 +286,157 @@ def _checked_graph_install(run_dir: pathlib.Path, destination: pathlib.Path, con
         raise FirmwareChainError("Installed firmware chain graph differs before completion")
 
 
+def _verified_graph(snapshot, parsed, result_sha256: str) -> tuple:
+    """Derive one canonical graph from verified Stage 4f evidence, without SQL.
+
+    Historical worklist/result digests are retained provenance. In particular,
+    a later dive overlay may change the worklist without changing Stage 4f.
+    """
+    from audit_core import firmware_chain_results as results
+
+    results._digest(result_sha256, "result_sha256")
+    if (parsed.image_id, parsed.candidate_snapshot_sha256) != (snapshot.image_id, snapshot.candidate_snapshot_sha256):
+        raise FirmwareChainError("Firmware chain graph differs from verified review ownership")
+    validated = results._validate_graph(parsed, json.loads(_worklist(snapshot)))
+    graph = dict(schema_version=1, image_id=snapshot.image_id,
+        candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256,
+        worklist_sha256=parsed.worklist_sha256, result_sha256=result_sha256)
+    for collection, table in _GRAPH_COLLECTIONS:
+        graph[collection] = [{key: json.loads(value) if key in _GRAPH_JSON_FIELDS else value
+            for key, value in row.items()} for row in _ordered_records(getattr(validated, collection), table)]
+    return validated, surface.canonical_bytes(graph)
+
+
+def _graph_result(graph: dict):
+    """Reverse the published projection through the existing hostile parser.
+
+    Stable IDs can stand in for worker-local keys: semantic identities exclude
+    those keys. Re-deriving the full projection then proves every stored field,
+    including stable IDs, coverage, transitions, references and confidence.
+    """
+    from audit_core import firmware_chain_results as results
+
+    def select(row, names):
+        return {name: row[name] for name in names.split()}
+
+    blockers = [select(row, "question settling_observation method axes affected_finding_ids") | dict(
+        blocker_key=row["blocker_id"], affected_edges=[dict(chain_key=edge["chain_id"], ordinal=edge["ordinal"])
+            for edge in row["affected_edges"]]) for row in graph["blockers"]]
+    dispositions = [select(row, "finding_id disposition explanation existing_unknown_ids pivot_followup_ids") | dict(
+        chain_keys=row["chain_ids"], blocker_keys=row["blocker_ids"]) for row in graph["dispositions"]]
+    chains = []
+    for row in graph["chains"]:
+        edges = [select(edge, "producer_finding_id consumer_finding_id capability_kind link_key produced_capability "
+            "required_precondition producer_evidence_refs consumer_evidence_refs supplemental_evidence_refs "
+            "required_state result_state transition_kind confidence existing_unknowns") | dict(blocker_keys=edge["blocker_ids"])
+            for edge in graph["edges"] if edge["chain_id"] == row["chain_id"]]
+        chains.append(select(row, "title summary member_ids initial_attacker_position initial_evidence_refs") | dict(
+            chain_key=row["chain_id"], initial_state=dict(lifecycle=row["initial_lifecycle"],
+                posture=row["initial_posture"], authentication=row["initial_authentication"]), edges=edges))
+    return results._parse(select(graph, "schema_version image_id candidate_snapshot_sha256 worklist_sha256") |
+        dict(blockers=blockers, dispositions=dispositions, chains=chains))
+
+
+def _graph_snapshot(snapshot, validated, relative: str, digest: str) -> VerifiedFirmwareGraphSnapshot:
+    """Freeze every semantic cell; chains.json owns every projected graph row."""
+    from audit_core import firmware_chain_results as results
+
+    def record(cls, row):
+        fields = dict(row)
+        for name in _GRAPH_JSON_FIELDS & fields.keys():
+            value = json.loads(fields[name])
+            if name in ("required_state", "result_state"):
+                value = results.State(**value)
+            elif name == "affected_edges":
+                value = tuple(VerifiedFirmwareAffectedEdge(**edge) for edge in value)
+            elif name == "existing_unknowns":
+                value = tuple(results.ExistingUnknownRef(ref["unknown_id"], tuple(ref["axes"])) for ref in value)
+            else:
+                value = tuple(value)
+            fields[name] = value
+        return cls(**fields, artifact_path=relative, artifact_sha256=digest)
+
+    collections = [tuple(record(cls, row) for row in _ordered_records(getattr(validated, name), table))
+        for (name, table), cls in zip(_GRAPH_COLLECTIONS, (VerifiedFirmwareDisposition,
+            VerifiedFirmwareBlocker, VerifiedFirmwareChain, VerifiedFirmwareEdge))]
+    return VerifiedFirmwareGraphSnapshot(snapshot.image_id, snapshot.manifest_sha256, snapshot.surface_snapshot_sha256,
+        snapshot.candidate_snapshot_sha256, validated.result.worklist_sha256, relative, digest,
+        snapshot.findings, *collections, snapshot.surfaces, snapshot.unknowns)
+
+
+def verified_graph_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
+                            *, image_id: str | None = None) -> VerifiedFirmwareGraphSnapshot:
+    """Read one verified *current completed* Stage 4g publication, never repair it.
+
+    An owned read transaction spans all upstream and graph reads. Caller-owned
+    transactions and read-only connections work unchanged. Retained dive history
+    is deliberately inaccessible from this public current-generation boundary.
+    """
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        run_dir = pathlib.Path(run_dir).absolute()
+        snapshot, prior, validated, _, destination, digest = _completion_evidence(con, run_dir, root, image_id)
+        if prior["cba_firmware_chain_runs"][0]["status"] != "complete":
+            raise FirmwareChainError("Firmware chain run must already be complete")
+        return _graph_snapshot(snapshot, validated, (destination / "chains.json").relative_to(run_dir).as_posix(), digest)
+    except (sqlite3.Error, db.DbError, OSError, ValueError, KeyError, TypeError,
+            firmware_fpcheck.FpcheckError, surface.SurfaceError) as exc:
+        raise FirmwareChainError("Cannot verify firmware chain snapshot") from exc
+    finally:
+        if owned:
+            con.rollback()
+
+
+def verified_retained_graph_snapshot(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
+        *, image_id: str, dive_generation: str) -> VerifiedFirmwareGraphSnapshot:
+    """Verify exactly one dive-owned graph after Stage 4g SQL invalidation.
+
+    This explicit historical boundary is for conflict preparation. The stored
+    dive row owns the graph's canonical path/hash and upstream provenance; live
+    Stage 4f/source evidence must still reconstruct. No Stage 4g rows or worker
+    files are required, and this function never substitutes for a current graph.
+    """
+    from audit_core import firmware_chain_results as results
+
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        run_dir = pathlib.Path(run_dir).absolute()
+        runs = surface._query(con, "SELECT * FROM cba_firmware_dive_runs WHERE image_id=? AND dive_generation=?",
+            (image_id, dive_generation))
+        if len(runs) != 1:
+            raise FirmwareChainError("Exactly one owning firmware dive generation is required")
+        owner = runs[0]
+        db.TABLE_SPECS["cba_firmware_dive_runs"].validate(owner)
+        if not isinstance(owner["prepared_at"], str) or not owner["prepared_at"].strip():
+            raise FirmwareChainError("Firmware dive preparation timestamp is missing")
+        snapshot = firmware_fpcheck.verified_findings_snapshot(con, run_dir, root, image_id=image_id)
+        if any(owner[name] != getattr(snapshot, name) for name in (
+                "image_id", "manifest_sha256", "surface_snapshot_sha256", "candidate_snapshot_sha256")):
+            raise FirmwareChainError("Retained graph upstream provenance differs from current verified review")
+        relative, digest = owner["chain_graph_path"], owner["chain_graph_sha256"]
+        content = results._retained_bytes(run_dir, relative, digest)
+        graph = json.loads(content, object_pairs_hook=results._pairs, parse_constant=results._constant)
+        parsed = _graph_result(graph)
+        validated, expected = _verified_graph(snapshot, parsed, graph["result_sha256"])
+        destination = run_dir / "artifacts/firmware-chain" / parsed.worklist_sha256 / digest
+        if relative != (destination / "chains.json").relative_to(run_dir).as_posix() or content != expected:
+            raise FirmwareChainError("Retained firmware graph is not its canonical owned projection")
+        _checked_graph_install(run_dir, destination, expected)
+        return _graph_snapshot(snapshot, validated, relative, digest)
+    except (sqlite3.Error, db.DbError, OSError, ValueError, KeyError, TypeError,
+            firmware_fpcheck.FpcheckError, surface.SurfaceError) as exc:
+        raise FirmwareChainError("Cannot verify retained firmware chain snapshot") from exc
+    finally:
+        if owned:
+            con.rollback()
+
+
 def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None) -> tuple:
     """Rebuild live upstream, canonical worker bytes, and every receipt-owned row.
 
@@ -185,7 +445,6 @@ def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None)
     Complete status only changes the expected canonical provenance; it never
     skips reconstruction or permits missing artifacts to be repaired.
     """
-    import json
     from audit_core import firmware_chain_results as results
 
     owned = not con.in_transaction
@@ -232,23 +491,18 @@ def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None)
         if receipt["result_path"] != str(result_path):
             raise FirmwareChainError("Firmware chain result path is not canonical")
         retained = results._retained_bytes(run_dir, result_path.relative_to(run_dir).as_posix(), receipt["result_sha256"])
-        validated = results.validate(con, run_dir, results.load(result_path))
-        content = results.canonical_bytes(validated.result)
+        parsed = results.load(result_path)
+        results._prepared_evidence(con, run_dir, parsed)
+        content = results.canonical_bytes(parsed)
         if retained != content:
             raise FirmwareChainError("Firmware chain result bytes are not canonical")
         results._checked_result_install(run_dir, result_dir, content)
+        validated, graph_content = _verified_graph(snapshot, parsed, receipt["result_sha256"])
         expected_receipt = dict(image_id=snapshot.image_id, candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256,
             worklist_sha256=generation, result_path=str(result_path), result_sha256=hashlib.sha256(content).hexdigest(),
             disposition_count=len(validated.dispositions), blocker_count=len(validated.blockers),
             chain_count=len(validated.chains), edge_count=len(validated.edges))
         _checked_rows(receipts, [expected_receipt], "cba_firmware_chain_receipts")
-        graph = dict(schema_version=1, image_id=snapshot.image_id,
-            candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256, worklist_sha256=generation,
-            result_sha256=receipt["result_sha256"])
-        for collection, table in _GRAPH_COLLECTIONS:
-            graph[collection] = [{key: json.loads(value) if key in _GRAPH_JSON_FIELDS else value
-                for key, value in row.items()} for row in _ordered_records(getattr(validated, collection), table)]
-        graph_content = surface.canonical_bytes(graph)
         digest = hashlib.sha256(graph_content).hexdigest()
         destination = run_dir / "artifacts/firmware-chain" / generation / digest
         artifact_path = str(destination / "chains.json")
@@ -272,7 +526,6 @@ def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None)
 def check(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pathlib.Path,
           *, image_id: str | None = None) -> FirmwareChainSummary:
     """Reconstruct and atomically complete static chains against the live root."""
-    import json
     from audit_core import firmware_chain_results as results
 
     started = False

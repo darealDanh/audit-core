@@ -68,6 +68,8 @@ def test_complete_reconstructs_reused_paths_and_idempotently_preserves_all_bytes
     assert run_row['completed_at'] and run_row['prepared_at']
     before, writes, artifacts = state(con),con.total_changes,files(run)
     assert check(graph_case) == summary
+    verified = firmware_chain.verified_graph_snapshot(con, run, graph_case[2], image_id='target')
+    assert verified.graph_sha256 == digest and len(verified.chains) == 2 and len(verified.edges) == 3
     assert state(con) == before and con.total_changes == writes and files(run) == artifacts and not con.in_transaction
     with pytest.raises(dataclasses.FrozenInstanceError): summary.complete = False
     with pytest.raises(dataclasses.FrozenInstanceError): summary.chains[0].confidence = 10
@@ -454,7 +456,7 @@ def test_sql_read_failures_always_use_fixed_database_diagnostic(graph_case,monke
             return original(Connection(),*args[1:],**kwargs)
         monkeypatch.setattr(firmware_fpcheck,'verified_findings_snapshot',fail)
     else:
-        original = results.validate
+        original = results._prepared_evidence
         def fail(*args,**kwargs):
             class Connection:
                 def __getattr__(self,name): return getattr(args[0],name)
@@ -462,10 +464,32 @@ def test_sql_read_failures_always_use_fixed_database_diagnostic(graph_case,monke
                     if sql.startswith('SELECT'): raise sqlite3.OperationalError('injected SQL read')
                     return args[0].execute(sql,*params)
             return original(Connection(),*args[1:],**kwargs)
-        monkeypatch.setattr(results,'validate',fail)
+        monkeypatch.setattr(results,'_prepared_evidence',fail)
     with pytest.raises(firmware_chain.FirmwareChainError) as error: check(graph_case)
     assert str(error.value) == 'database operation failed'
     assert state(con) == before and not con.in_transaction
+
+
+def test_public_graph_validator_still_wraps_sql_read_failure_without_writes(graph_case):
+    con, run = graph_case[:2]
+    parsed = results._parse(graph_case[3])
+    before, writes, artifacts = state(con), con.total_changes, files(run)
+
+    class Connection:
+        def __getattr__(self, name):
+            return getattr(con, name)
+
+        def execute(self, sql, *params):
+            if sql.startswith('SELECT'):
+                raise sqlite3.OperationalError('injected SQL read')
+            return con.execute(sql, *params)
+
+    with pytest.raises(firmware_chain.FirmwareChainError) as error:
+        results.validate(Connection(), run, parsed)
+    assert str(error.value) == 'database operation failed'
+    assert isinstance(error.value.__cause__, sqlite3.OperationalError)
+    assert state(con) == before and con.total_changes == writes and files(run) == artifacts
+    assert not con.in_transaction
 
 
 def test_current_completion_ignores_and_preserves_complete_historical_generation(graph_case):
