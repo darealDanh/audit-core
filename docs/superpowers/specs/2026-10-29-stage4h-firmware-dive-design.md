@@ -297,15 +297,18 @@ establish identity.
 ### `cba_firmware_dive_receipts`
 
 One canonical result receipt per generation assignment, with two exact variants.
-A `question` receipt uses a `question:<question-id>:<attempt-ordinal>` receipt
-key, non-null question ID, packet/result paths and hashes, outcome, submitted
-dependency/evidence/successor counts, and recorded timestamp. An `empty` receipt
-uses the derived `empty:<dive-generation>` key, null question/packet fields, the
-canonical empty-result path/hash, zero counts, and no observation. Empty receipts
-are valid only when the prepared question count is zero; question receipts are
-required otherwise. Duplicate import is idempotent only when canonical bytes and
-every stored row are already exact; otherwise it is refused. There is no replace
-mode.
+A `question` receipt has a non-null question ID, packet/result paths and hashes,
+outcome, submitted dependency/evidence/successor counts, and recorded timestamp.
+An `empty` receipt has null question/packet fields, the canonical empty-result
+path/hash, zero counts, and no observation. Both use a safe derived key of
+`firmware-dive-receipt-` plus the SHA-256 of their canonical identity projection.
+The question projection binds image ID, dive generation, question ID, attempt
+ordinal, packet hash, and result hash; the empty projection binds image ID, dive
+generation, the explicit empty variant, and result hash. Local paths and
+timestamps are excluded. Empty receipts are valid only when the prepared question
+count is zero; question receipts are required otherwise. Duplicate import is
+idempotent only when canonical bytes and every stored row are already exact;
+otherwise it is refused. There is no replace mode.
 
 ### `cba_firmware_dive_observations`
 
