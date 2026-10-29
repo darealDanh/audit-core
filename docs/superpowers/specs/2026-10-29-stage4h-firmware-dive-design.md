@@ -1,7 +1,7 @@
 # Stage 4h Firmware Dive Design
 
 **Date:** 2026-10-29  
-**Status:** proposed  
+**Status:** approved  
 **Consumes:** completed Stage 4g firmware chain graph  
 **Produces:** provenance-bound question coverage and current dive-resolution evidence
 
