@@ -636,7 +636,8 @@ audit, separate firmware skill tree, and monorepo/submodule decision remain open
 Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
 Six additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
-contracts; all four existing migrations are unchanged. Exact nested domain and
+contracts; all four existing migrations are unchanged. Question contracts and
+packet authority are implemented below; acquisition/result domain schemas and
 cross-row lifecycle semantics belong to the remaining dive tasks.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
@@ -655,7 +656,23 @@ under the same candidate identity cannot be detected here; Tasks 4/8/9 must bind
 exact per-question/per-observation artifacts before conflict preparation or
 overlay use. Every returned graph row cites the verified `chains.json` artifact.
 
-Task 3's pure question/identity contracts are next. Acquisition, results,
+`firmware_dive_questions` defines frozen strict questions and resolution contracts.
+Semantic edge/chain fingerprints exclude local IDs and presentation fields;
+full SHA-256 question IDs bind the specified canonical subject/method/text/axis
+projection. Automatic blockers split by exact edge or every affected state axis;
+linked open surface unknowns retain upstream text and bounded value discovery.
+Analyst entries require current graph subjects and exact frozen predicates.
+Explicit retry directives bind contiguous durable attempt ordinals. Only current
+conclusive history can contest a subject; complete exact supersedes sets replace
+conflicting observations without choosing by timestamps. Pure packets contain
+exact retained artifact/evidence references, up to three named extract records,
+a bounded journal index and question/subject/method-owned future acquisition
+contracts with probe and capture byte/file limits. Exact extract-record digests
+bind stable provenance while excluding timestamps; absolute source identities
+are rejected and source text never enters packet bytes. Packets embed no evidence
+bodies.
+
+Task 4 immutable preparation is next. Acquisition, results,
 completion, overlays, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.

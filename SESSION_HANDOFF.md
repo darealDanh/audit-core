@@ -3,9 +3,9 @@
 **Written:** 2026-10-29 · **Branch:** `stage4h-firmware-dive`; local `main`
 retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
-Task 1 schema and Task 2 verified graph snapshots are implemented; Task 3's
-pure question/identity contracts are next. **Verification:** Task 2 branch
-`make all`: 8/8 gates; 6,908 tests; 0/7,737 unexecuted statements (zero allowed).
+Tasks 1–3 implement schema, verified graph snapshots and pure question/identity
+contracts; Task 4 immutable preparation is next. **Verification:** Task 3 branch
+`make all`: 8/8 gates; 7,026 tests; 0/8,378 unexecuted statements (zero allowed).
 Measured gate details and historical Stage 4g results are preserved below.
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -772,7 +772,7 @@ expected on any machine but the operator's, and is not a failure.
 
 ---
 
-### Stage 4h Task 1–2 handoff (in progress)
+### Stage 4h Task 1–3 handoff (in progress)
 
 Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
 contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
@@ -798,7 +798,19 @@ sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
 (zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
 precision 39/40 and $73.15 per match. This is deterministic verification, not a
 new paid semantic audit. Stage 4h remains in progress;
-Task 3's pure question/identity contracts are next, followed by preparation and
+Task 3 verification: `make all` passes all eight gates with 7,026 tests;
+29 dispatchable verbs; 44 SQLite tables / 43 contracts; 4 unchanged migrations;
+58 features / 16 stages / 21 open items with all paths and verbs resolving;
+clean skill lint; 6 CRLF / 230 LF files; 116 installed markdown files with 0
+sentinel survivors and the real install untouched; 0/8,378 unexecuted
+statements (0 allowed). The read-only benchmark remains recall 9/19, 45 findings, precision 39/40, $73.15 per match.
+The focused Task 3 suite passes 118 tests; its pure module has 0/641
+unexecuted statements. Stage 4h remains in progress; Task 4 preparation is next.
+These deterministic checks do not establish paid semantic quality or runtime truth.
+
+Task 3 implements strict analyst manifests, stable semantic subjects, automatic
+question contracts, explicit durable retries, complete conflict supersession and
+bounded exact-reference packets. Task 4 immutable preparation is next, followed by
 the acquisition/result/completion/overlay/CLI/worker lifecycle. No new runtime
 claim, paid audit, mutation sweep, merge or push is claimed.
 
@@ -837,12 +849,15 @@ rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
 
-### Continue firmware `dive` with Task 3
+### Continue firmware `dive` with Task 4
 
 Stage 4h is in progress on `stage4h-firmware-dive`, with integration pending.
-The six-table schema and verified current/retained graph snapshots are implemented.
-Next implement pure question identities/contracts, then immutable preparation and
-the remaining acquisition/result/completion/overlay/CLI/worker lifecycle.
+The six-table schema, verified current/retained graph snapshots and pure question
+contracts are implemented.
+Next implement immutable preparation, then
+the remaining acquisition/result/completion/overlay/CLI/worker lifecycle. Task 4
+must freeze scoped histories and exact extract-manifest identities under its
+publication lock; absolute extract source identities are refused.
 Tasks 4/8/9 must bind and recheck exact finding-artifact provenance; the retained
 graph verifier alone does not establish that currentness. Stage 4g remains
 merged into local `main` at `30ca3ba`; no push is claimed.
