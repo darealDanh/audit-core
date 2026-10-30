@@ -336,6 +336,112 @@ def test_conflict_only_after_invalidation_and_exact_inconclusive_retry(graph_cas
     with pytest.raises(api().FirmwareDiveError): prepare(graph_case, retry=(question['question_id'],))
 
 
+def test_conflict_retry_ignores_older_owner_without_later_linked_subject(graph_case):
+    con, run, root = graph_case[:3]
+    complete(graph_case)
+    graph_case[3]['chains'][0]['edges'][1]['existing_unknowns'] = []
+    record(graph_case, replace=True)
+    check(graph_case)
+    older = prepare(graph_case)
+    old_question = next(r for r in rows(con, 'cba_firmware_dive_questions')
+        if r['dive_generation'] == older.dive_generation and r['origin'] == 'chain-blocker')
+    accepted(graph_case, older, outcome='inconclusive', question_id=old_question['question_id'],
+        identity=sha(canonical([old_question['question_id'], old_question['attempt_ordinal']])))
+    firmware_chain.invalidate(con, 'target', commit=True)
+    prepared = firmware_chain.prepare(con, run, root, image_id='target')
+    graph_case[3]['worklist_sha256'] = prepared.worklist_sha256
+    graph_case[3]['chains'][0]['edges'][1]['existing_unknowns'] = [
+        dict(unknown_id='overlap', axes=['authentication'])]
+    record(graph_case)
+    check(graph_case)
+    first, second, question, one, two = contested(graph_case)
+    conflict = prepare(graph_case)
+    row = next(r for r in rows(con, 'cba_firmware_dive_questions')
+        if r['dive_generation'] == conflict.dive_generation)
+    accepted(graph_case, conflict, outcome='inconclusive', identity='3' * 64,
+        question_id=row['question_id'])
+    retried = prepare(graph_case, retry=(row['question_id'] + ':' + '3' * 64,))
+    assert retried.question_count == retried.conflict_count == retried.retry_count == 1
+    packet = json.loads(next((pathlib.Path(retried.question_index_path).parent / 'questions').iterdir()).read_bytes())
+    assert packet['question']['attempt_ordinal'] == 2
+    assert packet['question']['supersedes_observation_ids'] == [one['observation_id'], two['observation_id']]
+    assert retried.graph_sha256 == second.graph_sha256 != older.graph_sha256
+
+
+@pytest.mark.parametrize('phase', ['parent-create', 'temp-create'])
+def test_install_parent_replacement_never_writes_outside_run(graph_case, tmp_path, monkeypatch, phase):
+    con, run = graph_case[:2]
+    complete(graph_case)
+    dive = api()
+    outside = tmp_path / 'external'
+    outside.mkdir()
+    parent = run / 'files/firmware-dive'
+    real_mkdir = dive.os.mkdir
+    attacked = False
+    def mkdir(path, *args, **kwargs):
+        nonlocal attacked
+        name = pathlib.Path(path).name
+        if not attacked and phase == 'temp-create' and name.startswith('.dive-'):
+            attacked = True
+            parent.rename(run / 'retained-parent')
+            parent.symlink_to(outside, target_is_directory=True)
+        result = real_mkdir(path, *args, **kwargs)
+        if not attacked and phase == 'parent-create' and name == 'firmware-dive':
+            attacked = True
+            parent.rename(run / 'retained-parent')
+            parent.symlink_to(outside, target_is_directory=True)
+        return result
+    monkeypatch.setattr(dive.os, 'mkdir', mkdir)
+    before = state(con)
+    with pytest.raises(dive.FirmwareDiveError): prepare(graph_case)
+    assert attacked and not list(outside.iterdir())
+    assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize('phase', ['file-open', 'rename', 'cleanup'])
+def test_open_parent_anchor_survives_late_replacement(graph_case, tmp_path, monkeypatch, phase):
+    con, run = graph_case[:2]
+    complete(graph_case)
+    dive = api()
+    outside = tmp_path / 'external'
+    outside.mkdir()
+    parent = run / 'files/firmware-dive'
+    retained = run / 'retained-parent'
+    attacked = False
+    def redirect():
+        nonlocal attacked
+        attacked = True
+        parent.rename(retained)
+        parent.symlink_to(outside, target_is_directory=True)
+    real_open, real_rename = dive.os.open, dive.os.rename
+    def opened(path, flags, *args, **kwargs):
+        if not attacked and phase == 'file-open' and flags & dive.os.O_WRONLY:
+            redirect()
+        return real_open(path, flags, *args, **kwargs)
+    def renamed(source, destination, *args, **kwargs):
+        if not attacked and phase in ('rename', 'cleanup') and pathlib.Path(source).name.startswith('.dive-'):
+            redirect()
+            if phase == 'cleanup':
+                decoy = outside / pathlib.Path(source).name
+                decoy.mkdir()
+                (decoy / 'sentinel').write_bytes(b'external-owned')
+                raise OSError('injected publication failure after redirect')
+        return real_rename(source, destination, *args, **kwargs)
+    monkeypatch.setattr(dive.os, 'open', opened)
+    monkeypatch.setattr(dive.os, 'rename', renamed)
+    before = state(con)
+    with pytest.raises(dive.FirmwareDiveError): prepare(graph_case)
+    assert attacked and state(con) == before and not con.in_transaction
+    assert not list(retained.glob('.dive-*'))
+    if phase == 'cleanup':
+        assert [p.read_bytes() for p in outside.glob('*/sentinel')] == [b'external-owned']
+        assert not list(retained.iterdir())
+    else:
+        assert not list(outside.iterdir())
+        generation, = retained.iterdir()
+        assert {p.name for p in generation.iterdir()} == {'index.json', 'journal-input.json', 'questions'}
+
+
 @pytest.mark.parametrize('damage', ['analyst', 'finding-provenance', 'root', 'missing-observation', 'repeat-prose', 'dependency', 'receipt', 'packet', 'journal'])
 def test_conflict_only_rejects_foreign_incomplete_or_stale_history(graph_case, tmp_path, damage):
     con, run, root = graph_case[:3]
@@ -620,11 +726,11 @@ def test_install_rename_failure_and_concurrent_identical_winner(graph_case,monke
     con,run=graph_case[:2]
     complete(graph_case)
     dive=api()
-    real=dive.os.rename
-    def rename(source,destination):
+    def rename(source,destination,**kwargs):
         if race=='winner':
             import shutil
-            shutil.copytree(source,destination)
+            parent = run / 'files/firmware-dive'
+            shutil.copytree(parent / source, parent / destination)
         raise OSError('injected rename race')
     monkeypatch.setattr(dive.os,'rename',rename)
     before=state(con)

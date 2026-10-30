@@ -682,7 +682,12 @@ extract provenance and installed-byte verification under `BEGIN IMMEDIATE`.
 Ordinary preparation uses only the current completed graph; conflict-only
 preparation selects an exact completed retained owner from the complete current
 conflict family and rejects ambiguous graph chronology, unrelated questions and
-ordinary retries. Preparation never invalidates Stage 4g.
+ordinary retries. Retry validation follows retained-owner selection, so unrelated
+older graphs cannot veto a valid conflict retry. Installation anchors creation,
+file writes, fsync, rename and cleanup to verified directory descriptors with
+no-follow traversal; a parent replacement cannot redirect writes through a
+symlink. A rejected publication may retain an unreferenced immutable generation
+inside the run. Preparation never invalidates Stage 4g.
 
 The generation index retains scalar graph ownership, canonical analyst input,
 complete authoritative accepted-input dependency digests and retry projection,

@@ -5,7 +5,7 @@ retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
 Tasks 1–4 implement schema, verified graph snapshots, pure question/identity
 contracts and immutable preparation; Task 5 hardware capture sealing is next. **Verification:** Task 4 branch
-`make all`: 8/8 gates; 7,126 tests; 0/8,882 unexecuted statements (zero allowed).
+`make all`: 8/8 gates; 7,132 tests; 0/8,918 unexecuted statements (zero allowed).
 Measured gate details and historical Stage 4g results are preserved below.
 
 Read this first if you are picking the project up cold. It covers the rules
@@ -859,7 +859,12 @@ extract provenance and installed-byte verification under `BEGIN IMMEDIATE`.
 Ordinary preparation uses only the current completed graph; conflict-only
 preparation selects an exact completed retained owner from the complete current
 conflict family and rejects ambiguous graph chronology, unrelated questions and
-ordinary retries. Preparation never invalidates Stage 4g.
+ordinary retries. Retry validation follows retained-owner selection, so unrelated
+older graphs cannot veto a valid conflict retry. Installation anchors creation,
+file writes, fsync, rename and cleanup to verified directory descriptors with
+no-follow traversal; a parent replacement cannot redirect writes through a
+symlink. A rejected publication may retain an unreferenced immutable generation
+inside the run. Preparation never invalidates Stage 4g.
 
 The generation index retains scalar graph ownership, canonical analyst input,
 complete authoritative accepted-input dependency digests and retry projection,
@@ -879,14 +884,15 @@ canonical result/observation identity and completion/overlay domain validation.
 Task 5 question-owned hardware capture sealing is next. Stage 4h remains in
 progress, integration pending; no runtime, severity or exploit claim is made.
 
-Task 4 verification: `make all` passes all eight gates with 7,126 tests;
+Task 4 Fix Round 1 verification: `make all` passes all eight gates with 7,132 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations
 with firmware baselines preserved; clean skill lint; 6 CRLF / 232 LF files;
 59 features / 16 stages / 21 open items with all paths and verbs resolving;
 116 installed markdown files / zero sentinel survivors, real install untouched;
-0/8,882 unexecuted statements (zero allowed). The read-only benchmark remains
+0/8,918 unexecuted statements (zero allowed). The read-only benchmark remains
 recall 9/19, 45 findings, precision 39/40, $73.15 per match. The combined Task 4
-and upstream regression suite passes 500 tests. These checks establish mechanical
+and upstream regression suite passes 506 tests. Fix Round 1 focused preparation
+coverage passes 101 tests with 0/527 unexecuted module statements. These checks establish mechanical
 preparation integrity; canonical result and acquisition domain validation remains
 future work. `make mutate` was not run.
 

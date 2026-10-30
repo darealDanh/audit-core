@@ -6,16 +6,16 @@ cross-row ownership; it never accepts worker JSON as a new authority.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import json
 import os
 import pathlib
 import re
-import shutil
+import secrets
 import sqlite3
 import stat
-import tempfile
 
 from audit_core import db, extract, firmware_chain, firmware_fpcheck, surface
 from audit_core import firmware_dive_questions as q
@@ -109,27 +109,66 @@ def _checked_install(destination, contents, run):
 
 
 def _install(destination, contents, run):
-    _parents(destination / 'questions', run)
-    if destination.exists():
-        _checked_install(destination, contents, run)
-        return
-    temporary = None
-    try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = pathlib.Path(tempfile.mkdtemp(prefix='.dive-', dir=destination.parent))
-        for name, raw in contents.items():
-            target = temporary / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(raw)
-        try:
-            os.rename(temporary, destination)
-        except OSError:
-            if not destination.exists():
-                raise
+    # Hold every traversed directory open. A replaced pathname must never
+    # redirect creation, writes, rename, fsync or cleanup outside this run.
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    with contextlib.ExitStack() as stack:
+        def directory(name, parent=None):
+            descriptor = os.open(name, flags, dir_fd=parent)
+            stack.callback(os.close, descriptor)
+            return descriptor
+        parent = directory(run)
+        for part in destination.parent.relative_to(run).parts:
+            try:
+                os.mkdir(part, dir_fd=parent)
+            except FileExistsError:
+                pass
+            else:
+                os.fsync(parent)
+            parent = directory(part, parent)
+        if destination.name in os.listdir(parent):
             _checked_install(destination, contents, run)
-    finally:
-        if temporary is not None and temporary.exists():
-            shutil.rmtree(temporary)
+            return
+        temporary = '.dive-' + secrets.token_hex(16)
+        os.mkdir(temporary, mode=0o700, dir_fd=parent)
+        created = []
+        questions = None
+        try:
+            staging = directory(temporary, parent)
+            if any(name.startswith('questions/') for name in contents):
+                os.mkdir('questions', dir_fd=staging)
+                questions = directory('questions', staging)
+            for name, raw in contents.items():
+                owner = questions if name.startswith('questions/') else staging
+                descriptor = os.open(name.split('/')[-1],
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=owner)
+                created.append((owner, name.split('/')[-1]))
+                with os.fdopen(descriptor, 'wb') as stream:
+                    stream.write(raw)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            if questions is not None:
+                os.fsync(questions)
+            os.fsync(staging)
+            try:
+                os.rename(temporary, destination.name, src_dir_fd=parent, dst_dir_fd=parent)
+            except OSError:
+                if destination.name not in os.listdir(parent):
+                    raise
+                _checked_install(destination, contents, run)
+            else:
+                temporary = None
+            os.fsync(parent)
+        finally:
+            if temporary is not None:
+                # Remove only our own entries, through the still-open owners;
+                # unlink/rmdir never follow a replacement directory symlink.
+                for owner, name in created:
+                    os.unlink(name, dir_fd=owner)
+                if questions is not None:
+                    os.rmdir('questions', dir_fd=staging)
+                os.rmdir(temporary, dir_fd=parent)
+                os.fsync(parent)
 
 
 def _rows(con, image):
@@ -437,19 +476,22 @@ def _capture(con, run, root, image_id, analyst, retries):
             graph = firmware_chain.verified_retained_graph_snapshot(con, run, root,
                 image_id=upstream.image_id, dive_generation=owner['dive_generation'])
             history, index, overlay = _history(run, rows, graph)
-            derived = q.derive_questions(graph, (), history, retries)
+            derived = q.derive_questions(graph, (), history)
             conflicts = tuple(question for question in derived.questions if question.origin == 'conflict')
             contested = {ref for question in conflicts for ref in question.supersedes_observation_ids}
             owned = {o['observation_id'] for o in rows['observations'] if o['dive_generation'] == owner['dive_generation']}
             if conflicts and owned & contested:
-                _require(all(d.question_id in {c.question_id for c in conflicts} for d in retries),
-                    'Conflict-only preparation refuses ordinary retries')
-                candidates.append((owner, graph, history, index, overlay, q.QuestionSet(conflicts, derived.retry_projection)))
+                candidates.append((owner, graph, history, index, overlay, conflicts))
         _require(bool(candidates), 'No exact current retained conflict family')
         latest = max(c[0]['completed_at'] for c in candidates)
         tied = [c for c in candidates if c[0]['completed_at'] == latest]
         _require(len({(c[1].graph_path,c[1].graph_sha256) for c in tied}) == 1, 'Ambiguous most recent retained graph')
-        _, graph, history, index, overlay, questions = max(tied, key=lambda c:c[0]['dive_generation'])
+        _, graph, history, index, overlay, conflicts = max(tied, key=lambda c:c[0]['dive_generation'])
+        _require(all(d.question_id in {c.question_id for c in conflicts} for d in retries),
+            'Conflict-only preparation refuses ordinary retries')
+        derived = q.derive_questions(graph, (), history, retries)
+        questions = q.QuestionSet(tuple(question for question in derived.questions if question.origin == 'conflict'),
+            derived.retry_projection)
     # Optional extracts are granted only by exact historical questions.
     previous = {h.question.question_id:h.question for h in history}
     retained = []

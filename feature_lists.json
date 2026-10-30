@@ -115,8 +115,8 @@
       "id": "stage4h",
       "name": "dive - runtime evidence settlement (in progress)",
       "status": "planned",
-      "gate": "Task 4 make all: 8/8 gates; 7,126 tests; 0/8,882 uncovered statements; integration and full-stage review pending",
-      "summary": "In progress through Tasks 1–4 on stage4h-firmware-dive; not merged or pushed. Six-table contracts, verified graph snapshots, strict questions and artifact-first immutable preparation are implemented. Task 5 question-owned hardware capture sealing is next; canonical result/observation identity, completion, overlay, CLI and worker integration remain pending. Exact finding/extract provenance and coherent history are rechecked under publication lock; retained worklist hashes are historical provenance only."
+      "gate": "Task 4 Fix Round 1 make all: 8/8 gates; 7,132 tests; 0/8,918 uncovered statements; integration and full-stage review pending",
+      "summary": "In progress through Tasks 1–4 on stage4h-firmware-dive; not merged or pushed. Six-table contracts, verified graph snapshots, strict questions and artifact-first immutable preparation are implemented. Task 5 question-owned hardware capture sealing is next; canonical result/observation identity, completion, overlay, CLI and worker integration remain pending. Exact finding/extract provenance and coherent history are rechecked under publication lock; retained worklist hashes are historical provenance only. Conflict retries are validated after retained-owner selection. Directory-descriptor-anchored installation and no-follow traversal prevent parent-symlink races from redirecting writes; rejected publications may leave only unreferenced immutable generations inside the run."
     },
     {
       "id": "stage4",
