@@ -675,8 +675,34 @@ bind stable provenance while excluding timestamps; absolute source identities
 are rejected and source text never enters packet bytes. Packets embed no evidence
 bodies.
 
-Task 4 immutable preparation is next. Acquisition, results,
-completion, overlays, CLI and worker routing remain pending. These helpers make
+Task 4 implements artifact-first immutable preparation through `firmware_dive.prepare`.
+It freezes complete question denominators, preserves every prior generation and
+sibling image, and repeats live source, graph, strict manifest, durable history,
+extract provenance and installed-byte verification under `BEGIN IMMEDIATE`.
+Ordinary preparation uses only the current completed graph; conflict-only
+preparation selects an exact completed retained owner from the complete current
+conflict family and rejects ambiguous graph chronology, unrelated questions and
+ordinary retries. Preparation never invalidates Stage 4g.
+
+The generation index retains scalar graph ownership, canonical analyst input,
+complete authoritative accepted-input dependency digests and retry projection,
+plus every packet identity, so its hash can be reconstructed independently of
+the bounded informational journal. Identical generations reuse their frozen
+journal/packets without writes after later inconclusive history. Opaque dependency
+provenance is structurally bounded and rejects host/traversing path spellings;
+private provenance bodies stay behind digests. Exact finding-artifact provenance
+is bound separately from historical Stage 4g worklist/result hashes. New questions
+authorize no extracts by default; historical exact selections are reconstructed
+from canonical stable upstream manifest projections and rechecked under lock.
+
+Result/journal bodies and acquisition manifests remain opaque retained artifacts
+at this stage: SQL row contracts, complete receipt ownership, exact bytes and
+method/rung cross-fields are verified, while Tasks 5–9 must add sealed acquisition,
+canonical result/observation identity and completion/overlay domain validation.
+Task 5 question-owned hardware capture sealing is next. Stage 4h remains in
+progress, integration pending; no runtime, severity or exploit claim is made.
+
+Acquisition, results, completion, overlays, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
 

@@ -315,3 +315,22 @@ def test_empty_unicode_snapshot_preserves_sibling_image_and_exact_selection(grap
         actual.surfaces, actual.unknowns) == ((), (), (), (), (), (), ())
     assert snapshot(graph_case) == sibling
     assert state(con) == before and con.total_changes == writes and files(run) == artifacts
+
+
+def test_prepare_never_substitutes_retained_history_for_a_broken_current_publication(graph_case, monkeypatch):
+    from audit_core import firmware_dive
+
+    con, run, root = graph_case[:3]
+    complete(graph_case)
+    firmware_dive.prepare(con, run, root, image_id='target')
+    def broken(*args, **kwargs):
+        raise firmware_chain.FirmwareChainError('current graph no longer reconstructs')
+    def forbidden(*args, **kwargs):
+        pytest.fail('ordinary prepare attempted retained fallback')
+    monkeypatch.setattr(firmware_chain, 'verified_graph_snapshot', broken)
+    monkeypatch.setattr(firmware_chain, 'verified_retained_graph_snapshot', forbidden)
+    before, writes, artifacts = state(con), con.total_changes, files(run)
+    with pytest.raises(firmware_dive.FirmwareDiveError):
+        firmware_dive.prepare(con, run, root, image_id='target')
+    assert state(con) == before and con.total_changes == writes and files(run) == artifacts
+    assert not con.in_transaction

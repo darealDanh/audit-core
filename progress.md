@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-10-30 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 3 branch: `make all` 8/8 gates; 7,030 tests; 0/8,391 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Task 4 branch: `make all` 8/8 gates; 7,126 tests; 0/8,882 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -49,7 +49,7 @@ Stage 5 has not started.
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
-| 4h | `dive` — runtime evidence settlement | through Task 3 | `stage4h-firmware-dive` | **in progress**; six-table schema, read-only graph snapshots and pure question contracts implemented; integration pending |
+| 4h | `dive` — runtime evidence settlement | through Task 4 | `stage4h-firmware-dive` | **in progress**; schema, graph snapshots, questions and immutable preparation implemented; integration pending |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -907,7 +907,7 @@ decision remain open. The next firmware slice is `dive`.
 
 ---
 
-### Stage 4h — schema, graph snapshots and question contracts (in progress)
+### Stage 4h — schema, graph snapshots, questions and preparation (in progress)
 
 Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
 contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
@@ -933,14 +933,14 @@ sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
 (zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
 precision 39/40 and $73.15 per match. This is deterministic verification, not a
 new paid semantic audit. Stage 4h remains in progress;
-Task 3 verification: `make all` passes all eight gates with 7,030 tests;
+Historical Task 3 verification: `make all` passed all eight gates with 7,030 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; 4 unchanged migrations;
 58 features / 16 stages / 21 open items with all paths and verbs resolving;
 clean skill lint; 6 CRLF / 230 LF files; 116 installed markdown files with 0
 sentinel survivors and the real install untouched; 0/8,391 unexecuted
 statements (0 allowed). The read-only benchmark remains recall 9/19, 45 findings, precision 39/40, $73.15 per match.
 The focused Task 3 suite passes 122 tests; its pure module has 0/654
-unexecuted statements. Stage 4h remains in progress; Task 4 preparation is next.
+unexecuted statements. That Task 3 checkpoint preceded the immutable preparation implementation below.
 These deterministic checks do not establish paid semantic quality or runtime truth.
 
 Task 3 implements strict analyst manifests, stable semantic subjects, automatic
@@ -948,9 +948,47 @@ question contracts, explicit durable retries, complete conflict supersession and
 bounded exact-reference packets. Manifest nesting is bounded before normalization;
 parser and validation failures use the question-domain error. Durable history
 retains validated immutable question fields, preventing mutable conflict aliases.
-Task 4 immutable preparation is next, followed by
-the acquisition/result/completion/overlay/CLI/worker lifecycle. No new runtime
+Task 4 immutable preparation is implemented below; acquisition, result,
+completion, overlay, CLI and worker integration remain pending. No new runtime
 claim, paid audit, mutation sweep, merge or push is claimed.
+
+Task 4 implements artifact-first immutable preparation through `firmware_dive.prepare`.
+It freezes complete question denominators, preserves every prior generation and
+sibling image, and repeats live source, graph, strict manifest, durable history,
+extract provenance and installed-byte verification under `BEGIN IMMEDIATE`.
+Ordinary preparation uses only the current completed graph; conflict-only
+preparation selects an exact completed retained owner from the complete current
+conflict family and rejects ambiguous graph chronology, unrelated questions and
+ordinary retries. Preparation never invalidates Stage 4g.
+
+The generation index retains scalar graph ownership, canonical analyst input,
+complete authoritative accepted-input dependency digests and retry projection,
+plus every packet identity, so its hash can be reconstructed independently of
+the bounded informational journal. Identical generations reuse their frozen
+journal/packets without writes after later inconclusive history. Opaque dependency
+provenance is structurally bounded and rejects host/traversing path spellings;
+private provenance bodies stay behind digests. Exact finding-artifact provenance
+is bound separately from historical Stage 4g worklist/result hashes. New questions
+authorize no extracts by default; historical exact selections are reconstructed
+from canonical stable upstream manifest projections and rechecked under lock.
+
+Result/journal bodies and acquisition manifests remain opaque retained artifacts
+at this stage: SQL row contracts, complete receipt ownership, exact bytes and
+method/rung cross-fields are verified, while Tasks 5–9 must add sealed acquisition,
+canonical result/observation identity and completion/overlay domain validation.
+Task 5 question-owned hardware capture sealing is next. Stage 4h remains in
+progress, integration pending; no runtime, severity or exploit claim is made.
+
+Task 4 verification: `make all` passes all eight gates with 7,126 tests;
+29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations
+with firmware baselines preserved; clean skill lint; 6 CRLF / 232 LF files;
+59 features / 16 stages / 21 open items with all paths and verbs resolving;
+116 installed markdown files / zero sentinel survivors, real install untouched;
+0/8,882 unexecuted statements (zero allowed). The read-only benchmark remains
+recall 9/19, 45 findings, precision 39/40, $73.15 per match. The combined Task 4
+and upstream regression suite passes 500 tests. These checks establish mechanical
+preparation integrity; canonical result and acquisition domain validation remains
+future work. `make mutate` was not run.
 
 ## 3. What was deliberately not done
 
@@ -1123,13 +1161,13 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4h firmware `dive` with Task 4.** The six-table schema and
-   read-only current/retained graph snapshots and pure question contracts are implemented on
-   `stage4h-firmware-dive`; integration remains pending. Next are immutable
-   preparation and the remaining lifecycle.
-   Task 4 must freeze scoped histories and exact extract-manifest identities under
-   its publication lock; absolute extract source identities are refused. Exact
-   finding-artifact currentness must be bound by Tasks 4/8/9.
+1. **Continue Stage 4h firmware `dive` with Task 5 hardware capture sealing.**
+   Tasks 1–4 implement the schema, verified graph snapshots, strict questions and
+   immutable preparation on `stage4h-firmware-dive`; integration remains pending.
+   Capture sealing must bind exact prepared question/acquisition contracts,
+   preserve immutable artifacts and publish under locked revalidation. Result
+   schemas, canonical observation identity and completion/overlay validation
+   remain prerequisites in Tasks 7–9; opaque retained bodies are not yet parsed.
    Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
    `dive` must consume only completed, current `static-chained`
    graphs and explicitly settle blockers/runtime reachability rather than treating
