@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-10-29 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 3 branch: `make all` 8/8 gates; 7,026 tests; 0/8,378 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-10-30 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
+**Current verification:** Task 3 branch: `make all` 8/8 gates; 7,030 tests; 0/8,391 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -933,19 +933,22 @@ sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
 (zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
 precision 39/40 and $73.15 per match. This is deterministic verification, not a
 new paid semantic audit. Stage 4h remains in progress;
-Task 3 verification: `make all` passes all eight gates with 7,026 tests;
+Task 3 verification: `make all` passes all eight gates with 7,030 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; 4 unchanged migrations;
 58 features / 16 stages / 21 open items with all paths and verbs resolving;
 clean skill lint; 6 CRLF / 230 LF files; 116 installed markdown files with 0
-sentinel survivors and the real install untouched; 0/8,378 unexecuted
+sentinel survivors and the real install untouched; 0/8,391 unexecuted
 statements (0 allowed). The read-only benchmark remains recall 9/19, 45 findings, precision 39/40, $73.15 per match.
-The focused Task 3 suite passes 118 tests; its pure module has 0/641
+The focused Task 3 suite passes 122 tests; its pure module has 0/654
 unexecuted statements. Stage 4h remains in progress; Task 4 preparation is next.
 These deterministic checks do not establish paid semantic quality or runtime truth.
 
 Task 3 implements strict analyst manifests, stable semantic subjects, automatic
 question contracts, explicit durable retries, complete conflict supersession and
-bounded exact-reference packets. Task 4 immutable preparation is next, followed by
+bounded exact-reference packets. Manifest nesting is bounded before normalization;
+parser and validation failures use the question-domain error. Durable history
+retains validated immutable question fields, preventing mutable conflict aliases.
+Task 4 immutable preparation is next, followed by
 the acquisition/result/completion/overlay/CLI/worker lifecycle. No new runtime
 claim, paid audit, mutation sweep, merge or push is claimed.
 

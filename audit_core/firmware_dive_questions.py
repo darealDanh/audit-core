@@ -337,18 +337,30 @@ def load_analyst_manifest(path: str | pathlib.Path | None) -> tuple[AnalystQuest
             raise FirmwareDiveQuestionError('Analyst manifest exceeds 8 MiB')
         value = json.loads(raw.decode('utf-8'), object_pairs_hook=_pairs,
             parse_constant=lambda _: (_ for _ in ()).throw(FirmwareDiveQuestionError('Non-finite JSON')))
-    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        # Bound containers before recursive dataclass normalization touches input.
+        pending = [(value, 0)]
+        while pending:
+            node, depth = pending.pop()
+            if depth > 16:
+                raise FirmwareDiveQuestionError('Analyst manifest nesting exceeds limit')
+            if isinstance(node, dict):
+                pending.extend((item, depth + 1) for item in node.values())
+            elif isinstance(node, list):
+                pending.extend((item, depth + 1) for item in node)
+        if not isinstance(value, dict) or set(value) != {'schema_version', 'questions'} or type(value['schema_version']) is not int or value['schema_version'] != 1:
+            raise FirmwareDiveQuestionError('Invalid analyst manifest schema')
+        if not isinstance(value['questions'], list) or len(value['questions']) > 1000:
+            raise FirmwareDiveQuestionError('Questions require a bounded array')
+        questions = tuple(_analyst(row) for row in value['questions'])
+        if len({_bytes(row) for row in questions}) != len(questions):
+            raise FirmwareDiveQuestionError('Duplicate analyst question')
+        if questions != tuple(sorted(questions, key=_bytes)):
+            raise FirmwareDiveQuestionError('Analyst questions require canonical entry order')
+        return questions
+    except FirmwareDiveQuestionError:
+        raise
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
         raise FirmwareDiveQuestionError('Cannot read strict analyst manifest') from exc
-    if not isinstance(value, dict) or set(value) != {'schema_version', 'questions'} or type(value['schema_version']) is not int or value['schema_version'] != 1:
-        raise FirmwareDiveQuestionError('Invalid analyst manifest schema')
-    if not isinstance(value['questions'], list) or len(value['questions']) > 1000:
-        raise FirmwareDiveQuestionError('Questions require a bounded array')
-    questions = tuple(_analyst(row) for row in value['questions'])
-    if len({_bytes(row) for row in questions}) != len(questions):
-        raise FirmwareDiveQuestionError('Duplicate analyst question')
-    if questions != tuple(sorted(questions, key=_bytes)):
-        raise FirmwareDiveQuestionError('Analyst questions require canonical entry order')
-    return questions
 
 
 def parse_retry_directives(values) -> tuple[RetryDirective, ...]:
@@ -506,7 +518,9 @@ def _history(snapshot, catalog, history):
     for item in history:
         if not isinstance(item, QuestionHistory):
             raise FirmwareDiveQuestionError('Durable history requires frozen QuestionHistory records')
-        _validate_question(item.question, snapshot, catalog)
+        validated = _validate_question(item.question, snapshot, catalog)
+        item = dataclasses.replace(item, question=dataclasses.replace(item.question,
+            **{f.name: getattr(validated, f.name) for f in dataclasses.fields(validated)}))
         if type(item.attempt_ordinal) is not int or item.attempt_ordinal < 1 or type(item.dependency_current) is not bool:
             raise FirmwareDiveQuestionError('Invalid durable attempt or currentness')
         key = (item.question.question_id, item.attempt_ordinal)

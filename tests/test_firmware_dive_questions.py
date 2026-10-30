@@ -154,6 +154,46 @@ def test_manifest_io_boundaries(tmp_path):
     with pytest.raises(q.FirmwareDiveQuestionError): q.load_analyst_manifest(tmp_path / 'missing')
 
 
+@pytest.mark.parametrize('damage', ['oversized-integer', 'nested-entry', 'parser-depth'])
+def test_manifest_parser_and_normalization_failures_are_contract_errors(tmp_path, damage):
+    path = tmp_path / 'hostile.json'
+    if damage == 'oversized-integer':
+        raw = '{"schema_version":' + '9' * 5000 + ',"questions":[]}'
+    else:
+        depth = 600 if damage == 'nested-entry' else 1500
+        raw = '{"schema_version":1,"questions":[{"question":' + '[' * depth + '0' + ']' * depth + '}]}'
+    path.write_text(raw)
+    assert path.stat().st_size < 8 * 1024 * 1024
+    with pytest.raises(q.FirmwareDiveQuestionError, match='nesting' if damage == 'nested-entry' else None):
+        q.load_analyst_manifest(path)
+
+
+def test_conflicts_freeze_validated_history_and_retained_input_aliases(graph):
+    question = next(x for x in derived(graph).questions if x.origin == 'surface-unknown'
+        and any(str(s) == 'surface-unknown:overlap' for s in x.subject_refs))
+    question = dataclasses.replace(question, origin='analyst', question='Which exact authority did the analyst observe?')
+    question = dataclasses.replace(question, question_id=q.canonical_question_id(graph, question))
+    subjects, axes = list(question.subject_refs), list(question.axes)
+    allowed = list(question.resolution_contract.allowed_values)
+    mutable = dataclasses.replace(question, subject_refs=subjects, axes=axes,
+        resolution_contract=dataclasses.replace(question.resolution_contract, allowed_values=allowed))
+    result = derived(graph, history=(history(mutable), history(mutable, 2, '2' * 64, value='session')))
+    conflict, = [x for x in result.questions if x.origin == 'conflict']
+    assert conflict.subject_refs == question.subject_refs
+    assert conflict.axes == ('authentication',)
+    assert conflict.resolution_contract.allowed_values == ('admin', 'local-shell', 'physical-UART', 'pre-auth', 'session')
+    before = q.packet_bytes(conflict, graph, ())
+    for values in (conflict.subject_refs, conflict.axes, conflict.resolution_contract.allowed_values):
+        with pytest.raises(AttributeError):
+            values.append('root')
+    subjects.clear()
+    axes.append('root')
+    allowed.append('root')
+    assert q.packet_bytes(conflict, graph, ()) == before
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        conflict.resolution_contract.allowed_values += ('root',)
+
+
 @pytest.mark.parametrize('field,value', [('produced_capability','new display'), ('required_precondition','new display'),
     ('confidence',1), ('blocker_ids',('other',)), ('artifact_sha256','0' * 64), ('artifact_path','artifacts/new.json')])
 def test_edge_presentation_excluded_from_identity(graph, field, value):

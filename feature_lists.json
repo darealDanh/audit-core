@@ -115,7 +115,7 @@
       "id": "stage4h",
       "name": "dive - runtime evidence settlement (in progress)",
       "status": "planned",
-      "gate": "Task 3 make all: 8/8 gates; 7,026 tests; 0/8,378 uncovered statements; integration and full-stage review pending",
+      "gate": "Task 3 make all: 8/8 gates; 7,030 tests; 0/8,391 uncovered statements; integration and full-stage review pending",
       "summary": "In progress on stage4h-firmware-dive; not merged or pushed. Tasks 1-3 implement six-table row contracts, read-only verified current/retained Stage 4g graph snapshots, and pure strict questions, semantic subjects, durable retries, conflicts and bounded packets. Task 4 immutable preparation is next; acquisition, result, completion, overlay, CLI and worker integration remain pending. Tasks 4/8/9 must bind exact finding-artifact currentness; retained worklist hashes establish historical provenance only."
     },
     {
@@ -192,7 +192,7 @@
         "ARCHITECTURE.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Implemented through Task 3 on stage4h-firmware-dive; integration pending. Frozen strict manifest/question/contract records require current graph subjects. Full SHA-256 edge and chain identities exclude local IDs and presentation; question identities follow the binding canonical projection. Automatic blockers split by exact edge or all affected axes, and open linked unknowns use bounded discovery. Explicit retries bind contiguous durable history; current conclusive disagreement produces exact superseding conflict questions. Packets authorize exact retained references, at most three named extract records and bounded future probe/capture ownership contracts, without evidence bodies. Task 4 immutable preparation and locked dependency/history validation are next."
+      "notes": "Implemented through Task 3 on stage4h-firmware-dive; integration pending. Frozen strict manifest/question/contract records require current graph subjects. Manifest nesting is bounded before normalization and parser/validation failures use the question-domain error; durable history retains normalized immutable question fields so conflicts cannot inherit mutable arrays. Full SHA-256 edge and chain identities exclude local IDs and presentation; question identities follow the binding canonical projection. Automatic blockers split by exact edge or all affected axes, and open linked unknowns use bounded discovery. Explicit retries bind contiguous durable history; current conclusive disagreement produces exact superseding conflict questions. Packets authorize exact retained references, at most three named extract records and bounded future probe/capture ownership contracts, without evidence bodies. Task 4 immutable preparation and locked dependency/history validation are next."
     },
     {
       "id": "firmware-chain",

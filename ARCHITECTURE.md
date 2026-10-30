@@ -662,6 +662,9 @@ full SHA-256 question IDs bind the specified canonical subject/method/text/axis
 projection. Automatic blockers split by exact edge or every affected state axis;
 linked open surface unknowns retain upstream text and bounded value discovery.
 Analyst entries require current graph subjects and exact frozen predicates.
+Manifest depth is bounded before recursive normalization, and parser/validation
+failures use `FirmwareDiveQuestionError`. History retains normalized immutable
+question fields so conflicts cannot inherit mutable subject, axis or value arrays.
 Explicit retry directives bind contiguous durable attempt ordinals. Only current
 conclusive history can contest a subject; complete exact supersedes sets replace
 conflicting observations without choosing by timestamps. Pure packets contain
