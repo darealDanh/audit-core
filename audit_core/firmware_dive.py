@@ -65,47 +65,74 @@ def _json(raw, *, newline=False):
     return value
 
 
-def _parents(path, boundary):
-    _require(not boundary.is_symlink() and boundary.is_dir(), 'Run directory is redirected')
-    relative = path.relative_to(boundary)
-    current = boundary
-    for part in relative.parts:
-        current /= part
-        _require(not current.is_symlink(), 'Artifact path is redirected')
-        if current != path:
-            _require(not current.exists() or current.is_dir(), 'Artifact parent is not a directory')
+def _selector(path):
+    """Normalize an explicit selector lexically without following symlinks."""
+    return pathlib.Path(os.path.abspath(os.fspath(path)))
+
+
+def _directory(path, stack):
+    """Open an absolute directory through no-follow component descriptors."""
+    path = pathlib.Path(path).absolute()
+    _require('..' not in path.parts, 'Directory path traverses parents')
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open(path.anchor, flags)
+    stack.callback(os.close, descriptor)
+    for part in path.parts[1:]:
+        descriptor = os.open(part, flags, dir_fd=descriptor)
+        stack.callback(os.close, descriptor)
+    return descriptor
+
+
+def _file_identity(value):
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+        value.st_mtime_ns, value.st_ctime_ns)
+
+
+def _read_regular(parent, name, maximum):
+    """Read one bounded file and refuse pathname/descriptor identity or byte drift."""
+    before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    _require(stat.S_ISREG(before.st_mode) and before.st_size <= maximum,
+        'Artifact must be a bounded regular file')
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    with os.fdopen(os.open(name, flags, dir_fd=parent), 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        _require(_file_identity(before) == _file_identity(opened), 'Artifact identity changed before read')
+        raw = stream.read(maximum + 1)
+        after = os.fstat(stream.fileno())
+    final = os.stat(name, dir_fd=parent, follow_symlinks=False)
+    _require(len(raw) <= maximum and len(raw) == before.st_size and
+        _file_identity(before) == _file_identity(after) == _file_identity(final),
+        'Artifact identity or bytes changed during read')
+    return raw, _file_identity(final)
 
 
 def _read(run, relative, digest=None, maximum=64 * 1024 * 1024):
     q._relative(relative)
-    path = run / relative
-    _parents(path, run)
-    before = path.lstat()
-    _require(stat.S_ISREG(before.st_mode), 'Artifact must be a regular file')
-    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
-    with os.fdopen(os.open(path, flags), 'rb') as stream:
-        opened = os.fstat(stream.fileno())
-        _require(stat.S_ISREG(opened.st_mode) and (before.st_dev, before.st_ino) ==
-            (opened.st_dev, opened.st_ino), 'Artifact file identity changed')
-        raw = stream.read(maximum + 1)
-    _require(len(raw) <= maximum, 'Artifact exceeds byte limit')
+    with contextlib.ExitStack() as stack:
+        parent = _directory(run / pathlib.Path(relative).parent, stack)
+        raw, _ = _read_regular(parent, pathlib.Path(relative).name, maximum)
     _require(digest is None or _digest(raw) == digest, 'Artifact hash differs')
     return raw
 
 
 def _checked_install(destination, contents, run):
-    _parents(destination / 'questions', run)
-    _require(destination.is_dir() and not destination.is_symlink(), 'Invalid generation directory')
-    expected_top = {'index.json', 'journal-input.json'} | ({'questions'} if any(k.startswith('questions/') for k in contents) else set())
-    _require({p.name for p in destination.iterdir()} == expected_top, 'Generation contains different artifacts')
-    if 'questions' in expected_top:
-        directory = destination / 'questions'
-        _require(directory.is_dir() and not directory.is_symlink(), 'Invalid question directory')
-        _require({p.name for p in directory.iterdir()} == {k.split('/')[1] for k in contents if k.startswith('questions/')},
-            'Generation contains different questions')
-    for name, raw in contents.items():
-        _require(_read(run, (destination / name).relative_to(run).as_posix(), maximum=max(len(raw), 1)) == raw,
-            'Installed generation bytes differ')
+    destination.relative_to(run)
+    directories = {name.split('/')[0] for name in contents if '/' in name}
+    expected_top = {name for name in contents if '/' not in name} | directories
+    with contextlib.ExitStack() as stack:
+        parent = _directory(destination, stack)
+        _require(set(os.listdir(parent)) == expected_top, 'Installed directory contains different artifacts')
+        owners = {}
+        for name in sorted(directories):
+            descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            stack.callback(os.close, descriptor)
+            owners[name] = descriptor
+            _require(set(os.listdir(descriptor)) == {key.split('/')[1] for key in contents if key.startswith(name + '/')},
+                'Installed directory contains different evidence')
+        for name, raw in contents.items():
+            owner = owners[name.split('/')[0]] if '/' in name else parent
+            actual, _ = _read_regular(owner, name.split('/')[-1], max(len(raw), 1))
+            _require(actual == raw, 'Installed artifact bytes differ')
 
 
 def _install(destination, contents, run):
@@ -117,7 +144,7 @@ def _install(destination, contents, run):
             descriptor = os.open(name, flags, dir_fd=parent)
             stack.callback(os.close, descriptor)
             return descriptor
-        parent = directory(run)
+        parent = _directory(run, stack)
         for part in destination.parent.relative_to(run).parts:
             try:
                 os.mkdir(part, dir_fd=parent)
@@ -129,17 +156,20 @@ def _install(destination, contents, run):
         if destination.name in os.listdir(parent):
             _checked_install(destination, contents, run)
             return
+        nested = {name.split('/')[0] for name in contents if '/' in name}
+        _require(len(nested) <= 1, 'Installation supports one flat evidence directory')
+        subdirectory = next(iter(nested), None)
         temporary = '.dive-' + secrets.token_hex(16)
         os.mkdir(temporary, mode=0o700, dir_fd=parent)
         created = []
-        questions = None
+        child = None
         try:
             staging = directory(temporary, parent)
-            if any(name.startswith('questions/') for name in contents):
-                os.mkdir('questions', dir_fd=staging)
-                questions = directory('questions', staging)
+            if subdirectory is not None:
+                os.mkdir(subdirectory, dir_fd=staging)
+                child = directory(subdirectory, staging)
             for name, raw in contents.items():
-                owner = questions if name.startswith('questions/') else staging
+                owner = child if '/' in name else staging
                 descriptor = os.open(name.split('/')[-1],
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=owner)
                 created.append((owner, name.split('/')[-1]))
@@ -147,8 +177,8 @@ def _install(destination, contents, run):
                     stream.write(raw)
                     stream.flush()
                     os.fsync(stream.fileno())
-            if questions is not None:
-                os.fsync(questions)
+            if child is not None:
+                os.fsync(child)
             os.fsync(staging)
             try:
                 os.rename(temporary, destination.name, src_dir_fd=parent, dst_dir_fd=parent)
@@ -165,8 +195,8 @@ def _install(destination, contents, run):
                 # unlink/rmdir never follow a replacement directory symlink.
                 for owner, name in created:
                     os.unlink(name, dir_fd=owner)
-                if questions is not None:
-                    os.rmdir('questions', dir_fd=staging)
+                if child is not None:
+                    os.rmdir(subdirectory, dir_fd=staging)
                 os.rmdir(temporary, dir_fd=parent)
                 os.fsync(parent)
 
@@ -561,7 +591,7 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
     started = False
     try:
         _require(not con.in_transaction, 'Preparation requires no active transaction')
-        run = pathlib.Path(run_dir).absolute()
+        run = _selector(run_dir)
         analyst = q.load_analyst_manifest(questions_path)
         retries = q.parse_retry_directives(retry)
         con.execute('BEGIN')

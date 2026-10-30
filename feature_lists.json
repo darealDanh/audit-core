@@ -1,7 +1,7 @@
 {
   "$comment": "Machine-readable inventory of what this project has built, held, and not yet started. Validated by `python3 scripts/harness.py --only manifest`: every path must exist, every verb must be dispatchable, every status must be in the enum, and every id must be unique. A stale entry fails the gate rather than quietly misleading the next reader.",
   "project": "codebase-audit",
-  "generated": "2026-10-29",
+  "generated": "2026-10-31",
   "schema_version": 1,
   "status_enum": [
     "shipped",
@@ -115,8 +115,8 @@
       "id": "stage4h",
       "name": "dive - runtime evidence settlement (in progress)",
       "status": "planned",
-      "gate": "Task 4 Fix Round 1 make all: 8/8 gates; 7,132 tests; 0/8,918 uncovered statements; integration and full-stage review pending",
-      "summary": "In progress through Tasks 1–4 on stage4h-firmware-dive; not merged or pushed. Six-table contracts, verified graph snapshots, strict questions and artifact-first immutable preparation are implemented. Task 5 question-owned hardware capture sealing is next; canonical result/observation identity, completion, overlay, CLI and worker integration remain pending. Exact finding/extract provenance and coherent history are rechecked under publication lock; retained worklist hashes are historical provenance only. Conflict retries are validated after retained-owner selection. Directory-descriptor-anchored installation and no-follow traversal prevent parent-symlink races from redirecting writes; rejected publications may leave only unreferenced immutable generations inside the run."
+      "gate": "Task 5 make all: 8/8 gates; 7,235 tests; 0/9,121 uncovered statements; integration and full-stage review pending",
+      "summary": "In progress through Tasks 1–5 on stage4h-firmware-dive; not merged or pushed. Six-table contracts, verified graph snapshots, strict questions, artifact-first immutable preparation and sealed question-owned hardware captures are implemented. Task 6 bounded isolated probes are next; canonical result/observation identity, completion, overlay, CLI and worker integration remain pending. Capture identities bind exact packet/contract/device/state facts and stable evidence hashes/sizes while excluding local source paths and timestamps. Shared descriptor-anchored/no-follow installation and stable reading are revalidated under BEGIN IMMEDIATE; captures never create conclusions or widen question authority."
     },
     {
       "id": "stage4",
@@ -192,7 +192,7 @@
         "ARCHITECTURE.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Implemented through Task 3 on stage4h-firmware-dive; integration pending. Frozen strict manifest/question/contract records require current graph subjects. Manifest nesting is bounded before normalization and parser/validation failures use the question-domain error; durable history retains normalized immutable question fields so conflicts cannot inherit mutable arrays. Full SHA-256 edge and chain identities exclude local IDs and presentation; question identities follow the binding canonical projection. Automatic blockers split by exact edge or all affected axes, and open linked unknowns use bounded discovery. Explicit retries bind contiguous durable history; current conclusive disagreement produces exact superseding conflict questions. Packets authorize exact retained references, at most three named extract records and bounded future probe/capture ownership contracts, without evidence bodies. Task 4 adds immutable preparation and locked dependency/history validation; Task 5 capture sealing is next."
+      "notes": "Implemented through Task 3 on stage4h-firmware-dive; integration pending. Frozen strict manifest/question/contract records require current graph subjects. Manifest nesting is bounded before normalization and parser/validation failures use the question-domain error; durable history retains normalized immutable question fields so conflicts cannot inherit mutable arrays. Full SHA-256 edge and chain identities exclude local IDs and presentation; question identities follow the binding canonical projection. Automatic blockers split by exact edge or all affected axes, and open linked unknowns use bounded discovery. Explicit retries bind contiguous durable history; current conclusive disagreement produces exact superseding conflict questions. Packets authorize exact retained references, at most three named extract records and bounded future probe/capture ownership contracts, without evidence bodies. Task 4 adds immutable preparation and locked dependency/history validation; Task 5 adds exact question-owned hardware captures; Task 6 bounded isolated probes are next."
     },
     {
       "id": "firmware-dive-prepare",
@@ -212,7 +212,28 @@
         "ARCHITECTURE.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Implemented through Task 4 on stage4h-firmware-dive; integration pending. Complete immutable denominators, frozen journal reuse, durable generation reconstruction, bounded private-provenance digests and exact historical extract/finding authority are verified artifact-first and under BEGIN IMMEDIATE. Ordinary prepare requires current completed Stage 4g; conflict-only mode verifies an exact completed retained owner and complete current conflicts, with no Stage 4g invalidation. Opaque result/journal/acquisition artifacts retain exact SQL/byte checks until Tasks 5–9 define and enforce their domain schemas. Task 5 question-owned hardware capture sealing is next."
+      "notes": "Implemented through Task 4 on stage4h-firmware-dive; integration pending. Complete immutable denominators, frozen journal reuse, durable generation reconstruction, bounded private-provenance digests and exact historical extract/finding authority are verified artifact-first and under BEGIN IMMEDIATE. Ordinary prepare requires current completed Stage 4g; conflict-only mode verifies an exact completed retained owner and complete current conflicts, with no Stage 4g invalidation. Retained result/journal and future probe bodies keep exact SQL/byte checks until Tasks 6–9 enforce their domain schemas. Task 5 shares descriptor-anchored/no-follow installation and stable readers for hardware captures. Task 6 bounded isolated probes are next."
+    },
+    {
+      "id": "firmware-dive-capture",
+      "name": "Sealed question-owned hardware captures",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4h",
+      "verbs": [],
+      "modules": [
+        "audit_core/firmware_dive_acquisition.py",
+        "audit_core/firmware_dive.py"
+      ],
+      "tests": [
+        "tests/test_firmware_dive_capture.py",
+        "tests/test_firmware_dive_prepare.py"
+      ],
+      "docs": [
+        "ARCHITECTURE.md",
+        "SESSION_HANDOFF.md"
+      ],
+      "notes": "Implemented Task 5 on stage4h-firmware-dive; integration pending. Strict specs bind exact prepared question/packet/acquisition contract and recorded device, firmware, state, operator/source and method facts. Canonical capture identities and sealed spec/manifest bytes exclude source paths and timestamps, bind ordered evidence hashes/sizes, and install only bounded regular evidence at 64 MiB/256 files. Explicit run/spec selectors normalize lexically before no-follow traversal; evidence source paths and destination names remain canonical relative and traversal-free. Bounded upstream image scalar identities and distinct raw-name/canonical-SQL evidence ordering are preserved. Shared descriptor-anchored no-follow operations protect source reads, installation and cleanup; BEGIN IMMEDIATE repeats authority/source/installed-byte checks before append-only publication. Exact duplicates are no-write idempotent; failures preserve prior SQL and siblings. Captures make no conclusion and never contact a device. Task 6 bounded isolated probes are next."
     },
     {
       "id": "firmware-chain",

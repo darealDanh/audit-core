@@ -637,8 +637,8 @@ Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
 Six additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
 contracts; all four existing migrations are unchanged. Question contracts and
-packet authority are implemented below; acquisition/result domain schemas and
-cross-row lifecycle semantics belong to the remaining dive tasks.
+packet authority and hardware capture sealing are implemented below; probe/result
+domain schemas and cross-row completion semantics belong to the remaining dive tasks.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -700,14 +700,43 @@ is bound separately from historical Stage 4g worklist/result hashes. New questio
 authorize no extracts by default; historical exact selections are reconstructed
 from canonical stable upstream manifest projections and rechecked under lock.
 
-Result/journal bodies and acquisition manifests remain opaque retained artifacts
-at this stage: SQL row contracts, complete receipt ownership, exact bytes and
-method/rung cross-fields are verified, while Tasks 5–9 must add sealed acquisition,
-canonical result/observation identity and completion/overlay domain validation.
-Task 5 question-owned hardware capture sealing is next. Stage 4h remains in
-progress, integration pending; no runtime, severity or exploit claim is made.
+Task 5 adds strict question-owned hardware sealing through
+`firmware_dive_acquisition.load_capture_spec` and `seal_capture`. It reconstructs
+the owning prepared run, generation index, packet, exact hardware acquisition
+contract and current retained-graph/source dependencies. Specs bind the recorded
+device identifier, firmware version/full image digest, lifecycle/posture/authentication,
+operator/source and hardware method. The recorded image digest is a device fact,
+not an equality to the Stage 4f manifest or candidate digest. Sources resolve
+relative to the spec parent; no source paths or timestamps enter sealed bytes
+or identity. Sorted flat evidence names and stable regular bytes are bounded at
+256 files and 64 MiB total, with strict keys, strings, states and digests.
+Explicit run/spec selectors normalize to absolute lexical targets before
+no-follow traversal; evidence source paths and installed basenames remain
+canonical relative and traversal-free. Image IDs preserve bounded upstream
+UTF-8 scalar identity, including escaped controls; other metadata stays strict.
+Capture evidence follows raw-name order; SQL paths follow canonical JSON-element order.
 
-Acquisition, results, completion, overlays, CLI and worker routing remain pending. These helpers make
+The full SHA-256 capture ID binds canonical sealed spec semantics and every
+ordered evidence name/hash/size with a capture discriminator. The exact layout is
+`artifacts/firmware-dive-captures/<id>/{spec.json,manifest.json,evidence/...}`.
+The shared installer and stable reader anchor all directory traversal, file reads,
+creation, writes, fsync, rename and cleanup to no-follow descriptors. Installation
+precedes `BEGIN IMMEDIATE`; authority, source identities/bytes and installed bytes
+are checked again before one append-only acquisition receipt. Exact duplicates
+perform no writes; conflicting duplicates refuse. Failure preserves prior SQL,
+sibling questions and images, and may retain an unreferenced in-run artifact.
+Captures create no observation, finding, evidence rung or denominator change and
+never contact or control a device.
+
+Result/journal and future probe bodies remain opaque to preparation; its retained
+history boundary continues exact SQL/byte and method/rung checks. Later result,
+completion and overlay gates must consume sealed capture semantics and enforce
+canonical observation identity. Task 6 bounded isolated probes are next and must
+preserve the shared descriptor, exact prepared-contract and locked publication
+boundaries. Stage 4h remains in progress, integration pending; no runtime,
+severity or exploit claim is made.
+
+Isolated probes, results, completion, overlays, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
 
