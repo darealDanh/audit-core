@@ -728,17 +728,104 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-Result/journal and future probe bodies remain opaque to preparation; its retained
+Result/journal and retained probe bodies remain opaque to preparation; its retained
 history boundary continues exact SQL/byte and method/rung checks. Later result,
-completion and overlay gates must consume sealed capture semantics and enforce
-canonical observation identity. Task 6 bounded isolated probes are next and must
-preserve the shared descriptor, exact prepared-contract and locked publication
-boundaries. Stage 4h remains in progress, integration pending; no runtime,
+completion and overlay gates must consume sealed capture/probe semantics and enforce
+canonical observation identity. Task 6 now preserves these descriptor, exact
+prepared-contract and locked publication boundaries for bounded isolated probes. Stage 4h remains in progress, integration pending; no runtime,
 severity or exploit claim is made.
 
-Isolated probes, results, completion, overlays, CLI and worker routing remain pending. These helpers make
+Results, completion, overlays, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
+
+Task 6 implements frozen strict `ProbeSpec`/`ProbeTermination`, `load_probe_spec`
+and `run_probe` in the acquisition module. Every probe reconstructs its exact
+prepared emulate question, packet and no-network acquisition contract against
+current upstream evidence. It stages only declared verified regular dependencies,
+binds exact argv/environment and hashes before/after execution, and publishes
+runtime facts without answering questions, choosing evidence rungs or findings.
+
+The network policy is exactly none. Supported installed or explicit canonical
+no-symlink `bwrap`/`sandbox-exec` programs must match the backend/platform, remain
+hash-stable, and pass a fixed bounded readiness probe from an ordinary-permission private
+copy; firmware invocation uses that same staged adapter copy. Special file bits
+and capabilities are never copied; tools needing them fail closed. Both the
+staged tool tree and original host tool are revalidated. These operator-trusted
+host tools are checked for readiness/integrity, not attested as nonmalicious.
+The manifest records their host runtime before isolation as trusted tooling.
+Missing, unknown or unready isolation seals `executed=false` with
+`reason=isolation-unavailable`; firmware never runs unsandboxed and no tool is
+installed. Linux mounts only staged declared guest files plus an optional verified
+static-ELF runner, isolated proc/dev and output; dynamic host runners are recorded
+as unsupported. macOS denies network and process forks, permits process exec,
+and records the fixed Apple system-runtime read roots and platform/version;
+those system reads are not firmware library evidence.
+
+Host adapter processes, including readiness, always receive a fixed empty
+environment. Declared environment values and the explicit shim are injected only
+inside isolation: bwrap uses `--setenv`; macOS uses a verified native copy of fixed
+`/usr/bin/env`, staged as `_environment-launcher`, with `-i`, literal assignments
+and an exact absolute firmware command. The launcher has a separate host-tool
+role/hash/size, with original and staged checks; its host path never enters the
+identity. Missing or incompatible helpers seal `unsupported-helper` without a
+payload. Pre-payload original-helper drift may seal truthful distinct before/after
+hashes only while every other dependency remains stable and the captured after
+snapshot revalidates under lock. Staged-helper tampering and any dependency drift
+after a real payload launch refuse publication. Host adapter startup never
+receives user environment or loader injection variables.
+
+Timeout is an integer 1–300 seconds; argv is at most 128 entries/4096 UTF-8 bytes
+each; environment has at most 64 safe names/4096-byte values and rejects loader
+variables except the explicit validated shim. Staged dependencies are bounded to
+256 regular files/64 MiB total; the adapter and fixed environment launcher are separately verified host tools,
+each bounded to 64 MiB.
+Processes use argv lists, no shell, a new session, closed descriptors, minimal
+environment and redirected descriptor-checked stdin. Both streams retain at most
+1 MiB with explicit truncation. Timeout/errors kill and reap the entire process
+group with bounded pipe cleanup. Exit codes, signals, timeouts, truncation and
+unsupported tools remain facts. Darwin zombie-group behavior is handled without
+repeated signals or masking live cleanup failures.
+
+Payload children inherit fixed hard and soft Unix limits: 8 MiB file size,
+64 processes per UID and 64 file descriptors. Missing or insufficient resource
+support, setup failure and root UID (which can bypass process limits) refuse with
+`executed=false,reason=unsupported-limits`. The per-UID process bound can also
+make adapters unavailable on a busy host; it is never raised as a fallback.
+
+Only declared output files and parent directories are precreated. Directories
+are non-writable; macOS permits writes to exact file paths only, and bwrap drops
+all capabilities, remounts guest root/proc/dev read-only and exposes only exact
+output files as writable submounts. Payloads cannot create, unlink or rename
+output entries. A bounded descriptor watchdog checks directory/file identity,
+shape and aggregate size throughout execution, including after pipes close.
+Exceeding 8 MiB total or changing the tree kills/reaps the group and records an
+`output-limit` fact; over-limit generated files are excluded from publication.
+The 8 MiB per-file hard limit bounds growth between watchdog checks; no separate
+filesystem quota or strict zero-overshoot aggregate limit is claimed.
+
+Immediately before payload launch, each placeholder's device/inode/size/mtime/
+ctime is snapshotted. Untouched placeholders remain absent from evidence;
+explicit zero-byte writes count as produced even if mtime is restored.
+Declared captured outputs are at most 256 regular files/8 MiB total. Canonical nested paths
+have at most 32 components, 255 bytes/component and 4096 bytes overall; prefix
+collisions, traversal, links, special files and undeclared tree entries refuse.
+Bounded descriptor enumeration and the generalized shared no-follow installer
+preserve `outputs/<declared-path>` under
+`artifacts/firmware-dive-probes/<id>/`, with separate `evidence/stdout` and
+`evidence/stderr`. Canonical identity binds exact question/contract/spec, runtime,
+termination, dependency and output hashes/sizes, excludes timestamps and local
+host paths, and installs before locked exact revalidation and one acquisition
+row. Exact duplicates make no writes; conflicts/failures preserve SQL and siblings.
+
+Task 7 strict result parsing is next, followed by canonical observation identity,
+completion and overlay validation. Preparation still treats retained result and
+journal bodies as opaque despite exact byte/SQL checks. CLI/worker routing,
+integration and full Stage 4h review remain pending. Tests execute only purpose
+fixtures through injected adapters; real-tool integration is not claimed. Runtime
+verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
+unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
+paid semantic quality limitations persist. `make mutate` remains separate.
 
 ### Stage 3's five quality mechanisms
 

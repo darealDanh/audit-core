@@ -115,23 +115,54 @@ def _read(run, relative, digest=None, maximum=64 * 1024 * 1024):
     return raw
 
 
+def _tree_directories(contents):
+    directories = {''}
+    for name in contents:
+        q._relative(name)
+        directories.update(str(parent) for parent in pathlib.PurePosixPath(name).parents if str(parent) != '.')
+    _require(not set(contents).intersection(directories), 'Artifact file/directory collision')
+    return sorted(directories, key=lambda name: (name.count('/') + bool(name), name))
+
+
+def _tree_owners(parent, directories, stack, *, create=False):
+    owners = {'': parent}
+    for name in directories:
+        if not name:
+            continue
+        relative = pathlib.PurePosixPath(name)
+        owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
+        if create:
+            os.mkdir(relative.name, mode=0o700, dir_fd=owner)
+        descriptor = os.open(relative.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=owner)
+        stack.callback(os.close, descriptor)
+        owners[name] = descriptor
+    return owners
+
+
+def _directory_names(parent, maximum):
+    """Bound hostile directory enumeration without reading child objects."""
+    names = set()
+    with os.scandir(parent) as entries:
+        for entry in entries:
+            _require(len(names) < maximum, 'Artifact directory exceeds entry limit')
+            names.add(entry.name)
+    return names
+
+
 def _checked_install(destination, contents, run):
-    destination.relative_to(run)
-    directories = {name.split('/')[0] for name in contents if '/' in name}
-    expected_top = {name for name in contents if '/' not in name} | directories
+    directories = _tree_directories(contents)
     with contextlib.ExitStack() as stack:
         parent = _directory(destination, stack)
-        _require(set(os.listdir(parent)) == expected_top, 'Installed directory contains different artifacts')
-        owners = {}
-        for name in sorted(directories):
-            descriptor = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-            stack.callback(os.close, descriptor)
-            owners[name] = descriptor
-            _require(set(os.listdir(descriptor)) == {key.split('/')[1] for key in contents if key.startswith(name + '/')},
-                'Installed directory contains different evidence')
+        owners = _tree_owners(parent, directories, stack)
+        for directory, owner in owners.items():
+            expected = {pathlib.PurePosixPath(name).name for name in [*contents, *directories]
+                if name and ('' if str(pathlib.PurePosixPath(name).parent) == '.' else str(pathlib.PurePosixPath(name).parent)) == directory}
+            # Compare components, never resolve or follow directory links.
+            _require(_directory_names(owner, len(expected)) == expected, 'Installed directory contains different artifacts')
         for name, raw in contents.items():
-            owner = owners[name.split('/')[0]] if '/' in name else parent
-            actual, _ = _read_regular(owner, name.split('/')[-1], max(len(raw), 1))
+            relative = pathlib.PurePosixPath(name)
+            owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
+            actual, _ = _read_regular(owner, relative.name, max(len(raw), 1))
             _require(actual == raw, 'Installed artifact bytes differ')
 
 
@@ -139,6 +170,7 @@ def _install(destination, contents, run):
     # Hold every traversed directory open. A replaced pathname must never
     # redirect creation, writes, rename, fsync or cleanup outside this run.
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    directories = _tree_directories(contents)
     with contextlib.ExitStack() as stack:
         def directory(name, parent=None):
             descriptor = os.open(name, flags, dir_fd=parent)
@@ -156,30 +188,24 @@ def _install(destination, contents, run):
         if destination.name in os.listdir(parent):
             _checked_install(destination, contents, run)
             return
-        nested = {name.split('/')[0] for name in contents if '/' in name}
-        _require(len(nested) <= 1, 'Installation supports one flat evidence directory')
-        subdirectory = next(iter(nested), None)
         temporary = '.dive-' + secrets.token_hex(16)
         os.mkdir(temporary, mode=0o700, dir_fd=parent)
-        created = []
-        child = None
+        created, owners = [], {}
         try:
             staging = directory(temporary, parent)
-            if subdirectory is not None:
-                os.mkdir(subdirectory, dir_fd=staging)
-                child = directory(subdirectory, staging)
+            owners = _tree_owners(staging, directories, stack, create=True)
             for name, raw in contents.items():
-                owner = child if '/' in name else staging
-                descriptor = os.open(name.split('/')[-1],
+                relative = pathlib.PurePosixPath(name)
+                owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
+                descriptor = os.open(relative.name,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=owner)
-                created.append((owner, name.split('/')[-1]))
+                created.append((owner, relative.name))
                 with os.fdopen(descriptor, 'wb') as stream:
                     stream.write(raw)
                     stream.flush()
                     os.fsync(stream.fileno())
-            if child is not None:
-                os.fsync(child)
-            os.fsync(staging)
+            for owner in reversed(tuple(owners.values())):
+                os.fsync(owner)
             try:
                 os.rename(temporary, destination.name, src_dir_fd=parent, dst_dir_fd=parent)
             except OSError:
@@ -191,12 +217,13 @@ def _install(destination, contents, run):
             os.fsync(parent)
         finally:
             if temporary is not None:
-                # Remove only our own entries, through the still-open owners;
-                # unlink/rmdir never follow a replacement directory symlink.
                 for owner, name in created:
                     os.unlink(name, dir_fd=owner)
-                if child is not None:
-                    os.rmdir(subdirectory, dir_fd=staging)
+                for name in reversed(directories):
+                    if name and name in owners:
+                        relative = pathlib.PurePosixPath(name)
+                        owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
+                        os.rmdir(relative.name, dir_fd=owner)
                 os.rmdir(temporary, dir_fd=parent)
                 os.fsync(parent)
 
