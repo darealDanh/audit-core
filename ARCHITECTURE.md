@@ -637,9 +637,9 @@ Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
 Six additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
 contracts; all four existing migrations are unchanged. Question contracts and
-packet authority, acquisition sealing and pure result schemas are implemented
-below; result ownership/publication and cross-row completion semantics belong
-to the remaining dive tasks.
+packet authority, acquisition sealing, strict results and exact immutable result
+publication are implemented below; cross-row completion, journal and overlay
+semantics belong to Task 9.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -729,14 +729,16 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-Result/journal and retained probe bodies remain opaque to preparation; its retained
-history boundary continues exact SQL/byte and method/rung checks. Later result,
-completion and overlay gates must consume sealed capture/probe semantics and enforce
-canonical observation identity. Task 6 now preserves these descriptor, exact
-prepared-contract and locked publication boundaries for bounded isolated probes. Stage 4h remains in progress, integration pending; no runtime,
-severity or exploit claim is made.
+At the Task 4 boundary, result/journal and retained probe bodies were opaque;
+retained history enforced exact SQL/byte and method/rung checks. Task 8 now
+reconstructs canonical results and referenced sealed acquisition semantics;
+legacy opaque history retains byte-exact checks, while journal/completion/overlay
+reconstruction belongs to Task 9. Task 6 preserves descriptor, exact prepared-contract
+and locked publication boundaries for bounded probes. Stage 4h remains in progress,
+integration pending; no generic severity or exploit claim is made.
 
-Result authority/publication, completion, overlays, CLI and worker routing remain pending. These helpers make
+Task 8 result authority/publication is implemented below; completion, overlays, CLI
+and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
 
@@ -842,11 +844,43 @@ bounded at 4096 bytes. Frozen records retain no mutable container aliases. Pure 
 structured effects, including boolean/refuted and bounded value discovery.
 Observation IDs bind the caller-derived rung and candidate snapshot plus exact
 effect/prose/reference projections; safe receipt keys bind exact assignment or
-explicit-empty projections. Only bounded stable-file `load` reads; no SQL or
-filesystem writes occur. Task 8 must prove prepared empty/nonempty ownership,
-packet-authorized dependencies/evidence and method-derived rungs before atomic
-result publication. Preparation still treats retained result/journal bodies as
-opaque despite exact byte/SQL checks; completion and overlays remain later work.
+explicit-empty projections. Those pure helpers make no SQL/filesystem writes.
+Task 8 adds read-only retained authority and atomic observation import below;
+completion and overlays remain later work.
+Task 8 implements read-only `validate` and immutable `record` in
+`firmware_dive_results.py`. Validation reconstructs the exact pending generation,
+index, packet/attempt, retained graph and current retained Stage 4f evidence
+without a live root or caller transaction changes. Static dependencies require
+packet authority and exact artifact owners; dynamic evidence reconstructs the
+question-owned sealed capture/probe contract, identity, spec, manifest, evidence
+hashes/counts and SQL projections. Provenance is derived from verified owners;
+canonical reference arrays and contiguous semantic dependency ordinals are stored.
+Only conclusive answers receive a method-derived rung; dynamic conclusions need
+limitations and evidence from the corresponding acquisition, and a nonexecuted
+probe cannot support a conclusion. Successors are validated proposals only.
+
+Canonical bytes install descriptor-safely at
+`artifacts/firmware-dive/<generation>/<question-id|empty>/<result-hash>/result.json`
+before `BEGIN IMMEDIATE`. Source, authority, history, acquisitions and installed
+bytes are repeated under lock before atomic receipt/observation/dependency rows.
+Exact duplicates preserve SQL timestamps and artifact mtime; conflicting/global
+ID reuse refuses, siblings survive failure, and the run remains pending.
+Canonical history reconstructs each attempt's artifact and all stored rows.
+Repeated observation identity compares exact semantics plus dependency provenance,
+excluding assignment/result bytes and successors; distinct successors remain
+attempt-local. Full typed refs adapt to digests only for pure history/overlay
+contracts. Recomputed currentness does not change observation identity or let a
+stale attempt enter the overlay. Legacy opaque history retains byte-exact checks;
+malformed envelopes and the canonical publication namespace cannot fall back.
+The Task 7 direct-constructor exception inconsistency is closed.
+
+Task 9 completion/journal/overlay validation is next. It must independently
+reconstruct the complete receipt denominator and each attempt's canonical result,
+including successors, before any completion or overlay claim. CLI/worker behavior,
+integration and whole-stage review remain pending. Tests use purpose fixtures;
+Linux, alternate Python, real tools and paid semantic quality remain unverified.
+No mutation sweep, merge or push was performed.
+
 CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain

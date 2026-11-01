@@ -606,3 +606,29 @@ def test_evidence_total_8192_byte_bound_does_not_relax_prose(tmp_path):
     value['questions'][0]['evidence'][0]['reference'] = reference
     value['questions'][0]['conclusion'] = 'a' * 4097
     with pytest.raises(results.FirmwareDiveResultError): read(tmp_path, value)
+
+
+@pytest.mark.parametrize('damage',['successor-subject','successor-contract','mixed-dependency-order'])
+def test_direct_constructor_failures_use_result_exception(tmp_path,damage):
+    parsed = read(tmp_path)
+    with pytest.raises(results.FirmwareDiveResultError):
+        if damage.startswith('successor'):
+            value = successor()
+            value['subject_refs' if damage == 'successor-subject' else 'resolution_contract'] = None
+            results.SuccessorQuestion(**value)
+        else:
+            dependency = dataclasses.replace(parsed.answer.dependencies[0], kind=1)
+            dataclasses.replace(parsed.answer,dependencies=(parsed.answer.dependencies[0],dependency))
+
+
+@pytest.mark.parametrize('constructor,args,kwargs',[
+    (results.DependencyRef,(),{}),
+    (results.EvidenceRef,(),{'dependency_kind':'finding-artifact'}),
+    (results.ResolutionEffect,(),{'unexpected':True}),
+    (results.QuestionAnswer,(),{}),
+    (results.SuccessorQuestion,(),{}),
+    (results.DiveResult,(),{}),
+    (results.EmptyAnswer,(1,),{}),
+])
+def test_malformed_public_constructor_calls_share_result_exception(constructor,args,kwargs):
+    with pytest.raises(results.FirmwareDiveResultError): constructor(*args,**kwargs)

@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 7: 7,578 full-suite tests passed; 0/10,093 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Task 8: 7,694 full-suite tests passed; 0/10,530 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -32,7 +32,7 @@ JSON identity/path corruption; `303232e` preserves machine-readable values and
 retains bounded human output. The scoped re-review was clean. Stage 4h firmware `dive` is now in progress
 on `stage4h-firmware-dive`; schema, verified graph snapshots, strict questions,
 immutable preparation, hardware captures, bounded isolated probes and pure strict result/identity contracts are implemented,
-with integration and the remaining lifecycle tasks pending.
+with result authority/publication now implemented; completion, integration and remaining lifecycle tasks are pending.
 Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
@@ -50,7 +50,7 @@ Stage 5 has not started.
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
-| 4h | `dive` — runtime evidence settlement | through Task 6 | `stage4h-firmware-dive` | **in progress**; schema, graph snapshots, questions, immutable preparation, hardware captures and bounded probes implemented; integration pending |
+| 4h | `dive` — runtime evidence settlement | through Task 8 | `stage4h-firmware-dive` | **in progress**; schema, snapshots, questions, preparation, acquisitions, strict results and immutable observation import implemented; completion/integration pending |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -950,7 +950,8 @@ bounded exact-reference packets. Manifest nesting is bounded before normalizatio
 parser and validation failures use the question-domain error. Durable history
 retains validated immutable question fields, preventing mutable conflict aliases.
 Tasks 4–6 implement immutable preparation, sealed hardware captures and bounded
-isolated probes below; results, completion, overlays, CLI and worker integration remain pending. No new runtime
+isolated probes below. At that checkpoint results, completion, overlays, CLI and worker
+integration were pending; Tasks 7–8 results/import are recorded below. No new runtime
 claim, paid audit, mutation sweep, merge or push is claimed.
 
 Task 4 implements artifact-first immutable preparation through `firmware_dive.prepare`.
@@ -1006,12 +1007,13 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-Result/journal and retained probe bodies remain opaque to preparation; its retained
-history boundary continues exact SQL/byte and method/rung checks. Later result,
-completion and overlay gates must consume sealed capture/probe semantics and enforce
-canonical observation identity. Task 6 now preserves these descriptor, exact
-prepared-contract and locked publication boundaries for bounded isolated probes. Stage 4h remains in progress, integration pending; no runtime,
-severity or exploit claim is made.
+At the Task 4 boundary, result/journal and retained probe bodies were opaque;
+retained history enforced exact SQL/byte and method/rung checks. Task 8 now
+reconstructs canonical results and referenced sealed acquisition semantics;
+legacy opaque history retains byte-exact checks, while journal/completion/overlay
+reconstruction belongs to Task 9. Task 6 preserves descriptor, exact prepared-contract
+and locked publication boundaries for bounded probes. Stage 4h remains in progress,
+integration pending; no generic severity or exploit claim is made.
 
 Historical Task 4 Fix Round 1 verification: `make all` passed all eight gates with 7,132 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations
@@ -1198,7 +1200,7 @@ survivors / real install untouched. The golden benchmark remains recall 9/19,
 result parsing and pure identities; prepared authority/publication belongs to
 Task 8. `make mutate` was not run.
 
-Task 7 post-framing full-suite cold monitoring passes 7,578 tests with zero
+Historical Task 7 post-framing full-suite cold monitoring passed 7,578 tests with zero
 skips/failures and zero unexecuted statements out of 10,093 (zero allowed).
 Cold focused coverage passes 173 strict-result tests with zero unexecuted
 statements in `firmware_dive_results.py` (315 executable). This includes exact
@@ -1210,7 +1212,7 @@ contracts; four unchanged migrations and both firmware baselines preserved;
 clean lint; 6 CRLF / 237 LF files; 62 features / 16 stages / 21 open items;
 116 installed markdown files / zero sentinels / real install untouched. The
 golden benchmark remains recall 9/19, 45 findings, precision 39/40, $73.15 per
-match. Task 8 authority/publication remains next; `make mutate` was not run.
+match. At that boundary, Task 8 authority/publication was next; `make mutate` was not run.
 
 Task 7 implements pure strict result parsing and canonical observation/receipt
 identities in `firmware_dive_results.py`. Exact empty or single-answer envelopes
@@ -1222,16 +1224,65 @@ bounded at 4096 bytes. Frozen records retain no mutable container aliases. Pure 
 structured effects, including boolean/refuted and bounded value discovery.
 Observation IDs bind the caller-derived rung and candidate snapshot plus exact
 effect/prose/reference projections; safe receipt keys bind exact assignment or
-explicit-empty projections. Only bounded stable-file `load` reads; no SQL or
-filesystem writes occur. Task 8 must prove prepared empty/nonempty ownership,
-packet-authorized dependencies/evidence and method-derived rungs before atomic
-result publication. Preparation still treats retained result/journal bodies as
-opaque despite exact byte/SQL checks; completion and overlays remain later work.
+explicit-empty projections. At the Task 7 boundary, only bounded stable-file
+`load` read files and the pure helpers made no SQL/filesystem writes. Task 8's
+prepared authority and atomic publication implementation is recorded below;
+completion and overlays remain later work.
 CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
 unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
 paid semantic quality limitations persist. `make mutate` remains separate.
+
+### Stage 4h Task 8 — exact result authority and immutable observation import
+
+Task 8 implements read-only `validate` and immutable `record` in
+`firmware_dive_results.py`. Validation reconstructs the exact pending generation,
+index, packet/attempt, retained graph and current retained Stage 4f evidence
+without a live root or caller transaction changes. Static dependencies require
+packet authority and exact artifact owners; dynamic evidence reconstructs the
+question-owned sealed capture/probe contract, identity, spec, manifest, evidence
+hashes/counts and SQL projections. Provenance is derived from verified owners;
+canonical reference arrays and contiguous semantic dependency ordinals are stored.
+Only conclusive answers receive a method-derived rung; dynamic conclusions need
+limitations and evidence from the corresponding acquisition, and a nonexecuted
+probe cannot support a conclusion. Successors are validated proposals only.
+
+Canonical bytes install descriptor-safely at
+`artifacts/firmware-dive/<generation>/<question-id|empty>/<result-hash>/result.json`
+before `BEGIN IMMEDIATE`. Source, authority, history, acquisitions and installed
+bytes are repeated under lock before atomic receipt/observation/dependency rows.
+Exact duplicates preserve SQL timestamps and artifact mtime; conflicting/global
+ID reuse refuses, siblings survive failure, and the run remains pending.
+Canonical history reconstructs each attempt's artifact and all stored rows.
+Repeated observation identity compares exact semantics plus dependency provenance,
+excluding assignment/result bytes and successors; distinct successors remain
+attempt-local. Full typed refs adapt to digests only for pure history/overlay
+contracts. Recomputed currentness does not change observation identity or let a
+stale attempt enter the overlay. Legacy opaque history retains byte-exact checks;
+malformed envelopes and the canonical publication namespace cannot fall back.
+The Task 7 direct-constructor exception inconsistency is closed.
+
+Task 8 full-suite cold monitoring passed 7,694 tests with zero skips/failures
+and zero unexecuted statements out of 10,530 (zero allowed). The exact
+Task 8 command passed 288 tests; acquisition regression passed 273. The frozen
+785-test combined cold regression has 0/580 preparation/history, 0/654 question,
+and 0/741 result/import statements unexecuted.
+
+The measured ancillary gates pass: 29 dispatchable verbs; 44 SQLite tables / 43
+contracts; four unchanged migrations with both firmware baselines preserved;
+clean skill lint; 6 CRLF / 238 LF files; 63 features / 16 stages / 21 open items;
+116 installed markdown files / zero sentinels / real install untouched. The golden
+benchmark remains recall 9/19, 45 findings, precision 39/40 and $73.15 per match.
+These are mechanical measurements; paid semantic quality and real-tool runtime
+behavior remain unmeasured. `make mutate` was not run.
+
+Task 9 completion/journal/overlay validation is next. It must independently
+reconstruct the complete receipt denominator and each attempt's canonical result,
+including successors, before any completion or overlay claim. CLI/worker behavior,
+integration and whole-stage review remain pending. Tests use purpose fixtures;
+Linux, alternate Python, real tools and paid semantic quality remain unverified.
+No mutation sweep, merge or push was performed.
 
 ## 3. What was deliberately not done
 
@@ -1404,19 +1455,15 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4h firmware `dive` with Task 8 result validation/publication.**
-   Tasks 1–7 implement schema, verified graph snapshots, strict questions,
-   immutable preparation, sealed acquisitions and pure strict result/identity
-   contracts on `stage4h-firmware-dive`; integration remains pending. Task 8
-   must prove prepared denominator/ownership, packet-authorized refs and derived
-   evidence rungs before immutable result publication. Preparation still treats
-   retained result/journal bodies as opaque; completion and overlays remain later work.
-
-   Task 8 must also reconcile receipt-specific artifact ownership with semantic
-   observation equivalence during publication/history reconstruction. Existing
-   history compares result bytes and artifact hashes for repeated observation IDs,
-   but generation/assignment fields and successor provenance can differ while
-   remaining intentionally excluded from observation identity.
+1. **Continue Stage 4h firmware `dive` with Task 9 completion/journal/overlay validation.**
+   Tasks 1–8 implement the schema, snapshots, questions, preparation, sealed
+   acquisitions, strict results and exact immutable observation import. Task 9
+   must independently reconstruct every canonical receipt/result/dependency and
+   each attempt's successor proposals before completing a generation or exposing
+   an overlay. Repeated observation identity now uses semantics/provenance;
+   attempt-local result bytes and successor proposals remain exact recorded
+   provenance. Canonical histories cannot use the legacy opaque fallback.
+   CLI/worker integration and full-stage review remain pending.
 
    Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
    `dive` must consume only completed, current `static-chained`

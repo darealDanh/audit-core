@@ -533,7 +533,7 @@ def _history(snapshot, catalog, history):
         else:
             _digest(item.observation_id)
             projection = _bytes((item.question.question_id, item.outcome, item.resolution_value,
-                item.dependency_refs, item.evidence_refs, item.supersedes, item.dependency_current))
+                item.dependency_refs, item.evidence_refs, item.supersedes))
             if item.observation_id in observations and observations[item.observation_id] != projection:
                 raise FirmwareDiveQuestionError('Conflicting reuse of observation identity')
             observations[item.observation_id] = projection

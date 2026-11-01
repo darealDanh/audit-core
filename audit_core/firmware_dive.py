@@ -1,8 +1,8 @@
 """Freeze provenance-bound, immutable firmware investigation assignments.
 
-Result and journal bodies are opaque until the result/import gates implement
-those schemas. This boundary verifies retained bytes, local row contracts and
-cross-row ownership; it never accepts worker JSON as a new authority.
+Canonical results reconstruct exact receipt, observation and dependency rows.
+Legacy opaque receipts retain exact byte/SQL checks; journal reconstruction is
+owned by completion. Worker JSON never establishes new authority.
 """
 from __future__ import annotations
 
@@ -426,6 +426,11 @@ def _history(run, rows, graph):
         _read(run, receipt['result_path'], receipt['result_sha256'], 8 * 1024 * 1024)
         if key[1] is not None:
             _require(key in observations, 'Question receipt lacks observation')
+        else:
+            from audit_core import firmware_dive_results as results
+            results._historical_projection(run,
+                _read(run, receipt['result_path'], receipt['result_sha256'], 8 * 1024 * 1024),
+                runs[key[0]], None, receipt, None, [], ())
     for generation, owner in runs.items():
         if owner['status'] == 'complete':
             expected = {(generation, row['question_id']) for row in rows['questions'] if row['dive_generation'] == generation}
@@ -476,7 +481,10 @@ def _history(run, rows, graph):
                 _provenance(dependency['source_provenance'])
             dep_projection = [{k:v for k,v in d.items() if k not in ('image_id','dive_generation','question_id','ordinal','observation_id','recorded_at')} for d in deps]
             _require(dep_projection == sorted(dep_projection, key=q._bytes), 'Dependency projection order differs')
-            full = ({k:v for k,v in observation.items() if k not in ('image_id','dive_generation','attempt_ordinal','recorded_at','artifact_path')}, dep_projection, raw)
+            from audit_core import firmware_dive_results as results
+            canonical = results._historical_projection(run, raw, owner, packet, receipt, observation, deps, acquisitions.get(key, ()))
+            full = canonical if canonical is not None else ('opaque',
+                {k:v for k,v in observation.items() if k not in ('image_id','dive_generation','attempt_ordinal','recorded_at','artifact_path')}, dep_projection, raw)
             identity = observation['observation_id']
             _require(identity not in repeated or repeated[identity] == full, 'Observation identity reused with different stored content')
             repeated[identity] = full
@@ -485,9 +493,13 @@ def _history(run, rows, graph):
             finding_provenance = inputs[key[0]]['finding_artifacts'] == list(_finding_refs(graph))
             current = current_subjects and owner['status'] == 'complete' and all(checks) and finding_provenance
             value = json.loads(observation['resolution_effect'])['value'] if observation['resolution_effect'] else None
+            dependency_refs = tuple(json.loads(observation['dependency_refs']))
+            evidence_refs = tuple(json.loads(observation['evidence_refs']))
+            if canonical is not None:
+                dependency_refs = tuple(sorted(q._hash(ref) for ref in dependency_refs))
+                evidence_refs = tuple(sorted(q._hash(ref) for ref in evidence_refs))
             item = q.QuestionHistory(question, question.attempt_ordinal, identity, observation['outcome'], value,
-                tuple(json.loads(observation['dependency_refs'])), tuple(json.loads(observation['evidence_refs'])),
-                current, question.supersedes_observation_ids)
+                dependency_refs, evidence_refs, current, question.supersedes_observation_ids)
             entry = q.JournalIndexEntry(identity, question.question_id, question.subject_refs,
                 'current' if current else 'stale', observation['outcome'], observation['artifact_path'], observation['artifact_sha256'])
             journal_index[identity] = entry

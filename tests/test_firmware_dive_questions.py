@@ -670,3 +670,13 @@ def test_deep_coherent_supersession_history_is_order_independent(graph):
         values.append(history(conflict,observation=sup_id,supersedes=refs))
         previous=sup_id
     assert derived(graph,history=tuple(reversed(values)))==derived(graph,history=tuple(values))
+
+
+def test_repeated_observation_semantics_ignore_recomputed_currentness(graph):
+    question = next(item for item in derived(graph).questions if item.origin == 'surface-unknown')
+    current = history(question,current=True)
+    stale = history(question,ordinal=2,current=False)
+    conflicting_stale = history(question,ordinal=3,observation='2'*64,value='session',current=False)
+    result = derived(graph,history=(current,stale,conflicting_stale))
+    assert all(item.origin != 'conflict' for item in result.questions)
+    assert result == derived(graph,history=(current,))
