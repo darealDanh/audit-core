@@ -270,6 +270,9 @@ class ProbeTermination:
     timed_out: bool
     stdout_truncated: bool
     stderr_truncated: bool
+    adapter_exit_code: int | None = None
+    adapter_signal: int | None = None
+    status_source: str = 'direct-process'
 
 
 def _probe_path(value):
@@ -415,7 +418,8 @@ class _IsolationAdapter:
             guest.update(p for p in (spec.loader,spec.nvram_shim,spec.stdin) if p is not None)
             _require(not any(p.split('/')[0] in ('proc','dev','output','runner') for p in guest),
                 'Probe path collides with reserved isolation mount')
-            argv = [str(self.path), '--unshare-all', '--die-with-parent', '--new-session','--clearenv','--cap-drop','ALL']
+            argv = [str(self.path), '--unshare-all', '--die-with-parent', '--new-session',
+                '--unshare-user','--disable-userns','--clearenv','--cap-drop','ALL']
             for directory in dive._tree_directories(dict.fromkeys(guest)):
                 if directory:
                     argv += ['--dir','/'+directory]
@@ -481,7 +485,8 @@ def _adapter_ready(adapter):
     if adapter.backend == 'bwrap':
         net = os.stat('/proc/self/ns/net').st_ino
         script = 'import os; raise SystemExit(os.stat("/proc/self/ns/net").st_ino == '+str(net)+')'
-        command = [str(adapter.path),'--unshare-all','--die-with-parent','--new-session','--clearenv','--cap-drop','ALL',
+        command = [str(adapter.path),'--unshare-all','--die-with-parent','--new-session',
+            '--unshare-user','--disable-userns','--clearenv','--cap-drop','ALL',
             '--ro-bind','/','/','--proc','/proc','--dev','/dev',
             '--remount-ro','/','--remount-ro','/dev','--remount-ro','/proc',
             '--',str(python),'-I','-S','-c',script]
@@ -765,6 +770,14 @@ def _compatible_environment_launcher(raw):
         struct.unpack_from(endian+'I',raw,8+width*i)[0] == native for i in range(count))
 
 
+def _adapter_termination(termination, backend):
+    """Native tool wait status does not authenticate the payload wait status."""
+    return dataclasses.replace(termination,
+        reason={'exited':'adapter-exited','signal':'adapter-signal'}.get(termination.reason,termination.reason),
+        exit_code=None,signal=None,adapter_exit_code=termination.exit_code,
+        adapter_signal=termination.signal,status_source=backend+'-adapter')
+
+
 def _execute_probe(spec, dependencies, adapter):
     if adapter is None:
         return ProbeTermination(False,'isolation-unavailable',None,None,False,False,False), b'', b'', {}
@@ -813,11 +826,15 @@ def _execute_probe(spec, dependencies, adapter):
                 spec.timeout_seconds,output,output_paths=spec.outputs)
         else:
             termination, stdout, stderr = ProbeTermination(False,'isolation-unavailable',None,None,False,False,False), b'', b''
+        if isinstance(adapter,_IsolationAdapter):
+            termination = _adapter_termination(termination,adapter.backend)
         if tool_contents is not None:
             dive._checked_install(tool,tool_contents,base)
         dive._checked_install(staging, staged, base)
         return termination, stdout, stderr, (_output_files(output,spec.outputs,output_before)
-            if termination.executed and termination.reason != 'output-limit' else {})
+            if termination.executed and termination.reason != 'output-limit' and
+                (termination.status_source == 'direct-process' or
+                 termination.reason == 'adapter-exited' and termination.adapter_exit_code == 0) else {})
 
 
 def _probe_build(run, inputs, termination, stdout, stderr, outputs, after_inputs):
@@ -828,7 +845,8 @@ def _probe_build(run, inputs, termination, stdout, stderr, outputs, after_inputs
     sealed['runner'] = None if spec.runner is None else 'verified-runner'
     sealed.update(stdout_bytes=MAX_PROBE_STREAM_BYTES,stderr_bytes=MAX_PROBE_STREAM_BYTES,
         output_bytes=MAX_PROBE_OUTPUT_BYTES,output_files=256,process_limit=64,descriptor_limit=64,
-        file_size_limit=MAX_PROBE_OUTPUT_BYTES,output_policy='precreated-exact-files')
+        file_size_limit=MAX_PROBE_OUTPUT_BYTES,output_policy='precreated-exact-files',
+        user_namespace_policy='isolated-nested-disabled' if spec.isolation_backend == 'bwrap' else 'not-applicable')
     records = []
     after_sources = {(role,path):raw for role,path,_,raw in after_inputs[3]}
     for role,path,_,raw in dependencies:
@@ -842,6 +860,7 @@ def _probe_build(run, inputs, termination, stdout, stderr, outputs, after_inputs
     body = dict(kind='probe',spec=sealed,network_policy='none',dependencies=records,
         termination=dataclasses.asdict(termination),evidence=evidence,
         runtime=dict(platform=sys.platform,version=platform.release(),
+            stream_source=termination.status_source if termination.executed else 'not-executed',
             tool_runtime_limitation='Staged adapter host runtime before isolation is trusted tooling',
             system_read_roots=['/System','/usr/lib','/private/var/db/dyld','/dev/null','/dev/urandom']
                 if spec.isolation_backend == 'sandbox-exec' else [],

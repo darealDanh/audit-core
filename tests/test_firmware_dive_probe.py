@@ -74,7 +74,8 @@ def test_unavailable_seals_exact_identity_without_subprocess_or_conclusion(probe
     value = manifest(summary)
     assert summary.kind == 'probe' and summary.file_count == 2 and summary.byte_count == 0
     assert value['termination'] == dict(executed=False, reason='isolation-unavailable', exit_code=None,
-        signal=None, timed_out=False, stdout_truncated=False, stderr_truncated=False)
+        signal=None, timed_out=False, stdout_truncated=False, stderr_truncated=False,
+        adapter_exit_code=None, adapter_signal=None, status_source='direct-process')
     assert value['network_policy'] == 'none' and value['dependencies'][0]['path'] == 'a'
     assert value['dependencies'][0]['before'] == value['dependencies'][0]['after']
     assert value['spec']['stdout_bytes'] == value['spec']['stderr_bytes'] == 1048576
@@ -140,7 +141,8 @@ def test_controlled_process_minimal_environment_closed_fds_and_streams(probe, mo
     summary = run(probe)
     value = manifest(summary)
     assert value['termination'] == dict(executed=True, reason='exited', exit_code=0, signal=None,
-        timed_out=False, stdout_truncated=False, stderr_truncated=False)
+        timed_out=False, stdout_truncated=False, stderr_truncated=False,
+        adapter_exit_code=None, adapter_signal=None, status_source='direct-process')
     base = pathlib.Path(summary.manifest_path).parent
     assert (base/'evidence/stdout').read_bytes() == b'out\n'
     assert (base/'evidence/stderr').read_bytes() == b'err\n'
@@ -1008,3 +1010,115 @@ def test_bwrap_readiness_requires_the_payload_readonly_and_capability_controls(m
         return acq.ProbeTermination(True,'exited',0,None,False,False,False),b'',b''
     monkeypatch.setattr(acq,'_process',process)
     assert acq._adapter_ready(adapter)
+
+
+def test_bwrap_requires_non_optional_user_namespace_and_disables_nested_namespaces(probe,monkeypatch,tmp_path):
+    spec=acq.load_probe_spec(probe[1])
+    adapter=acq._IsolationAdapter('bwrap',tmp_path/'bwrap')
+    command=adapter.command(spec,tmp_path/'firmware',tmp_path/'output')
+    assert '--unshare-user' in command and '--disable-userns' in command
+    original=acq.os.stat
+    monkeypatch.setattr(acq.os,'stat',lambda p,*a,**k:type('Namespace',(),{'st_ino':1})() if str(p)=='/proc/self/ns/net' else original(p,*a,**k))
+    def readiness(command,environment,stdin,timeout,cwd):
+        assert '--unshare-user' in command and '--disable-userns' in command
+        return acq.ProbeTermination(True,'exited',0,None,False,False,False),b'',b''
+    monkeypatch.setattr(acq,'_process',readiness)
+    assert acq._adapter_ready(adapter)
+
+
+def test_bwrap_unsupported_namespace_controls_refuse_without_retry_or_payload(probe,monkeypatch,tmp_path):
+    path=tmp_path/'bwrap';path.write_bytes(b'operator-trusted fixture');path.chmod(0o700)
+    probe[2].update(adapter_path=str(path),isolation_backend='bwrap');save(probe)
+    monkeypatch.setattr(acq,'_select_adapter',REAL_SELECT_ADAPTER)
+    monkeypatch.setattr(acq.sys,'platform','linux')
+    original=acq.os.stat
+    monkeypatch.setattr(acq.os,'stat',lambda p,*a,**k:type('Namespace',(),{'st_ino':1})() if str(p)=='/proc/self/ns/net' else original(p,*a,**k))
+    calls=[]
+    def unsupported(command,environment,stdin,timeout,cwd,**kwargs):
+        calls.append(command)
+        assert '--unshare-user' in command and '--disable-userns' in command
+        return acq.ProbeTermination(True,'exited',1,None,False,False,False),b'',b'unsupported option'
+    monkeypatch.setattr(acq,'_process',unsupported)
+    value=manifest(run(probe))
+    assert len(calls)==1
+    assert not value['termination']['executed'] and value['termination']['reason']=='isolation-unavailable'
+    assert value['spec']['user_namespace_policy']=='isolated-nested-disabled'
+    assert not any(e['path'].startswith('outputs/') for e in value['evidence'])
+
+
+def native_status_fixture(probe,monkeypatch,backend,program):
+    """Exercise native-adapter status handling with bounded Python fixtures only."""
+    probe[2].update(isolation_backend=backend,outputs=['result']);save(probe)
+    monkeypatch.setattr(acq,'_select_adapter',lambda _:acq._IsolationAdapter(backend,pathlib.Path(sys.executable).resolve()))
+    monkeypatch.setattr(acq,'_adapter_ready',lambda _:True)
+    monkeypatch.setattr(acq._IsolationAdapter,'command',lambda self,spec,staging,output:
+        [str(pathlib.Path(sys.executable).resolve()),'-I','-S','-c',program,str(output/'result')])
+
+
+@pytest.mark.parametrize('backend',['bwrap','sandbox-exec'])
+@pytest.mark.parametrize('origin,code',[('encoded-fsize',153),('encoded-term',143),('voluntary-matching',153)])
+def test_native_adapter_encoded_and_voluntary_statuses_cannot_claim_payload_termination(probe,monkeypatch,backend,origin,code):
+    # The one-child fixture mimics wrapper wait-status translation. NPROC is
+    # per UID and already exceeded on this host; only this fixture omits it.
+    # The production hard/soft limit is independently tested with a real child.
+    def fixture_limits():
+        acq.resource.setrlimit(acq.resource.RLIMIT_FSIZE,(8388608,8388608))
+        acq.resource.setrlimit(acq.resource.RLIMIT_NOFILE,(64,64))
+    monkeypatch.setattr(acq,'_child_limits',fixture_limits)
+    program='''import os,signal,sys
+pid=os.fork()
+if pid==0:
+    f=os.open(sys.argv[1],os.O_WRONLY)
+    if ORIGIN=='encoded-fsize':
+        signal.signal(signal.SIGXFSZ,signal.SIG_DFL)
+        os.write(f,b'x'*8388608)
+        os.write(f,b'x')
+    else:
+        os.write(f,b'prefix')
+        if ORIGIN=='encoded-term':os.kill(os.getpid(),signal.SIGTERM)
+        else:os._exit(153)
+    os._exit(99)
+_,status=os.waitpid(pid,0)
+code=os.waitstatus_to_exitcode(status)
+os._exit(128-code if code<0 else code)
+'''.replace('ORIGIN',repr(origin))
+    native_status_fixture(probe,monkeypatch,backend,program)
+    value=manifest(run(probe))
+    term=value['termination']
+    assert term['exit_code'] is None and term['signal'] is None
+    assert term['reason']=='adapter-exited' and term['adapter_exit_code']==code and term['adapter_signal'] is None
+    assert term['status_source']==backend+'-adapter'
+    assert value['runtime']['stream_source']==backend+'-adapter'
+    assert not any(e['path'].startswith('outputs/') for e in value['evidence'])
+    assert rows(probe[0][0],'cba_firmware_dive_observations')==[]
+
+
+@pytest.mark.parametrize('backend',['bwrap','sandbox-exec'])
+@pytest.mark.parametrize('outcome',['zero','nonzero','signal'])
+def test_native_adapter_observed_status_is_separate_and_only_zero_keeps_outputs(probe,monkeypatch,backend,outcome):
+    end={'zero':'raise SystemExit(0)','nonzero':'raise SystemExit(7)',
+        'signal':'os.kill(os.getpid(),signal.SIGTERM)'}[outcome]
+    native_status_fixture(probe,monkeypatch,backend,"import os,pathlib,signal,sys; pathlib.Path(sys.argv[1]).write_bytes(b'checked'); "+end)
+    value=manifest(run(probe));term=value['termination']
+    assert term['exit_code'] is None and term['signal'] is None
+    assert term['status_source']==backend+'-adapter'
+    if outcome=='signal':
+        assert term['reason']=='adapter-signal' and term['adapter_exit_code'] is None and term['adapter_signal']==15
+    else:
+        assert term['reason']=='adapter-exited' and term['adapter_exit_code']==(0 if outcome=='zero' else 7) and term['adapter_signal'] is None
+    outputs=[e['path'] for e in value['evidence'] if e['path'].startswith('outputs/')]
+    assert outputs==(['outputs/result'] if outcome=='zero' else [])
+
+
+@pytest.mark.parametrize('reason',['timeout','output-limit'])
+def test_native_ambiguous_zero_wrapper_status_does_not_publish_partial_outputs(probe,monkeypatch,reason):
+    native_status_fixture(probe,monkeypatch,'bwrap','pass')
+    def stopped(command,environment,stdin,timeout,cwd,**kwargs):
+        (cwd/'result').write_bytes(b'partial')
+        return acq.ProbeTermination(True,reason,0,None,reason=='timeout',False,False),b'wrapper-stream',b''
+    monkeypatch.setattr(acq,'_process',stopped)
+    value=manifest(run(probe));term=value['termination']
+    assert term['reason']==reason and term['adapter_exit_code']==0
+    assert term['exit_code'] is None and term['signal'] is None
+    assert value['runtime']['stream_source']=='bwrap-adapter'
+    assert not any(e['path'].startswith('outputs/') for e in value['evidence'])

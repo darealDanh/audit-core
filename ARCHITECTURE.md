@@ -757,7 +757,11 @@ The manifest records their host runtime before isolation as trusted tooling.
 Missing, unknown or unready isolation seals `executed=false` with
 `reason=isolation-unavailable`; firmware never runs unsandboxed and no tool is
 installed. Linux mounts only staged declared guest files plus an optional verified
-static-ELF runner, isolated proc/dev and output; dynamic host runners are recorded
+static-ELF runner, isolated proc/dev and output. Both bwrap readiness and payload
+require explicit `--unshare-user` and `--disable-userns`; nested user namespaces
+cannot restore namespace-local mount capabilities. Unsupported options refuse
+readiness without retry or fallback. This required namespace policy is sealed
+into identity. Dynamic host runners are recorded
 as unsupported. macOS denies network and process forks, permits process exec,
 and records the fixed Apple system-runtime read roots and platform/version;
 those system reads are not firmware library evidence.
@@ -784,7 +788,16 @@ Processes use argv lists, no shell, a new session, closed descriptors, minimal
 environment and redirected descriptor-checked stdin. Both streams retain at most
 1 MiB with explicit truncation. Timeout/errors kill and reap the entire process
 group with bounded pipe cleanup. Exit codes, signals, timeouts, truncation and
-unsupported tools remain facts. Darwin zombie-group behavior is handled without
+unsupported tools remain facts. Native bwrap and sandbox-exec wait status is
+recorded only as `adapter_exit_code`/`adapter_signal`, explicit `status_source`
+and adapter-exited/adapter-signal reasons; payload exit/signal remain unknown.
+Neither backend provides authenticated payload wait status. Codes such as 153
+may encode SIGXFSZ or a voluntary matching exit; no 128+n decoding occurs.
+Nonzero, signaled, timeout or other ambiguous native outcomes suppress all
+declared generated files. Native exit 0 may retain checked files without a guest
+semantic conclusion. Bounded stdout/stderr are labeled adapter-stream facts.
+Direct-process status semantics are internal and test-only. This trades diagnostic
+precision for non-misattribution. Darwin zombie-group behavior is handled without
 repeated signals or masking live cleanup failures.
 
 Payload children inherit fixed hard and soft Unix limits: 8 MiB file size,

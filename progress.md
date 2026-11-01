@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 6 branch: `make all` 8/8 gates; 7,389 tests; 0/9,762 unexecuted statements (zero allowed); measured gate details in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Task 6 Fix Round 1: 7,405 full-suite tests passed; 0/9,778 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -1063,7 +1063,11 @@ The manifest records their host runtime before isolation as trusted tooling.
 Missing, unknown or unready isolation seals `executed=false` with
 `reason=isolation-unavailable`; firmware never runs unsandboxed and no tool is
 installed. Linux mounts only staged declared guest files plus an optional verified
-static-ELF runner, isolated proc/dev and output; dynamic host runners are recorded
+static-ELF runner, isolated proc/dev and output. Both bwrap readiness and payload
+require explicit `--unshare-user` and `--disable-userns`; nested user namespaces
+cannot restore namespace-local mount capabilities. Unsupported options refuse
+readiness without retry or fallback. This required namespace policy is sealed
+into identity. Dynamic host runners are recorded
 as unsupported. macOS denies network and process forks, permits process exec,
 and records the fixed Apple system-runtime read roots and platform/version;
 those system reads are not firmware library evidence.
@@ -1090,7 +1094,16 @@ Processes use argv lists, no shell, a new session, closed descriptors, minimal
 environment and redirected descriptor-checked stdin. Both streams retain at most
 1 MiB with explicit truncation. Timeout/errors kill and reap the entire process
 group with bounded pipe cleanup. Exit codes, signals, timeouts, truncation and
-unsupported tools remain facts. Darwin zombie-group behavior is handled without
+unsupported tools remain facts. Native bwrap and sandbox-exec wait status is
+recorded only as `adapter_exit_code`/`adapter_signal`, explicit `status_source`
+and adapter-exited/adapter-signal reasons; payload exit/signal remain unknown.
+Neither backend provides authenticated payload wait status. Codes such as 153
+may encode SIGXFSZ or a voluntary matching exit; no 128+n decoding occurs.
+Nonzero, signaled, timeout or other ambiguous native outcomes suppress all
+declared generated files. Native exit 0 may retain checked files without a guest
+semantic conclusion. Bounded stdout/stderr are labeled adapter-stream facts.
+Direct-process status semantics are internal and test-only. This trades diagnostic
+precision for non-misattribution. Darwin zombie-group behavior is handled without
 repeated signals or masking live cleanup failures.
 
 Payload children inherit fixed hard and soft Unix limits: 8 MiB file size,
@@ -1140,13 +1153,13 @@ $73.15 per match. These checks establish mechanical probe acquisition integrity
 with purpose-built fixtures; real adapters and firmware are unverified.
 `make mutate` was not run.
 
-Task 6 runtime-bound final cold focused coverage passes 358 probe/capture/
+Historical pre-Fix-Round-1 Task 6 runtime-bound cold focused coverage passed 358 probe/capture/
 preparation tests, with zero unexecuted statements in `firmware_dive.py` (569
 executable) and `firmware_dive_acquisition.py` (802 executable). The package
 executable denominator is 9,762; focused execution is not full-package coverage.
 The broad dive/chain regression passes 3,020 tests.
 
-Task 6 runtime-bound full-harness verification: `make all` passes all eight gates
+Historical pre-Fix-Round-1 Task 6 runtime-bound full-harness verification: `make all` passed all eight gates
 with 7,389 tests; 29 dispatchable verbs; 44 SQLite tables / 43 contracts; four
 unchanged migrations with both firmware baselines preserved; clean skill lint;
 6 CRLF / 235 LF files; 61 features / 16 stages / 21 open items with all paths
@@ -1156,6 +1169,20 @@ The existing golden benchmark remains recall 9/19, 45 findings, precision 39/40,
 $73.15 per match. These checks establish mechanical bounded acquisition integrity
 with purpose-built fixtures; real tools, Linux and alternate Python remain
 unverified. `make mutate` was not run.
+
+Task 6 Fix Round 1 full-suite monitoring passes 7,405 tests with zero unexecuted
+statements out of 9,778 (zero allowed). Cold focused coverage passes 374 probe/
+capture/preparation tests with zero unexecuted shared-module statements (569
+executable) and acquisition statements (818 executable).
+
+The six remaining gates pass: 29 dispatchable verbs; 44 SQLite tables / 43
+contracts; four unchanged migrations with both firmware baselines preserved;
+clean skill lint; 6 CRLF / 235 LF files; 61 features / 16 stages / 21 open items
+with all paths and verbs resolving; 116 installed markdown files / zero sentinel
+survivors / real install untouched. The golden benchmark remains recall 9/19,
+45 findings, precision 39/40, $73.15 per match. Controlled wrappers verify the
+status projection and refusal rules; real tools and Linux remain unverified.
+Native payload termination remains unknown. `make mutate` was not run.
 
 Task 7 strict result parsing is next, followed by canonical observation identity,
 completion and overlay validation. Preparation still treats retained result and
