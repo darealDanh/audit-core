@@ -637,8 +637,9 @@ Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
 Six additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
 contracts; all four existing migrations are unchanged. Question contracts and
-packet authority and hardware capture sealing are implemented below; probe/result
-domain schemas and cross-row completion semantics belong to the remaining dive tasks.
+packet authority, acquisition sealing and pure result schemas are implemented
+below; result ownership/publication and cross-row completion semantics belong
+to the remaining dive tasks.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -735,7 +736,7 @@ canonical observation identity. Task 6 now preserves these descriptor, exact
 prepared-contract and locked publication boundaries for bounded isolated probes. Stage 4h remains in progress, integration pending; no runtime,
 severity or exploit claim is made.
 
-Results, completion, overlays, CLI and worker routing remain pending. These helpers make
+Result authority/publication, completion, overlays, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
 
@@ -831,10 +832,22 @@ termination, dependency and output hashes/sizes, excludes timestamps and local
 host paths, and installs before locked exact revalidation and one acquisition
 row. Exact duplicates make no writes; conflicts/failures preserve SQL and siblings.
 
-Task 7 strict result parsing is next, followed by canonical observation identity,
-completion and overlay validation. Preparation still treats retained result and
-journal bodies as opaque despite exact byte/SQL checks. CLI/worker routing,
-integration and full Stage 4h review remain pending. Tests execute only purpose
+Task 7 implements pure strict result parsing and canonical observation/receipt
+identities in `firmware_dive_results.py`. Exact empty or single-answer envelopes
+reject duplicate/extra/missing keys, unsafe prose, coercions, noncanonical sets
+and worker-derived fields. Raw/canonical results are capped at 8 MiB. Evidence
+references have a separate 8192-byte cap, preserving the full dynamic path
+budget of 4096 UTF-8 bytes, 32 components and 255 bytes/component; prose remains
+bounded at 4096 bytes. Frozen records retain no mutable container aliases. Pure contract comparison checks
+structured effects, including boolean/refuted and bounded value discovery.
+Observation IDs bind the caller-derived rung and candidate snapshot plus exact
+effect/prose/reference projections; safe receipt keys bind exact assignment or
+explicit-empty projections. Only bounded stable-file `load` reads; no SQL or
+filesystem writes occur. Task 8 must prove prepared empty/nonempty ownership,
+packet-authorized dependencies/evidence and method-derived rungs before atomic
+result publication. Preparation still treats retained result/journal bodies as
+opaque despite exact byte/SQL checks; completion and overlays remain later work.
+CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
 unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and

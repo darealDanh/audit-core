@@ -3,10 +3,10 @@
 **Written:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; local `main`
 retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
-Tasks 1–6 implement schema, verified graph snapshots, pure question/identity
-contracts, immutable preparation, hardware captures and bounded isolated probes;
-Task 7 strict result parsing is next. **Verification:** Task 6 Fix Round 1: 7,405 full-suite tests passed;
-0/9,778 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
+Tasks 1–7 implement schema, verified graph snapshots, pure question/identity
+contracts, immutable preparation, sealed acquisitions and pure strict result/identity
+contracts; Task 8 result validation/publication is next. **Verification:** Task 7: 7,578 full-suite tests passed;
+0/10,093 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
 and benchmark gates pass.
 Measured gate details and historical Stage 4g results are preserved below.
 
@@ -1085,21 +1085,62 @@ survivors / real install untouched. The golden benchmark remains recall 9/19,
 status projection and refusal rules; real tools and Linux remain unverified.
 Native payload termination remains unknown. `make mutate` was not run.
 
-Task 7 strict result parsing is next, followed by canonical observation identity,
-completion and overlay validation. Preparation still treats retained result and
-journal bodies as opaque despite exact byte/SQL checks. CLI/worker routing,
-integration and full Stage 4h review remain pending. Tests execute only purpose
+Historical pre-framing Task 7 full-suite cold monitoring passed 7,565 tests with zero skips/failures
+and zero unexecuted statements out of 10,089 (zero allowed). Cold focused
+coverage passes 160 strict-result tests with zero unexecuted statements in
+`firmware_dive_results.py` (311 executable).
+
+The six ancillary gates pass: 29 dispatchable verbs; 44 SQLite tables / 43
+contracts; four unchanged migrations with both firmware baselines preserved;
+clean skill lint; 6 CRLF / 237 LF files; 62 features / 16 stages / 21 open items
+with all paths and verbs resolving; 116 installed markdown files / zero sentinel
+survivors / real install untouched. The golden benchmark remains recall 9/19,
+45 findings, precision 39/40, $73.15 per match. These checks establish structural
+result parsing and pure identities; prepared authority/publication belongs to
+Task 8. `make mutate` was not run.
+
+Task 7 post-framing full-suite cold monitoring passes 7,578 tests with zero
+skips/failures and zero unexecuted statements out of 10,093 (zero allowed).
+Cold focused coverage passes 173 strict-result tests with zero unexecuted
+statements in `firmware_dive_results.py` (315 executable). This includes exact
+4096/4097-byte ASCII/Unicode probe/capture path boundaries and independent
+32-component/255-byte limits, plus the separate 8192-byte reference cap.
+
+The six ancillary gates pass with 29 dispatchable verbs; 44 SQLite tables / 43
+contracts; four unchanged migrations and both firmware baselines preserved;
+clean lint; 6 CRLF / 237 LF files; 62 features / 16 stages / 21 open items;
+116 installed markdown files / zero sentinels / real install untouched. The
+golden benchmark remains recall 9/19, 45 findings, precision 39/40, $73.15 per
+match. Task 8 authority/publication remains next; `make mutate` was not run.
+
+Task 7 implements pure strict result parsing and canonical observation/receipt
+identities in `firmware_dive_results.py`. Exact empty or single-answer envelopes
+reject duplicate/extra/missing keys, unsafe prose, coercions, noncanonical sets
+and worker-derived fields. Raw/canonical results are capped at 8 MiB. Evidence
+references have a separate 8192-byte cap, preserving the full dynamic path
+budget of 4096 UTF-8 bytes, 32 components and 255 bytes/component; prose remains
+bounded at 4096 bytes. Frozen records retain no mutable container aliases. Pure contract comparison checks
+structured effects, including boolean/refuted and bounded value discovery.
+Observation IDs bind the caller-derived rung and candidate snapshot plus exact
+effect/prose/reference projections; safe receipt keys bind exact assignment or
+explicit-empty projections. Only bounded stable-file `load` reads; no SQL or
+filesystem writes occur. Task 8 must prove prepared empty/nonempty ownership,
+packet-authorized dependencies/evidence and method-derived rungs before atomic
+result publication. Preparation still treats retained result/journal bodies as
+opaque despite exact byte/SQL checks; completion and overlays remain later work.
+CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
 unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
 paid semantic quality limitations persist. `make mutate` remains separate.
 
-### Continue firmware `dive` with Task 7 strict result parsing
+### Continue firmware `dive` with Task 8 result validation/publication
 
 Stage 4h remains in progress on `stage4h-firmware-dive`, integration pending.
-Tasks 1–6 are implemented. Task 7 strict parsing must bind sealed capture/probe
-receipts before Tasks 8–9 add canonical observation identity and completion/overlay
-validation. CLI/worker integration and full-stage review remain later work.
+Tasks 1–7 are implemented. Task 8 must bind strict parsed results to the actual
+prepared denominator/packet and sealed capture/probe receipts, derive the evidence
+rung, then atomically publish canonical result/observation rows. Completion and
+overlay validation, CLI/worker integration and full-stage review remain later work.
 Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
 
 ### Decide the remaining prose-string mutation survivors
