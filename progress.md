@@ -1411,6 +1411,13 @@ parked defects) shipped as Stage 3b and are recorded in §2.
    must prove prepared denominator/ownership, packet-authorized refs and derived
    evidence rungs before immutable result publication. Preparation still treats
    retained result/journal bodies as opaque; completion and overlays remain later work.
+
+   Task 8 must also reconcile receipt-specific artifact ownership with semantic
+   observation equivalence during publication/history reconstruction. Existing
+   history compares result bytes and artifact hashes for repeated observation IDs,
+   but generation/assignment fields and successor provenance can differ while
+   remaining intentionally excluded from observation identity.
+
    Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
    `dive` must consume only completed, current `static-chained`
    graphs and explicitly settle blockers/runtime reachability rather than treating

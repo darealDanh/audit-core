@@ -1141,6 +1141,13 @@ Tasks 1–7 are implemented. Task 8 must bind strict parsed results to the actua
 prepared denominator/packet and sealed capture/probe receipts, derive the evidence
 rung, then atomically publish canonical result/observation rows. Completion and
 overlay validation, CLI/worker integration and full-stage review remain later work.
+
+Task 8 must also reconcile receipt-specific artifact ownership with semantic
+observation equivalence during publication/history reconstruction. Existing
+history compares result bytes and artifact hashes for repeated observation IDs,
+but generation/assignment fields and successor provenance can differ while
+remaining intentionally excluded from observation identity.
+
 Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
 
 ### Decide the remaining prose-string mutation survivors
