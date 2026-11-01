@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 8: 7,694 full-suite tests passed; 0/10,530 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** Task 8 fix round 1: 7,803 full-suite tests passed; 0/10,621 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -1245,8 +1245,14 @@ question-owned sealed capture/probe contract, identity, spec, manifest, evidence
 hashes/counts and SQL projections. Provenance is derived from verified owners;
 canonical reference arrays and contiguous semantic dependency ordinals are stored.
 Only conclusive answers receive a method-derived rung; dynamic conclusions need
-limitations and evidence from the corresponding acquisition, and a nonexecuted
-probe cannot support a conclusion. Successors are validated proposals only.
+limitations and evidence from the corresponding acquisition. Probe manifests
+independently reconstruct the complete Task 6 dependency, termination, runtime and
+evidence state machine; hash agreement alone grants no authority. Every cited
+probe in a conclusive answer must be clean: a coherent direct fixture exit or a
+matching native adapter exit 0 with payload status unknown. Timeout, signal,
+output-limit, unsupported and unavailable facts remain inconclusive-only. Clean
+bounded stream truncation is preserved, and direct voluntary exit codes (including
+143) are never decoded as signals. Successors are validated proposals only.
 
 Canonical bytes install descriptor-safely at
 `artifacts/firmware-dive/<generation>/<question-id|empty>/<result-hash>/result.json`
@@ -1259,11 +1265,14 @@ Repeated observation identity compares exact semantics plus dependency provenanc
 excluding assignment/result bytes and successors; distinct successors remain
 attempt-local. Full typed refs adapt to digests only for pure history/overlay
 contracts. Recomputed currentness does not change observation identity or let a
-stale attempt enter the overlay. Legacy opaque history retains byte-exact checks;
-malformed envelopes and the canonical publication namespace cannot fall back.
+stale attempt enter the overlay. Only genuinely non-JSON legacy bytes retain
+opaque byte-exact checks. Any parseable JSON byte encoding, including BOM,
+UTF-16/UTF-32 and scalar JSON, must be an exact canonical UTF-8 Task 7 envelope;
+malformed object/array envelopes and the canonical publication namespace cannot
+fall back to opacity.
 The Task 7 direct-constructor exception inconsistency is closed.
 
-Task 8 full-suite cold monitoring passed 7,694 tests with zero skips/failures
+Historical original Task 8 full-suite cold monitoring passed 7,694 tests with zero skips/failures
 and zero unexecuted statements out of 10,530 (zero allowed). The exact
 Task 8 command passed 288 tests; acquisition regression passed 273. The frozen
 785-test combined cold regression has 0/580 preparation/history, 0/654 question,
@@ -1276,6 +1285,20 @@ clean skill lint; 6 CRLF / 238 LF files; 63 features / 16 stages / 21 open items
 benchmark remains recall 9/19, 45 findings, precision 39/40 and $73.15 per match.
 These are mechanical measurements; paid semantic quality and real-tool runtime
 behavior remain unmeasured. `make mutate` was not run.
+
+Task 8 fix round 1 full-suite cold monitoring passed 7,803 tests with zero
+skips/failures and 0/10,621 unexecuted statements (zero allowed). The final
+focused result/import command passed 397 tests. The frozen combined cold run
+passed all 894 tests, with 0/580 preparation/history, 0/818 acquisition, 0/654
+question and 0/832 result/import statements unexecuted.
+
+The six measured ancillary gates remain clean: 29 dispatchable verbs; 44 SQLite
+tables/43 contracts; four unchanged migrations preserving both firmware baselines;
+6 CRLF/238 LF files; 63 features/16 stages/21 open items; 116 installed markdown
+files/zero sentinels/real install untouched; clean skill lint. Benchmark remains
+recall 9/19, 45 findings, precision 39/40 and $73.15 per match. Native runtime,
+Linux/alternate Python and paid semantic quality remain unmeasured; no mutation
+sweep was run.
 
 Task 9 completion/journal/overlay validation is next. It must independently
 reconstruct the complete receipt denominator and each attempt's canonical result,

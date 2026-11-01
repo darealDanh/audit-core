@@ -600,3 +600,318 @@ def test_record_preserves_task7_strict_utf8_source_boundary(assignment,encoding)
     with pytest.raises(results.FirmwareDiveResultError): results.load(assignment[1])
     with pytest.raises(results.FirmwareDiveResultError): record(assignment)
     assert state(assignment[0][0]) == before and files(assignment[0][1]) == artifacts
+
+
+# Coherent resealing preserves every content-address/path/SQL projection so
+# these cases exercise semantic reconstruction rather than a hash mismatch.
+def reseal_probe(probe, acquisition, mutate):
+    con, run = probe[0][:2]
+    old = pathlib.Path(acquisition.manifest_path).parent
+    body = json.loads((old/'manifest.json').read_bytes())
+    replacements = mutate(body) or {}
+    contents = {name: (old/name).read_bytes() for name in [row['path'] for row in body['evidence']] if (old/name).is_file()}
+    contents.update(replacements)
+    for row in body['evidence']:
+        if row['path'] in replacements:
+            row.update(sha256=sha(contents[row['path']]),byte_count=len(contents[row['path']]))
+    identity = sha(canonical({key:value for key,value in body.items() if key != 'acquisition_id'}))
+    body['acquisition_id'] = identity
+    relative = 'artifacts/firmware-dive-probes/'+identity
+    destination = run/relative
+    destination.mkdir(parents=True,exist_ok=True)
+    for name,raw in contents.items():
+        (destination/name).parent.mkdir(parents=True,exist_ok=True); (destination/name).write_bytes(raw)
+    (destination/'spec.json').write_bytes(canonical(body['spec']))
+    (destination/'manifest.json').write_bytes(canonical(body))
+    row = next(r for r in rows(con,'cba_firmware_dive_acquisitions') if r['acquisition_id'] == acquisition.acquisition_id)
+    row.pop('recorded_at')
+    row.update(acquisition_id=identity,spec_path=relative+'/spec.json',spec_sha256=sha(canonical(body['spec'])),
+        manifest_path=relative+'/manifest.json',manifest_sha256=sha(canonical(body)),
+        evidence_paths=canonical(sorted([relative+'/'+r['path'] for r in body['evidence']],key=canonical)).decode(),
+        details=canonical(dict(kind='probe',file_count=len(body['evidence']),byte_count=sum(r['byte_count'] for r in body['evidence']))).decode())
+    con.execute('DELETE FROM cba_firmware_dive_acquisitions WHERE acquisition_id=?',(acquisition.acquisition_id,)); con.commit()
+    db.put(con,'cba_firmware_dive_acquisitions',row)
+    return dataclasses.replace(acquisition,acquisition_id=identity,spec_path=str(destination/'spec.json'),manifest_path=str(destination/'manifest.json'))
+
+
+def probe_item(probe, acquisition, tmp_path, *, outcome='supported'):
+    question = next(r for r in rows(probe[0][0],'cba_firmware_dive_questions') if r['question_id'] == probe[2]['question_id'])
+    return build(probe[0],question,tmp_path,acquisition,outcome=outcome)
+
+
+_PROBE_CORRUPTIONS = ['reviewer-case','runtime-empty','runtime-extra','runtime-missing','runtime-source','runtime-roots',
+    'runtime-limitation','runtime-tool','runtime-platform','runtime-version','null-executable','null-adapter','null-before',
+    'fact-extra','fact-sha','fact-size','fact-bool','facts-drift','input-null-path','adapter-host-path','missing-adapter',
+    'dependency-order','extra-helper','helper-null','alias-drift','exit-and-signal','exited-no-exit','exited-timeout',
+    'exited-adapter-status','exit-overflow','signal-zero','signal-overflow','signal-exit','signal-file-limit',
+    'timeout-no-flag','executed-unavailable','executed-unsupported','executed-tool','nonexecuted-exit','source-backend',
+    'evidence-order','false-truncation','nonexecuted-stream','nonexecuted-zero-output','native-failed-zero-output']
+
+
+def corrupt_probe(body, damage):
+    term, deps, runtime = body['termination'],body['dependencies'],body['runtime']
+    if damage == 'reviewer-case':
+        term.update(executed=True,reason='isolation-unavailable',exit_code=None)
+        body['runtime'] = {}; deps[0].update(before=None,after=None)
+    elif damage == 'runtime-empty': body['runtime'] = {}
+    elif damage == 'runtime-extra': runtime['unowned'] = True
+    elif damage == 'runtime-missing': runtime.pop('version')
+    elif damage == 'runtime-source': runtime['stream_source'] = 'not-executed'
+    elif damage == 'runtime-roots': runtime['system_read_roots'] = ['/private']
+    elif damage == 'runtime-limitation': runtime['limitation'] = 'invented'
+    elif damage == 'runtime-tool': runtime['tool_runtime_limitation'] = 'omitted trust boundary'
+    elif damage == 'runtime-platform': runtime['platform'] = ''
+    elif damage == 'runtime-version': runtime['version'] = 1
+    elif damage in ('null-executable','null-adapter'):
+        deps[0 if damage == 'null-executable' else -1].update(before=None,after=None)
+    elif damage == 'null-before': deps[0]['before'] = None
+    elif damage == 'fact-extra': deps[0]['before']['extra'] = 1; deps[0]['after'] = copy.deepcopy(deps[0]['before'])
+    elif damage == 'fact-sha': deps[0]['before']['sha256'] = 'bad'; deps[0]['after'] = copy.deepcopy(deps[0]['before'])
+    elif damage in ('fact-size','fact-bool'):
+        deps[0]['before']['byte_count'] = 67108865 if damage == 'fact-size' else True; deps[0]['after'] = copy.deepcopy(deps[0]['before'])
+    elif damage == 'facts-drift': deps[0]['after']['sha256'] = '0'*64
+    elif damage == 'input-null-path': deps[0]['path'] = None
+    elif damage == 'adapter-host-path': deps[-1]['path'] = 'local-adapter'
+    elif damage == 'missing-adapter': deps.pop()
+    elif damage == 'dependency-order': deps.reverse()
+    elif damage in ('extra-helper','helper-null'):
+        deps.append(dict(role='environment-launcher',path=None,before=None if damage == 'helper-null' else copy.deepcopy(deps[0]['before']),after=None if damage == 'helper-null' else copy.deepcopy(deps[0]['after'])))
+    elif damage == 'alias-drift':
+        body['spec']['inputs'] = ['a']; dep = copy.deepcopy(deps[0]); dep['role'] = 'input'; dep['before']['sha256'] = dep['after']['sha256'] = '0'*64; deps.insert(1,dep)
+    elif damage == 'exit-and-signal': term['signal'] = 15
+    elif damage == 'exited-no-exit': term['exit_code'] = None
+    elif damage == 'exited-timeout': term['timed_out'] = True
+    elif damage == 'exited-adapter-status': term['adapter_exit_code'] = 0
+    elif damage == 'exit-overflow': term['exit_code'] = 256
+    elif damage in ('signal-zero','signal-overflow','signal-exit','signal-file-limit'):
+        term.update(reason='signal',exit_code=None,signal={'signal-zero':0,'signal-overflow':128,'signal-exit':15,'signal-file-limit':25}[damage])
+        if damage == 'signal-exit': term['exit_code'] = 0
+    elif damage == 'timeout-no-flag': term.update(reason='timeout',exit_code=None,signal=9)
+    elif damage in ('executed-unavailable','executed-unsupported','executed-tool'):
+        term.update(reason={'executed-unavailable':'isolation-unavailable','executed-unsupported':'unsupported-limits','executed-tool':'tool-unavailable'}[damage],exit_code=None)
+    elif damage == 'nonexecuted-exit': term['executed'] = False; runtime['stream_source'] = 'not-executed'
+    elif damage == 'source-backend': term.update(status_source='sandbox-exec-adapter',exit_code=None,adapter_exit_code=0,reason='adapter-exited'); runtime['stream_source'] = term['status_source']
+    elif damage == 'evidence-order': body['evidence'].reverse()
+    elif damage == 'false-truncation': term['stdout_truncated'] = True
+    elif damage in ('nonexecuted-stream','nonexecuted-zero-output'):
+        term.update(executed=False,reason='tool-unavailable',exit_code=None); runtime['stream_source'] = 'not-executed'
+        if damage == 'nonexecuted-zero-output':
+            body['spec']['outputs'] = ['zero']; body['evidence'].append(dict(path='outputs/zero',sha256=sha(b''),byte_count=0))
+            return {'evidence/stdout':b'','outputs/zero':b''}
+    elif damage == 'native-failed-zero-output':
+        body['spec']['outputs'] = ['zero']; body['evidence'].append(dict(path='outputs/zero',sha256=sha(b''),byte_count=0))
+        term.update(status_source='bwrap-adapter',reason='adapter-exited',adapter_exit_code=7,exit_code=None)
+        runtime.update(platform='linux',stream_source='bwrap-adapter')
+        return {'outputs/zero':b''}
+
+
+@pytest.mark.parametrize('damage',_PROBE_CORRUPTIONS)
+def test_coherently_resealed_probe_malformed_facts_refuse_even_inconclusive(probe,tmp_path,monkeypatch,damage):
+    executable(probe,monkeypatch,"print('recorded fact')")
+    sealed = probe_run(probe)
+    sealed = reseal_probe(probe,sealed,lambda body:corrupt_probe(body,damage))
+    item = probe_item(probe,sealed,tmp_path,outcome='inconclusive')
+    before = state(probe[0][0])
+    with pytest.raises(results.FirmwareDiveResultError): record(item)
+    assert state(probe[0][0]) == before
+
+
+@pytest.mark.parametrize('failure',['timeout','signal','output-limit'])
+def test_real_failed_probe_is_inconclusive_only(probe,tmp_path,monkeypatch,failure):
+    from tests.test_firmware_dive_probe import save as save_probe
+    if failure == 'timeout':
+        probe[2]['timeout_seconds'] = 1; program = 'import time; time.sleep(10)'
+    elif failure == 'signal': program = 'import os,signal; os.kill(os.getpid(),signal.SIGTERM)'
+    else:
+        probe[2]['outputs'] = ['limit']; program = "import pathlib,sys,signal; signal.signal(signal.SIGXFSZ,signal.SIG_DFL); pathlib.Path(sys.argv[2],'limit').write_bytes(b'x'*(9*1024*1024))"
+    save_probe(probe); executable(probe,monkeypatch,program)
+    sealed = probe_run(probe)
+    body = json.loads(pathlib.Path(sealed.manifest_path).read_bytes())
+    assert body['termination']['reason'] == failure and body['termination']['executed']
+    item = probe_item(probe,sealed,tmp_path)
+    with pytest.raises(results.FirmwareDiveResultError): record(item)
+    item[2]['questions'][0].update(outcome='inconclusive',resolution_effect=None); save(item)
+    record(item)
+
+
+@pytest.mark.parametrize('code',[0,7,143])
+def test_clean_direct_voluntary_exit_is_not_decoded_as_signal(probe,tmp_path,monkeypatch,code):
+    executable(probe,monkeypatch,f"print('fact'); raise SystemExit({code})")
+    sealed = probe_run(probe)
+    item = probe_item(probe,sealed,tmp_path)
+    assert validate(item).observation['evidence_rung'] == 'emulated-observed'
+    record(item)
+
+
+def test_clean_truncated_stream_preserves_conclusive_eligibility(probe,tmp_path,monkeypatch):
+    executable(probe,monkeypatch,"print('x'*(1024*1024+1))")
+    sealed = probe_run(probe)
+    assert json.loads(pathlib.Path(sealed.manifest_path).read_bytes())['termination']['stdout_truncated']
+    record(probe_item(probe,sealed,tmp_path))
+
+
+@pytest.mark.parametrize('backend',['bwrap','sandbox-exec'])
+@pytest.mark.parametrize('code',[0,143,'signal','timeout','output-limit','unavailable'])
+def test_builder_native_adapter_contract_and_clean_conclusive_control(probe,tmp_path,monkeypatch,backend,code):
+    from audit_core import firmware_dive_acquisition as acq
+    from tests.test_firmware_dive_probe import save as save_probe
+    probe[2]['isolation_backend'] = backend; save_probe(probe)
+    tool = tmp_path/backend; tool.write_bytes(b'purpose fixture adapter')
+    monkeypatch.setattr(acq.sys,'platform','linux' if backend == 'bwrap' else 'darwin')
+    monkeypatch.setattr(acq,'_select_adapter',lambda spec:acq._IsolationAdapter(backend,tool))
+    monkeypatch.setattr(acq,'_adapter_ready',lambda adapter:True)
+    termination = (acq.ProbeTermination(False,'tool-unavailable',None,None,False,False,False) if code == 'unavailable' else
+        acq.ProbeTermination(True,code,None,25 if code == 'output-limit' else 9 if code == 'timeout' else 15,code == 'timeout',False,False) if isinstance(code,str) else
+        acq.ProbeTermination(True,'exited',code,None,False,False,False))
+    monkeypatch.setattr(acq,'_process',lambda *a,**k:(termination,b'native fact' if termination.executed else b'',b''))
+    sealed = probe_run(probe)
+    item = probe_item(probe,sealed,tmp_path)
+    if code:
+        with pytest.raises(results.FirmwareDiveResultError): record(item)
+        item[2]['questions'][0].update(outcome='inconclusive',resolution_effect=None); save(item)
+    record(item)
+
+
+_JSON_ENCODINGS=['utf-8-sig','utf-16-le','utf-16-be','utf-32-le','utf-32-be']
+@pytest.mark.parametrize('encoding',_JSON_ENCODINGS)
+@pytest.mark.parametrize('text',['{"schema_version":true,"questions":[]}','0','null','"scalar"'])
+def test_json_byte_encodings_never_use_legacy_opaque_fallback(tmp_path,encoding,text):
+    raw = text.encode(encoding)
+    with pytest.raises(results.FirmwareDiveResultError):
+        results._historical_projection(tmp_path,raw,{},None,{'result_path':'artifacts/test-dive/legacy'},None,[],())
+
+
+@pytest.mark.parametrize('encoding',_JSON_ENCODINGS)
+def test_prepare_rejects_encoded_envelope_in_existing_opaque_history(graph_case,encoding):
+    from tests.test_firmware_dive_prepare import accepted
+    complete(graph_case); generation = prepare(graph_case)
+    question,observation = accepted(graph_case,generation)
+    con,run = graph_case[:2]
+    raw = '{"schema_version":true,"questions":[]}'.encode(encoding)
+    (run/observation['artifact_path']).write_bytes(raw)
+    con.execute('UPDATE cba_firmware_dive_observations SET artifact_sha256=? WHERE question_id=?',(sha(raw),question['question_id']))
+    con.execute('UPDATE cba_firmware_dive_receipts SET result_sha256=? WHERE question_id=?',(sha(raw),question['question_id'])); con.commit()
+    before = state(con)
+    with pytest.raises(dive.FirmwareDiveError): prepare(graph_case)
+    assert state(con) == before
+
+
+def test_true_nonjson_legacy_bytes_keep_opaque_control(tmp_path):
+    assert results._historical_projection(tmp_path,b'opaque historical bytes\x00',{},None,{'result_path':'artifacts/test-dive/legacy'},None,[],()) is None
+
+
+def test_clean_probe_cannot_launder_cited_real_timeout(probe,tmp_path,monkeypatch):
+    from tests.test_firmware_dive_probe import save as save_probe
+    executable(probe,monkeypatch,"print('clean fact')")
+    clean = probe_run(probe)
+    probe[2]['timeout_seconds'] = 1; save_probe(probe)
+    executable(probe,monkeypatch,'import time; time.sleep(10)')
+    failed = probe_run(probe)
+    item = probe_item(probe,clean,tmp_path)
+    answer = item[2]['questions'][0]
+    relative = pathlib.Path(failed.manifest_path).relative_to(probe[0][1]).as_posix()
+    raw = pathlib.Path(failed.manifest_path).read_bytes()
+    answer['dependencies'].append(dict(kind='probe-manifest',logical_id=failed.acquisition_id,relative_path=relative,sha256=sha(raw),byte_count=len(raw)))
+    answer['dependencies'].sort(key=lambda row:(row['kind'],row['logical_id'],row['relative_path'],row['sha256'],row['byte_count']))
+    answer['evidence'].append(dict(dependency_kind='probe-manifest',dependency_logical_id=failed.acquisition_id,reference='probe:'+failed.acquisition_id+'#evidence/stdout'))
+    answer['evidence'].sort(key=canonical); save(item)
+    with pytest.raises(results.FirmwareDiveResultError): record(item)
+    answer['evidence'] = [e for e in answer['evidence'] if e['dependency_logical_id'] == clean.acquisition_id]; save(item)
+    record(item)
+
+
+def test_native_runtime_platform_requires_exact_builder_value(probe,tmp_path,monkeypatch):
+    executable(probe,monkeypatch,"print('fact')")
+    sealed = probe_run(probe)
+    def mutate(body):
+        body['termination'].update(status_source='bwrap-adapter',reason='adapter-exited',adapter_exit_code=0,exit_code=None)
+        body['runtime'].update(platform='linux-invented',stream_source='bwrap-adapter')
+    sealed = reseal_probe(probe,sealed,mutate)
+    with pytest.raises(results.FirmwareDiveResultError): record(probe_item(probe,sealed,tmp_path,outcome='inconclusive'))
+
+
+@pytest.mark.parametrize('raw',[b'\xffopaque\x00\xff',b'not JSON at all'])
+def test_invalid_unicode_or_plain_opaque_history_retains_control(tmp_path,raw):
+    assert results._historical_projection(tmp_path,raw,{},None,{'result_path':'artifacts/test-dive/legacy'},None,[],()) is None
+
+
+@pytest.mark.parametrize('encoding',['utf-8','utf-8-sig','utf-16','utf-32'])
+def test_malformed_encoded_object_never_downgrades_to_opaque(tmp_path,encoding):
+    with pytest.raises(results.FirmwareDiveResultError):
+        results._historical_projection(tmp_path,'{broken'.encode(encoding),{},None,{'result_path':'artifacts/test-dive/legacy'},None,[],())
+
+
+@pytest.mark.parametrize('failure',['missing-helper','drifting-helper','unsupported-limits','unsupported-runner','adapter-unready'])
+def test_exact_builder_early_refusals_and_helper_drift_remain_inconclusive(probe,tmp_path,monkeypatch,failure):
+    from audit_core import firmware_dive_acquisition as acq
+    from tests.test_firmware_dive_probe import save as save_probe
+    backend = 'bwrap' if failure in ('unsupported-runner','adapter-unready') else 'sandbox-exec'
+    probe[2].update(isolation_backend=backend,environment={'MODE':'fixture'} if backend == 'sandbox-exec' else {})
+    if failure == 'unsupported-runner':
+        runner = tmp_path/'runner'; runner.write_bytes(b'not a static ELF'); probe[2]['runner'] = str(runner)
+    save_probe(probe)
+    tool = tmp_path/backend; tool.write_bytes(b'fixture tool')
+    monkeypatch.setattr(acq.sys,'platform','linux' if backend == 'bwrap' else 'darwin')
+    monkeypatch.setattr(acq,'_select_adapter',lambda spec:acq._IsolationAdapter(backend,tool))
+    monkeypatch.setattr(acq,'_adapter_ready',lambda adapter:False)
+    monkeypatch.setattr(acq,'_limits_available',lambda:failure != 'unsupported-limits')
+    calls = 0
+    def helper():
+        nonlocal calls
+        calls += 1
+        return (b'not-macho',(1,2,3)) if failure == 'drifting-helper' and calls == 1 else (None,None)
+    monkeypatch.setattr(acq,'_environment_launcher',helper)
+    monkeypatch.setattr(acq,'_process',lambda *a,**k:pytest.fail('early refusal executed tooling'))
+    sealed = probe_run(probe)
+    term = json.loads(pathlib.Path(sealed.manifest_path).read_bytes())['termination']
+    assert not term['executed']
+    assert term['reason'] == ('unsupported-helper' if 'helper' in failure else 'isolation-unavailable' if failure == 'adapter-unready' else failure)
+    item = probe_item(probe,sealed,tmp_path)
+    with pytest.raises(results.FirmwareDiveResultError): record(item)
+    item[2]['questions'][0].update(outcome='inconclusive',resolution_effect=None); save(item)
+    record(item); validate(item)
+
+
+def test_builder_aliases_share_exact_guest_file_facts(probe,tmp_path,monkeypatch):
+    from tests.test_firmware_dive_probe import save as save_probe
+    probe[2].update(libraries=['a'],inputs=['a'],loader='a',nvram_shim='a',stdin='a'); save_probe(probe)
+    executable(probe,monkeypatch,"print('aliased fact')")
+    sealed = probe_run(probe)
+    record(probe_item(probe,sealed,tmp_path))
+
+
+@pytest.mark.parametrize('damage',['aggregate-bytes','aggregate-files'])
+def test_resealed_staged_input_aggregates_cannot_exceed_builder_limits(probe,tmp_path,monkeypatch,damage):
+    executable(probe,monkeypatch,"print('fact')")
+    sealed = probe_run(probe)
+    def mutate(body):
+        deps = body['dependencies']
+        paths = ['extra'] if damage == 'aggregate-bytes' else [f'input{i:03}' for i in range(256)]
+        body['spec']['inputs'] = paths
+        if damage == 'aggregate-bytes': deps[0]['before']['byte_count'] = deps[0]['after']['byte_count'] = 40*1024*1024
+        for ordinal,path in enumerate(paths):
+            row = copy.deepcopy(deps[0]); row.update(role='input',path=path); deps.insert(ordinal+1,row)
+    sealed = reseal_probe(probe,sealed,mutate)
+    with pytest.raises(results.FirmwareDiveResultError): record(probe_item(probe,sealed,tmp_path,outcome='inconclusive'))
+
+
+@pytest.mark.parametrize('raw',[b'{"schema_version":\xff}',b'[\xff]'])
+def test_undecodable_ascii_envelope_prefix_never_uses_opaque_fallback(tmp_path,raw):
+    with pytest.raises(results.FirmwareDiveResultError):
+        results._historical_projection(tmp_path,raw,{},None,{'result_path':'artifacts/test-dive/legacy'},None,[],())
+
+
+def test_builder_many_role_aliases_preserve_unique_staged_file_limit(probe):
+    from audit_core import firmware_dive_acquisition as acq
+    parsed = acq.load_probe_spec(probe[1])
+    paths = ['a',*[f'p{i:03}' for i in range(255)]]
+    spec = dataclasses.replace(parsed,libraries=tuple(paths),inputs=tuple(paths))
+    dependencies = [('executable','a',None,b'guest'),*[('library',path,None,b'guest') for path in paths],*[('input',path,None,b'guest') for path in paths]]
+    inputs = (spec,b'',None,tuple(dependencies))
+    summary,contents,row = acq._probe_build(probe[0][1],inputs,acq.ProbeTermination(False,'isolation-unavailable',None,None,False,False,False),b'',b'',{},inputs)
+    dive._install(pathlib.Path(summary.manifest_path).parent,contents,probe[0][1])
+    question = next(r for r in rows(probe[0][0],'cba_firmware_dive_questions') if r['question_id'] == spec.question_id)
+    packet = json.loads((probe[0][1]/question['packet_path']).read_bytes())
+    provenance,paths,manifest = results._sealed_acquisition(probe[0][1],row,packet)
+    assert len(manifest['dependencies']) == 513
+    assert provenance['logical_id'] == summary.acquisition_id

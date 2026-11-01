@@ -547,6 +547,130 @@ def _static_provenance(run, dependency, packet, owner):
     return base | dict(owner_sha256=q._hash(matches[0]))
 
 
+def _clean_probe(manifest):
+    """Eligibility follows verified status; a voluntary code is not a signal."""
+    term = manifest['termination']
+    if not term['executed'] or term['timed_out']:
+        return False
+    if term['status_source'] == 'direct-process':
+        return term['reason'] == 'exited' and term['signal'] is None
+    return (term['status_source'] == manifest['spec']['isolation_backend']+'-adapter' and
+        term['reason'] == 'adapter-exited' and term['adapter_exit_code'] == 0 and term['adapter_signal'] is None)
+
+
+def _probe_manifest_contract(manifest, spec):
+    """Reconstruct the Task 6 emitted state machine, independently of its hash."""
+    term = q._object(manifest['termination'], acquisition.ProbeTermination)
+    for name in ('executed','timed_out','stdout_truncated','stderr_truncated'):
+        _require(type(term[name]) is bool, 'Probe termination requires booleans')
+    for name in ('exit_code','adapter_exit_code','signal','adapter_signal'):
+        if term[name] is not None:
+            _integer(term[name], minimum=1 if name.endswith('signal') else 0)
+            _require(term[name] <= (127 if name.endswith('signal') else 255), 'Probe wait status exceeds OS bounds')
+    source, reason = term['status_source'], term['reason']
+    native = source != 'direct-process'
+    _require(source in ('direct-process',spec.isolation_backend+'-adapter'), 'Probe status backend differs')
+    exit_name, signal_name = ('adapter_exit_code','adapter_signal') if native else ('exit_code','signal')
+    unused = ('exit_code','signal') if native else ('adapter_exit_code','adapter_signal')
+    _require(all(term[name] is None for name in unused), 'Probe payload and adapter status are conflated')
+    if term['executed']:
+        exited, signaled = ('adapter-exited','adapter-signal') if native else ('exited','signal')
+        _require(reason in (exited,signaled,'timeout','output-limit'), 'Executed probe has nonexecution reason')
+        _require((term[exit_name] is None) != (term[signal_name] is None), 'Executed probe requires one exact wait status')
+        _require(reason != exited or term[exit_name] is not None, 'Exited probe lacks exit status')
+        _require(reason != signaled or term[signal_name] is not None, 'Signaled probe lacks signal status')
+        _require(reason == 'output-limit' or term['timed_out'] == (reason == 'timeout'), 'Probe timeout flag contradicts reason')
+        _require(term[signal_name] != acquisition.signal.SIGXFSZ or reason == 'output-limit', 'File-size signal requires output-limit')
+    else:
+        _require(reason in ('isolation-unavailable','unsupported-limits','unsupported-helper','unsupported-runner','tool-unavailable'),
+            'Nonexecuted probe has execution reason')
+        _require(all(term[name] is None for name in ('exit_code','signal','adapter_exit_code','adapter_signal')) and
+            not any(term[name] for name in ('timed_out','stdout_truncated','stderr_truncated')), 'Nonexecuted probe has execution facts')
+        if native:
+            _require(reason in ('isolation-unavailable','unsupported-limits','tool-unavailable'), 'Native early refusal has wrong status source')
+    runtime = manifest['runtime']
+    _require(isinstance(runtime,dict) and set(runtime) == {'platform','version','stream_source','tool_runtime_limitation','system_read_roots','limitation'},
+        'Probe runtime schema differs')
+    q._text(runtime['platform'],'runtime platform',128)
+    q._text(runtime['version'],'runtime version')
+    if native:
+        _require(runtime['platform'] == 'linux' if spec.isolation_backend == 'bwrap' else runtime['platform'] == 'darwin',
+            'Native probe platform differs from backend')
+    roots = ['/System','/usr/lib','/private/var/db/dyld','/dev/null','/dev/urandom'] if spec.isolation_backend == 'sandbox-exec' else []
+    _require(runtime['stream_source'] == (source if term['executed'] else 'not-executed') and
+        runtime['tool_runtime_limitation'] == 'Staged adapter host runtime before isolation is trusted tooling' and
+        runtime['system_read_roots'] == roots and runtime['limitation'] ==
+        ('Apple system runtime reads are not firmware library evidence' if spec.isolation_backend == 'sandbox-exec' else None),
+        'Probe runtime facts differ from exact builder contract')
+    deps = manifest['dependencies']
+    _require(isinstance(deps,list) and 1 <= len(deps) <= 519, 'Probe dependency denominator differs')
+    keys = []
+    for dep in deps:
+        _require(isinstance(dep,dict) and set(dep) == {'role','path','before','after'}, 'Probe dependency schema differs')
+        keys.append((dep['role'],dep['path']))
+    has_adapter = ('adapter',None) in keys
+    has_helper = ('environment-launcher',None) in keys
+    _require(has_adapter or not term['executed'] and reason == 'isolation-unavailable' and not native,
+        'Probe execution/refusal lacks adapter ownership')
+    _require(not native or has_adapter, 'Native probe lacks adapter')
+    if has_adapter and not term['executed'] and not native:
+        _require(reason != 'isolation-unavailable', 'Adapter-owned isolation refusal requires adapter status')
+    needs_helper = acquisition._needs_environment_launcher(spec)
+    _require(not has_helper or has_adapter and needs_helper and (native or not term['executed']), 'Probe helper exceeds backend authority')
+    if native:
+        _require(has_helper == needs_helper, 'Native helper denominator differs')
+    if reason == 'unsupported-helper':
+        _require(not native and has_helper, 'Unsupported helper refusal lacks exact native helper')
+    if reason == 'unsupported-runner':
+        _require(not native and has_adapter and spec.isolation_backend == 'bwrap' and spec.runner is not None,
+            'Unsupported runner refusal lacks exact native runner')
+    required = [('executable',spec.executable),*[('library',path) for path in spec.libraries],*[('input',path) for path in spec.inputs]]
+    required += [(role,path) for role,path in (('loader',spec.loader),('nvram-shim',spec.nvram_shim),('stdin',spec.stdin)) if path is not None]
+    if spec.runner is not None: required.append(('runner',None))
+    if has_adapter: required.append(('adapter',None))
+    if has_helper: required.append(('environment-launcher',None))
+    _require(keys == required, 'Probe input roles, paths or order differ from sealed spec')
+    guest, runner = {}, None
+    for dep in deps:
+        helper = dep['role'] == 'environment-launcher'
+        for name in ('before','after'):
+            fact = dep[name]
+            if fact is None:
+                _require(helper and not term['executed'] and not native and reason in ('unsupported-helper','unsupported-limits'),
+                    'Required probe dependency lacks exact file facts')
+            else:
+                _require(isinstance(fact,dict) and set(fact) == {'sha256','byte_count'}, 'Probe input fact schema differs')
+                q._digest(fact['sha256'])
+                _integer(fact['byte_count'])
+                _require(fact['byte_count'] <= acquisition.MAX_DEPENDENCY_BYTES, 'Probe dependency exceeds byte bound')
+        _require(dep['before'] == dep['after'] or helper and not term['executed'] and not native and reason == 'unsupported-helper',
+            'Probe dependency facts drifted outside helper refusal')
+        if dep['path'] is not None:
+            _require(dep['path'] not in guest or guest[dep['path']] == dep['before'], 'Aliased probe input facts differ')
+            guest[dep['path']] = dep['before']
+        elif dep['role'] == 'runner': runner = dep['before']
+    # A sealed runner omits its host path; identical facts can alias one guest
+    # file. Distinct facts must count as a distinct staged file and byte total.
+    extra_runner = runner is not None and runner not in guest.values()
+    _require(len(guest)+extra_runner <= 256 and sum(fact['byte_count'] for fact in guest.values())+
+        (runner['byte_count'] if extra_runner else 0) <= acquisition.MAX_DEPENDENCY_BYTES, 'Probe staged input aggregate exceeds limits')
+    evidence = manifest['evidence']
+    _require(isinstance(evidence,list) and all(isinstance(row,dict) and set(row) == {'path','sha256','byte_count'} for row in evidence),
+        'Probe evidence schema differs')
+    paths = [row['path'] for row in evidence]
+    _require(all(isinstance(path,str) for path in paths) and paths == sorted(set(paths)) and
+        {'evidence/stdout','evidence/stderr'} <= set(paths), 'Probe evidence order/streams differ')
+    output_paths = [path for path in paths if path.startswith('outputs/')]
+    _require(not output_paths or term['executed'] and reason != 'output-limit' and
+        (not native or reason == 'adapter-exited' and term['adapter_exit_code'] == 0), 'Probe outputs violate execution status policy')
+    for name in ('stdout','stderr'):
+        row = next(row for row in evidence if row['path'] == 'evidence/'+name)
+        _integer(row['byte_count'])
+        _require(not term[name+'_truncated'] or row['byte_count'] == acquisition.MAX_PROBE_STREAM_BYTES,
+            'Probe stream truncation lacks the exact retained prefix')
+        _require(term['executed'] or row['byte_count'] == 0, 'Nonexecuted probe has stream bytes')
+
+
 def _sealed_acquisition(run, row, packet):
     """Verify complete acquisition identity, contract, tree and SQL projections."""
     kind, identity = row['kind'], row['acquisition_id']
@@ -596,39 +720,7 @@ def _sealed_acquisition(run, row, packet):
         parsed = acquisition._probe_parse(q._bytes(original))
         _require(set(spec) == (set(f.name for f in dataclasses.fields(acquisition.ProbeSpec)) - {'adapter_path'}) | set(fixed),
             'Probe sealed spec schema differs')
-        termination = manifest['termination']
-        q._object(termination,acquisition.ProbeTermination)
-        for name in ('executed','timed_out','stdout_truncated','stderr_truncated'):
-            _require(type(termination[name]) is bool,'Probe termination requires booleans')
-        for name in ('exit_code','signal','adapter_exit_code','adapter_signal'):
-            if termination[name] is not None: _integer(termination[name])
-        q._enum(termination['status_source'],('direct-process','bwrap-adapter','sandbox-exec-adapter'))
-        q._enum(termination['reason'],('isolation-unavailable','unsupported-limits','unsupported-helper','unsupported-runner',
-            'tool-unavailable','exited','signal','timeout','output-limit','adapter-exited','adapter-signal'))
-        _require(termination['executed'] or termination['reason'] in ('isolation-unavailable','unsupported-limits',
-            'unsupported-helper','unsupported-runner','tool-unavailable'), 'Nonexecuted probe has execution status')
-        deps = manifest['dependencies']
-        _require(isinstance(deps,list) and 1 <= len(deps) <= 258, 'Probe dependency denominator differs')
-        seen = set()
-        for dependency in deps:
-            _require(set(dependency) == {'role','path','before','after'}, 'Probe dependency schema differs')
-            q._enum(dependency['role'],('executable','library','input','loader','nvram-shim','stdin','runner','adapter','environment-launcher'))
-            key = (dependency['role'],dependency['path'])
-            _require(key not in seen, 'Duplicate probe input')
-            seen.add(key)
-            if dependency['path'] is not None: acquisition._probe_path(dependency['path'])
-            for name in ('before','after'):
-                fact = dependency[name]
-                if fact is not None:
-                    _require(set(fact) == {'sha256','byte_count'}, 'Probe input fact differs')
-                    q._digest(fact['sha256']); _integer(fact['byte_count'])
-            _require(dependency['before'] == dependency['after'] or dependency['role'] == 'environment-launcher' and
-                not termination['executed'] and termination['reason'] == 'unsupported-helper', 'Probe inputs changed')
-        required = [('executable',parsed.executable),*[('library',p) for p in parsed.libraries],*[('input',p) for p in parsed.inputs]]
-        required += [(role,p) for role,p in (('loader',parsed.loader),('nvram-shim',parsed.nvram_shim),('stdin',parsed.stdin)) if p is not None]
-        _require(set(required) == {key for key in seen if key[0] not in ('runner','adapter','environment-launcher')},
-            'Probe inputs differ from sealed spec')
-        _require(('runner',None) in seen if runner else ('runner',None) not in seen, 'Probe runner projection differs')
+        _probe_manifest_contract(manifest, parsed)
         expected_id = q._hash({key:value for key,value in manifest.items() if key != 'acquisition_id'})
     _require(expected_id == identity == manifest['acquisition_id'], 'Acquisition content identity differs')
     for item in evidence:
@@ -735,7 +827,7 @@ def _derive(run, result, owner, packet, acquisitions, graph=None):
             (e.dependency_kind,e.dependency_logical_id) == key for e in answer.evidence)]
         _require(selected,'Dynamic conclusion lacks method-appropriate acquisition evidence')
         if required == 'probe-manifest':
-            _require(any(value[1]['termination']['executed'] for _,value in selected), 'Nonexecuted probe cannot support a conclusion')
+            _require(all(_clean_probe(value[1]) for _,value in selected), 'Probe conclusion requires a clean verified termination')
     observation = common | dict(question_id=identity,attempt_ordinal=answer.attempt_ordinal,observation_id=observation_id,
         outcome=answer.outcome,conclusion=answer.conclusion,limitations=_cell(answer.limitations),
         resolution_effect=None if answer.resolution_effect is None else _cell(answer.resolution_effect),evidence_rung=rung,
@@ -756,11 +848,19 @@ def _semantic(validated, candidate):
 
 def _historical_projection(run, raw, owner, packet, receipt, observation, dependencies, acquisitions):
     """Strict canonical history or an explicit pre-import opaque fallback."""
-    if not raw.lstrip().startswith((b'{',b'[')):
+    try:
+        value = json.loads(raw,object_pairs_hook=_pairs,parse_constant=_constant)
+    except (UnicodeError,json.JSONDecodeError):
+        try:
+            text = raw.decode(json.detect_encoding(raw))
+        except UnicodeError:
+            text = ''
+        _require(not raw.lstrip().startswith((b'{',b'[')) and not text.lstrip().startswith(('{','[')),
+            'Malformed historical JSON envelope')
         _require(not receipt['result_path'].startswith('artifacts/firmware-dive/'),
             'Canonical result cannot use opaque history compatibility')
         return None
-    result = _parse(json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_constant))
+    result = _parse(value)
     _require(canonical_bytes(result) == raw, 'Historical result is not canonical')
     _require((result.image_id,result.dive_generation) == (owner['image_id'],owner['dive_generation']),
         'Historical result ownership differs')

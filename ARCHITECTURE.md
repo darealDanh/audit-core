@@ -856,8 +856,14 @@ question-owned sealed capture/probe contract, identity, spec, manifest, evidence
 hashes/counts and SQL projections. Provenance is derived from verified owners;
 canonical reference arrays and contiguous semantic dependency ordinals are stored.
 Only conclusive answers receive a method-derived rung; dynamic conclusions need
-limitations and evidence from the corresponding acquisition, and a nonexecuted
-probe cannot support a conclusion. Successors are validated proposals only.
+limitations and evidence from the corresponding acquisition. Probe manifests
+independently reconstruct the complete Task 6 dependency, termination, runtime and
+evidence state machine; hash agreement alone grants no authority. Every cited
+probe in a conclusive answer must be clean: a coherent direct fixture exit or a
+matching native adapter exit 0 with payload status unknown. Timeout, signal,
+output-limit, unsupported and unavailable facts remain inconclusive-only. Clean
+bounded stream truncation is preserved, and direct voluntary exit codes (including
+143) are never decoded as signals. Successors are validated proposals only.
 
 Canonical bytes install descriptor-safely at
 `artifacts/firmware-dive/<generation>/<question-id|empty>/<result-hash>/result.json`
@@ -870,8 +876,11 @@ Repeated observation identity compares exact semantics plus dependency provenanc
 excluding assignment/result bytes and successors; distinct successors remain
 attempt-local. Full typed refs adapt to digests only for pure history/overlay
 contracts. Recomputed currentness does not change observation identity or let a
-stale attempt enter the overlay. Legacy opaque history retains byte-exact checks;
-malformed envelopes and the canonical publication namespace cannot fall back.
+stale attempt enter the overlay. Only genuinely non-JSON legacy bytes retain
+opaque byte-exact checks. Any parseable JSON byte encoding, including BOM,
+UTF-16/UTF-32 and scalar JSON, must be an exact canonical UTF-8 Task 7 envelope;
+malformed object/array envelopes and the canonical publication namespace cannot
+fall back to opacity.
 The Task 7 direct-constructor exception inconsistency is closed.
 
 Task 9 completion/journal/overlay validation is next. It must independently
