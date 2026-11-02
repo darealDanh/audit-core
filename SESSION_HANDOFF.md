@@ -3,10 +3,9 @@
 **Written:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; local `main`
 retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
-Tasks 1–8 implement schema, graph/question contracts, immutable preparation,
-sealed acquisitions, strict results and exact immutable observation import;
-Task 9 completion/journal/overlay validation is next. **Verification:** Task 8 fix round 2: 7,905 full-suite tests passed;
-0/10,632 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
+Tasks 1–9 implement schema, graph/question contracts, immutable preparation,
+sealed acquisitions, strict imports, exact completion, journals and current overlays.
+Task 10 Stage 4g overlay consumption is next. **Verification:** Task 9: 8,017 full-suite tests passed; 0/11,147 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
 and benchmark gates pass.
 Measured gate details and historical Stage 4g results are preserved below.
 
@@ -911,8 +910,8 @@ never contact or control a device.
 At the Task 4 boundary, result/journal and retained probe bodies were opaque;
 retained history enforced exact SQL/byte and method/rung checks. Task 8 now
 reconstructs canonical results and referenced sealed acquisition semantics;
-legacy opaque history retains byte-exact checks, while journal/completion/overlay
-reconstruction belongs to Task 9. Task 6 preserves descriptor, exact prepared-contract
+legacy opaque history retains byte-exact checks. Task 9 independently reconstructs
+journals, completion and current overlays. Task 6 preserves descriptor, exact prepared-contract
 and locked publication boundaries for bounded probes. Stage 4h remains in progress,
 integration pending; no generic severity or exploit claim is made.
 
@@ -1128,14 +1127,14 @@ effect/prose/reference projections; safe receipt keys bind exact assignment or
 explicit-empty projections. At the Task 7 boundary, only bounded stable-file
 `load` read files and the pure helpers made no SQL/filesystem writes. Task 8's
 prepared authority and atomic publication implementation is recorded below;
-completion and overlays remain later work.
+Task 9 adds independent completion and current overlays below.
 CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
 unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
 paid semantic quality limitations persist. `make mutate` remains separate.
 
-### Continue firmware `dive` with Task 9 completion/journal/overlay validation
+### Continue firmware `dive` with Task 10 Stage 4g overlay consumption
 
 Task 8 implements read-only `validate` and immutable `record` in
 `firmware_dive_results.py`. Validation reconstructs the exact pending generation,
@@ -1208,7 +1207,7 @@ recall 9/19, 45 findings, precision 39/40 and $73.15 per match. Native runtime,
 Linux/alternate Python and paid semantic quality remain unmeasured; no mutation
 sweep was run.
 
-Task 8 fix round 2 full-suite cold monitoring passed 7,905 tests with zero
+Historical Task 8 fix round 2 full-suite cold monitoring passed 7,905 tests with zero
 skips/failures and 0/10,632 unexecuted statements (zero allowed). The final
 focused result/import command passed 499 tests. The frozen combined cold run
 passed all 996 tests, with 0/580 preparation/history, 0/818 acquisition, 0/654
@@ -1222,12 +1221,72 @@ recall 9/19, 45 findings, precision 39/40 and $73.15 per match. Native runtime,
 Linux/alternate Python and paid semantic quality remain unmeasured; no mutation
 sweep was run.
 
-Task 9 completion/journal/overlay validation is next. It must independently
-reconstruct the complete receipt denominator and each attempt's canonical result,
-including successors, before any completion or overlay claim. CLI/worker behavior,
-integration and whole-stage review remain pending. Tests use purpose fixtures;
-Linux, alternate Python, real tools and paid semantic quality remain unverified.
-No mutation sweep, merge or push was performed.
+### Stage 4h Task 9 — exact completion, journals and current observations
+
+`firmware_dive.check` independently reconstructs each frozen generation, complete
+question/empty receipt denominator, canonical per-attempt result and successors,
+all acquisitions (including uncited acquisitions), stored rows, timestamps and
+outcome counts. Frozen input-overlay references must match their original
+upstream/artifact/subject ownership; pure question derivation re-establishes the
+exact automatic, analyst and conflict assignments. Identical repeated attempts
+coalesce only their recomputed currentness; immutable contracts and contiguous
+retry ordinals remain exact. Legacy opaque history retains exact compatibility
+checks and cannot contribute current conclusions. `check` requires one pending
+generation; multiple pending generations or ambiguous completed-owner ties
+refuse because this API has no generation selector.
+
+The canonical journal preserves every exact row and timestamp for its generation
+at `artifacts/firmware-dive/<generation>/<journal-sha256>/journal.json`. Live status
+is derived separately. A completed recheck requires identical journal bytes and
+rows, performs no writes or repairs, and works after Stage 4g SQL invalidation.
+Historical graph authority uses the current verified Stage 4f snapshot only when
+it reproduces the owned worklist hash; otherwise it requires the retained
+`files/firmware-chain/<hash>/worklist.json` and all immutable owner artifacts.
+Missing stale worklist/artifacts fail closed.
+
+Read-only `current_overlay` independently verifies the supplied Stage 4f snapshot
+and live source, preserving caller transactions. It admits only completed,
+dependency-current conclusive observations, deduplicated by observation ID.
+Conflicting effects exclude the whole active family. A current conclusive conflict
+resolver must have named the exact complete conflict set in its independently
+reconstructed frozen generation; it then supersedes exactly those ancestors.
+Later compatible observations may coexist with it, while contradictory ones form
+a new contest. Stale/inconclusive resolvers suppress nothing; an iterative ID DAG
+handles supersession without timestamp winners. Overlay identity contains no
+artifact paths, timestamps or private evidence bodies. Its empty bytes are exactly
+`{"observations":[],"schema_version":1}`.
+
+Pending completion compares old and prospective overlay bytes, installs the
+journal first, then takes `BEGIN IMMEDIATE` and repeats all upstream, row,
+artifact, overlay and installed-byte checks. It publishes the reserved completion
+timestamp, journal and counts together with six-table Stage 4g invalidation only
+when overlay bytes change. Failures and commit failures preserve pending dive
+history and the prior graph; only an unreferenced immutable journal may remain.
+
+Task 10 Stage 4g overlay consumption is next: bind this verified overlay into
+chain worklists, evidence validation and completion, including positive/refuted
+constraints and regeneration after invalidation. Stage 4g consumption, CLI/worker
+routing, integration and whole-stage review are still pending. Historical graph
+retention is required when upstream changes; Linux, alternate Python, real native
+tools and paid semantic quality remain unverified. No mutation sweep, merge or
+push was performed.
+
+Task 9 frozen full-suite cold monitoring passed 8,017 tests with zero skips or
+failures and 0/11,147 unexecuted statements (zero allowed). The frozen
+combined regression passed 1,297 tests, with 0/1095 preparation/completion,
+0/818 acquisition, 0/654 question and 0/843 result/import statements
+unexecuted. Exact run timings, hashes and full-harness output are retained in the
+Task 9 report. The fresh post-documentation `make all` remains the final
+completion gate; its exact output is retained with that report.
+
+All six ancillary gates passed after reconciliation: 29 dispatchable verbs;
+44 SQLite tables/43 contracts; four unchanged migrations preserving both firmware
+baselines; clean skill lint; 6 CRLF/239 LF files; 64 features/16 stages/21 open
+items with all paths and verbs resolving; 116 installed markdown files/zero
+sentinels with the real install untouched. Benchmark measurements remain recall
+9/19, 45 findings, precision 39/40 and $73.15 per match. These are mechanical
+measurements; native runtime and paid semantic quality remain unmeasured.
+
 
 Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
 

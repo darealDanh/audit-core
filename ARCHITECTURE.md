@@ -638,8 +638,8 @@ Six additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
 contracts; all four existing migrations are unchanged. Question contracts and
 packet authority, acquisition sealing, strict results and exact immutable result
-publication are implemented below; cross-row completion, journal and overlay
-semantics belong to Task 9.
+publication, cross-row completion, immutable journals and current overlays are
+implemented below; Stage 4g consumption and CLI/worker integration remain pending.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -732,13 +732,13 @@ never contact or control a device.
 At the Task 4 boundary, result/journal and retained probe bodies were opaque;
 retained history enforced exact SQL/byte and method/rung checks. Task 8 now
 reconstructs canonical results and referenced sealed acquisition semantics;
-legacy opaque history retains byte-exact checks, while journal/completion/overlay
-reconstruction belongs to Task 9. Task 6 preserves descriptor, exact prepared-contract
+legacy opaque history retains byte-exact checks. Task 9 independently reconstructs
+journals, completion and current overlays. Task 6 preserves descriptor, exact prepared-contract
 and locked publication boundaries for bounded probes. Stage 4h remains in progress,
 integration pending; no generic severity or exploit claim is made.
 
-Task 8 result authority/publication is implemented below; completion, overlays, CLI
-and worker routing remain pending. These helpers make
+Task 8 result authority/publication and Task 9 completion/overlays are implemented
+below; Stage 4g consumption, CLI and worker routing remain pending. These helpers make
 no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
 and Stage 4d retained-orphan scan scaling.
 
@@ -846,7 +846,7 @@ Observation IDs bind the caller-derived rung and candidate snapshot plus exact
 effect/prose/reference projections; safe receipt keys bind exact assignment or
 explicit-empty projections. Those pure helpers make no SQL/filesystem writes.
 Task 8 adds read-only retained authority and atomic observation import below;
-completion and overlays remain later work.
+Task 9 adds independent completion and current overlays below.
 Task 8 implements read-only `validate` and immutable `record` in
 `firmware_dive_results.py`. Validation reconstructs the exact pending generation,
 index, packet/attempt, retained graph and current retained Stage 4f evidence
@@ -890,12 +890,55 @@ malformed object/array envelopes and the canonical publication namespace cannot
 fall back to opacity.
 The Task 7 direct-constructor exception inconsistency is closed.
 
-Task 9 completion/journal/overlay validation is next. It must independently
-reconstruct the complete receipt denominator and each attempt's canonical result,
-including successors, before any completion or overlay claim. CLI/worker behavior,
-integration and whole-stage review remain pending. Tests use purpose fixtures;
-Linux, alternate Python, real tools and paid semantic quality remain unverified.
-No mutation sweep, merge or push was performed.
+### Stage 4h Task 9 — exact completion, journals and current observations
+
+`firmware_dive.check` independently reconstructs each frozen generation, complete
+question/empty receipt denominator, canonical per-attempt result and successors,
+all acquisitions (including uncited acquisitions), stored rows, timestamps and
+outcome counts. Frozen input-overlay references must match their original
+upstream/artifact/subject ownership; pure question derivation re-establishes the
+exact automatic, analyst and conflict assignments. Identical repeated attempts
+coalesce only their recomputed currentness; immutable contracts and contiguous
+retry ordinals remain exact. Legacy opaque history retains exact compatibility
+checks and cannot contribute current conclusions. `check` requires one pending
+generation; multiple pending generations or ambiguous completed-owner ties
+refuse because this API has no generation selector.
+
+The canonical journal preserves every exact row and timestamp for its generation
+at `artifacts/firmware-dive/<generation>/<journal-sha256>/journal.json`. Live status
+is derived separately. A completed recheck requires identical journal bytes and
+rows, performs no writes or repairs, and works after Stage 4g SQL invalidation.
+Historical graph authority uses the current verified Stage 4f snapshot only when
+it reproduces the owned worklist hash; otherwise it requires the retained
+`files/firmware-chain/<hash>/worklist.json` and all immutable owner artifacts.
+Missing stale worklist/artifacts fail closed.
+
+Read-only `current_overlay` independently verifies the supplied Stage 4f snapshot
+and live source, preserving caller transactions. It admits only completed,
+dependency-current conclusive observations, deduplicated by observation ID.
+Conflicting effects exclude the whole active family. A current conclusive conflict
+resolver must have named the exact complete conflict set in its independently
+reconstructed frozen generation; it then supersedes exactly those ancestors.
+Later compatible observations may coexist with it, while contradictory ones form
+a new contest. Stale/inconclusive resolvers suppress nothing; an iterative ID DAG
+handles supersession without timestamp winners. Overlay identity contains no
+artifact paths, timestamps or private evidence bodies. Its empty bytes are exactly
+`{"observations":[],"schema_version":1}`.
+
+Pending completion compares old and prospective overlay bytes, installs the
+journal first, then takes `BEGIN IMMEDIATE` and repeats all upstream, row,
+artifact, overlay and installed-byte checks. It publishes the reserved completion
+timestamp, journal and counts together with six-table Stage 4g invalidation only
+when overlay bytes change. Failures and commit failures preserve pending dive
+history and the prior graph; only an unreferenced immutable journal may remain.
+
+Task 10 Stage 4g overlay consumption is next: bind this verified overlay into
+chain worklists, evidence validation and completion, including positive/refuted
+constraints and regeneration after invalidation. Stage 4g consumption, CLI/worker
+routing, integration and whole-stage review are still pending. Historical graph
+retention is required when upstream changes; Linux, alternate Python, real native
+tools and paid semantic quality remain unverified. No mutation sweep, merge or
+push was performed.
 
 CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime

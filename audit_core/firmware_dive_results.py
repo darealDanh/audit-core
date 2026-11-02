@@ -508,7 +508,7 @@ def _retained_graph(con, run, owner):
     return firmware_chain._graph_snapshot(snapshot,validated,relative,digest)
 
 
-def _static_provenance(run, dependency, packet, owner):
+def _static_provenance(run, dependency, packet, owner, *, retained=False):
     """Reconstruct owners from the exact retained artifact, never worker fields."""
     ref = _wire(dependency)
     base = {key:ref[key] for key in ('kind','logical_id','relative_path','sha256')}
@@ -518,7 +518,7 @@ def _static_provenance(run, dependency, packet, owner):
     if dependency.kind == 'extract-record':
         selected = [r for r in packet['extract_records'] if r['unit']+'/'+r['name'] == dependency.logical_id]
         _require(len(selected) == 1, 'Extract lacks exact packet owner')
-        dive._extracts(run,(q.ExtractRecord(**selected[0]),))
+        if not retained: dive._extracts(run,(q.ExtractRecord(**selected[0]),))
         return base | dict(extract_record=selected[0])
     if dependency.kind == 'chain-artifact':
         body = dive._json(raw,newline=True)
@@ -767,7 +767,7 @@ def _sealed_acquisition(run, row, packet):
     return provenance, {path[len(prefix)+1:] for path in paths}, manifest
 
 
-def _derive(run, result, owner, packet, acquisitions, graph=None):
+def _derive(run, result, owner, packet, acquisitions, graph=None, *, retained=False):
     """Derive SQL rows solely from a strict result and verified frozen owners."""
     raw = canonical_bytes(result)
     digest = dive._digest(raw)
@@ -808,7 +808,7 @@ def _derive(run, result, owner, packet, acquisitions, graph=None):
             _require(len(raw_dependency) == dependency.byte_count,'Dynamic dependency byte count differs')
             dynamic[(dependency.kind,dependency.logical_id)] = (paths,manifest)
         else:
-            provenance = _static_provenance(run,dependency,packet,owner)
+            provenance = _static_provenance(run,dependency,packet,owner,retained=retained)
             if graph is not None:
                 _require(dive._dependency_current(run,_wire(dependency),packet,graph,acquisitions), 'Static dependency is stale')
         dependencies.append(common | dict(question_id=identity,observation_id=observation_id,**_wire(dependency),source_provenance=_cell(provenance)))
@@ -857,7 +857,7 @@ def _semantic(validated, candidate):
         [{key:row[key] for key in ('kind','logical_id','relative_path','sha256','byte_count','source_provenance')} for row in validated.dependencies])
 
 
-def _historical_projection(run, raw, owner, packet, receipt, observation, dependencies, acquisitions):
+def _historical_projection(run, raw, owner, packet, receipt, observation, dependencies, acquisitions, *, retained=False):
     """Strict canonical history or an explicit pre-import opaque fallback."""
     try:
         value = json.loads(raw,object_pairs_hook=_pairs,parse_constant=_constant)
@@ -875,7 +875,7 @@ def _historical_projection(run, raw, owner, packet, receipt, observation, depend
     _require(canonical_bytes(result) == raw, 'Historical result is not canonical')
     _require((result.image_id,result.dive_generation) == (owner['image_id'],owner['dive_generation']),
         'Historical result ownership differs')
-    expected = _derive(run,result,owner,packet,acquisitions)
+    expected = _derive(run,result,owner,packet,acquisitions,retained=retained)
     def unstamped(row): return {key:value for key,value in row.items() if key != 'recorded_at'}
     _require(unstamped(receipt) == expected.receipt and
         (None if observation is None else unstamped(observation)) == expected.observation and
