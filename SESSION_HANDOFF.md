@@ -5,7 +5,7 @@ retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
 Tasks 1–9 implement schema, graph/question contracts, immutable preparation,
 sealed acquisitions, strict imports, exact completion, journals and current overlays.
-Task 10 Stage 4g overlay consumption is next. **Verification:** Task 9: 8,017 full-suite tests passed; 0/11,147 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
+Task 10 Stage 4g overlay consumption is next. **Verification:** Task 9 fix loop 1: 8,033 full-suite tests passed; 0/11,178 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
 and benchmark gates pass.
 Measured gate details and historical Stage 4g results are preserved below.
 
@@ -1230,10 +1230,17 @@ outcome counts. Frozen input-overlay references must match their original
 upstream/artifact/subject ownership; pure question derivation re-establishes the
 exact automatic, analyst and conflict assignments. Identical repeated attempts
 coalesce only their recomputed currentness; immutable contracts and contiguous
-retry ordinals remain exact. Legacy opaque history retains exact compatibility
-checks and cannot contribute current conclusions. `check` requires one pending
-generation; multiple pending generations or ambiguous completed-owner ties
-refuse because this API has no generation selector.
+retry ordinals remain exact. Each acquisition ID, including uncited acquisitions,
+must have exactly one global image/generation/question owner, checked again
+under the completion lock. Distinct-ID sibling acquisitions remain valid.
+Opaque observations retain exact journal and explicit-retry history but are
+always noncurrent for preparation and excluded from accepted input overlays.
+Resolvers with any opaque ancestor are transitively noncurrent. Already-frozen
+legacy conflict generations replay their exact input projections only as
+historical denominator authority, so they can complete without suppressing or
+poisoning current canonical conclusions. `check` requires one pending generation;
+multiple pending generations or ambiguous completed-owner ties refuse because
+this API has no generation selector.
 
 The canonical journal preserves every exact row and timestamp for its generation
 at `artifacts/firmware-dive/<generation>/<journal-sha256>/journal.json`. Live status
@@ -1271,9 +1278,9 @@ retention is required when upstream changes; Linux, alternate Python, real nativ
 tools and paid semantic quality remain unverified. No mutation sweep, merge or
 push was performed.
 
-Task 9 frozen full-suite cold monitoring passed 8,017 tests with zero skips or
-failures and 0/11,147 unexecuted statements (zero allowed). The frozen
-combined regression passed 1,297 tests, with 0/1095 preparation/completion,
+Task 9 fix-loop 1 frozen full-suite cold monitoring passed 8,033 tests with zero skips or
+failures and 0/11,178 unexecuted statements (zero allowed). The frozen
+combined regression passed 1,313 tests, with 0/1126 preparation/completion,
 0/818 acquisition, 0/654 question and 0/843 result/import statements
 unexecuted. Exact run timings, hashes and full-harness output are retained in the
 Task 9 report. The fresh post-documentation `make all` remains the final

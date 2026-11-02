@@ -755,3 +755,148 @@ def test_empty_generation_still_validates_unique_frozen_journal_index(pending,tm
     index_path=run/owner['question_index_path'];index=json.loads(index_path.read_bytes());index['journal_input_sha256']=sha(path.read_bytes());index_path.write_bytes(canonical(index))
     con.execute('UPDATE cba_firmware_dive_runs SET journal_input_sha256=?,question_index_sha256=? WHERE dive_generation=?',(sha(path.read_bytes()),sha(index_path.read_bytes()),generation.dive_generation));con.commit()
     with pytest.raises(dive.FirmwareDiveError): dive.check(con,run,root,image_id='target')
+
+
+def opaque_first(case, tmp_path):
+    """One real pre-canonical conclusion, with canonical unrelated receipts."""
+    from tests.test_firmware_dive_prepare import accepted
+    complete(case)
+    first = prepare(case)
+    con = case[0]
+    question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['origin']=='chain-blocker')
+    _, observed = accepted(case,first,value=True,question_id=question['question_id'],_fill=False)
+    con.execute("UPDATE cba_firmware_dive_runs SET status='pending',completed_at=NULL,journal_path=NULL,journal_sha256=NULL,supported_count=0,refuted_count=0,inconclusive_count=0")
+    con.commit()
+    for n,row in enumerate(rows(con,'cba_firmware_dive_questions')):
+        if row['question_id'] == question['question_id']: continue
+        directory=tmp_path/('opaque-first-'+str(n));directory.mkdir()
+        record(build(case,row,directory,outcome='inconclusive'))
+    assert check(case).complete and overlay(case).observations == ()
+    return question,observed
+
+
+def test_opaque_retry_history_never_creates_current_conflict(graph_case,tmp_path):
+    question,old=opaque_first(graph_case,tmp_path)
+    retry=prepare(graph_case,retry=[question['question_id']+':'+old['observation_id']])
+    con,run=graph_case[:2]
+    row=next(r for r in rows(con,'cba_firmware_dive_questions') if r['dive_generation']==retry.dive_generation and r['question_id']==question['question_id'])
+    assert row['attempt_ordinal']==2 and row['prior_observation_id']==old['observation_id']
+    index=json.loads((run/next(r for r in rows(con,'cba_firmware_dive_runs') if r['dive_generation']==retry.dive_generation)['question_index_path']).read_bytes())
+    assert old['observation_id'] not in {r['observation_id'] for r in index['input_overlay']}
+    populate(graph_case,tmp_path,'refuted',retry.dive_generation)
+    assert check(graph_case).complete
+    accepted=overlay(graph_case)
+    assert len(accepted.observations)==1 and accepted.observations[0].outcome=='refuted'
+    before,artifacts,changes=state(con),files(run),con.total_changes
+    assert check(graph_case).complete and overlay(graph_case)==accepted
+    assert state(con)==before and files(run)==artifacts and con.total_changes==changes
+    regenerate(graph_case)
+    later=prepare(graph_case)
+    assert later.conflict_count==0 and overlay(graph_case)==accepted
+
+
+def freeze_legacy_conflict(case, old, monkeypatch):
+    """Replay the old preparer's accepted opaque context to retain a real frozen owner."""
+    from audit_core import firmware_dive_questions as q
+    original=dive._history
+    def historical(run,stored,graph):
+        history,index,inputs=original(run,stored,graph)
+        history=tuple(dataclasses.replace(h,dependency_current=True) if h.observation_id==old['observation_id'] else h for h in history)
+        index=tuple(dataclasses.replace(i,status='current') if i.observation_id==old['observation_id'] else i for i in index)
+        deps=[{k:v for k,v in d.items() if k not in ('image_id','dive_generation','question_id','ordinal','observation_id','recorded_at')}
+            for d in stored['dependencies'] if d['observation_id']==old['observation_id']]
+        projection=dict(observation_id=old['observation_id'],question_id=old['question_id'],resolution_effect=json.loads(old['resolution_effect']),
+            dependency_refs=json.loads(old['dependency_refs']),evidence_refs=json.loads(old['evidence_refs']),dependencies=tuple(q._hash(d) for d in deps))
+        inputs=tuple(sorted({q._bytes(i):i for i in (*inputs,projection)}.values(),key=q._bytes))
+        return history,index,inputs
+    with monkeypatch.context() as patch:
+        patch.setattr(dive,'_history',historical)
+        return prepare(case)
+
+
+def test_frozen_opaque_conflict_completes_as_stale_without_poisoning_canonical_overlay(graph_case,tmp_path,monkeypatch):
+    question,old=opaque_first(graph_case,tmp_path)
+    retry=prepare(graph_case,retry=[question['question_id']])
+    populate(graph_case,tmp_path,'refuted',retry.dive_generation);check(graph_case)
+    accepted=overlay(graph_case)
+    regenerate(graph_case)
+    frozen=freeze_legacy_conflict(graph_case,old,monkeypatch)
+    assert frozen.conflict_count==1
+    assert overlay(graph_case)==accepted
+    populate(graph_case,tmp_path,'supported',frozen.dive_generation)
+    assert overlay(graph_case)==accepted
+    summary=check(graph_case)
+    resolver=next(q for q in summary.questions if q.question_id!=question['question_id'] and q.outcome=='supported')
+    assert resolver.status=='stale' and overlay(graph_case)==accepted
+    assert rows(graph_case[0],'cba_firmware_chain_runs')
+    before,artifacts,changes=state(graph_case[0]),files(graph_case[1]),graph_case[0].total_changes
+    assert check(graph_case)==summary and overlay(graph_case)==accepted
+    assert state(graph_case[0])==before and files(graph_case[1])==artifacts and graph_case[0].total_changes==changes
+    # A later prepare must retain the historical conflict only as stale context.
+    later=prepare(graph_case,retry=[question['question_id']])
+    owner=next(r for r in rows(graph_case[0],'cba_firmware_dive_runs') if r['dive_generation']==later.dive_generation)
+    index=json.loads((graph_case[1]/owner['question_index_path']).read_bytes())
+    assert {r['observation_id'] for r in index['input_overlay']}=={accepted.observations[0].observation_id}
+
+
+def clone_acquisition(con,owner):
+    from audit_core import db
+    row=rows(con,'cba_firmware_dive_acquisitions')[0]
+    changed={'image_id':'foreign','dive_generation':'f'*64,'question_id':next(q['question_id'] for q in rows(con,'cba_firmware_dive_questions') if q['question_id']!=row['question_id'])}
+    replacement={owner:changed[owner]}
+    if owner=='image_id': replacement['dive_generation']=changed['dive_generation']
+    db.put(con,'cba_firmware_dive_acquisitions',row | replacement)
+
+
+@pytest.mark.parametrize('owner',['image_id','dive_generation','question_id'])
+@pytest.mark.parametrize('boundary',['pending','complete','overlay','lock'])
+def test_acquisition_global_owner_collision_is_rejected_even_uncited(capture,tmp_path,monkeypatch,owner,boundary):
+    from tests.test_firmware_dive_capture import seal
+    seal(capture)
+    case=capture[0];con,run=case[:2]
+    populate(case,tmp_path)
+    if boundary=='complete': check(case)
+    if boundary=='lock':
+        original=dive._install
+        def race(destination,contents,selected_run):
+            original(destination,contents,selected_run)
+            if 'journal.json' in contents: clone_acquisition(con,owner)
+        monkeypatch.setattr(dive,'_install',race)
+    else: clone_acquisition(con,owner)
+    before=state(con)
+    with pytest.raises(dive.FirmwareDiveError):
+        overlay(case) if boundary=='overlay' else check(case)
+    if boundary!='lock': assert state(con)==before
+    else:
+        assert rows(con,'cba_firmware_dive_runs')[0]['status']=='pending'
+        assert rows(con,'cba_firmware_chain_runs')[0]['status']=='complete'
+    assert not con.in_transaction
+
+
+def test_distinct_valid_sibling_acquisitions_survive_completion_and_overlay(capture,tmp_path):
+    from tests.test_firmware_dive_capture import seal,save as capture_save
+    first=seal(capture)
+    capture[2]['operator']='operator-2';capture_save(capture)
+    second=seal(capture)
+    assert first.acquisition_id!=second.acquisition_id
+    case=capture[0];populate(case,tmp_path)
+    assert check(case).complete and check(case).complete
+    assert overlay(case).observations==() and len(rows(case[0],'cba_firmware_dive_acquisitions'))==2
+
+
+def test_opaque_ancestry_excludes_all_resolvers_transitively_without_suppressing_canonical_siblings(pending):
+    from audit_core import firmware_dive_questions as q
+    make,question=pure_attempts(pending)
+    opaque=make('a','supported',True);opaque['canonical']=False
+    canonical_parent=make('b','refuted',False)
+    later=make('c','refuted',False)
+    def resolver(identity,refs):
+        assigned=dataclasses.replace(question,question_id=identity*64,origin='conflict',
+            question=q._conflict_text(refs),supersedes_observation_ids=refs)
+        return make(identity,'supported',True,assigned)
+    first=resolver('d',('a'*64,'b'*64))
+    second=resolver('e',('c'*64,'d'*64))
+    values=[opaque,canonical_parent,first,later,second]
+    accepted,contested=dive._overlay(values)
+    assert {r.observation_id for r in accepted.observations}=={'b'*64,'c'*64} and not contested
+    assert dive._overlay(list(reversed(values)))==(accepted,contested)

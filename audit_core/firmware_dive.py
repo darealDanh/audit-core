@@ -330,6 +330,20 @@ def _dependency_current(run, dep, packet, graph, acquisitions):
 
 
 
+def _opaque_lineage(parents, opaque):
+    """Opaque history and every resolver depending on it lack current authority."""
+    children = {}
+    for identity, refs in parents.items():
+        for ref in refs: children.setdefault(ref, set()).add(identity)
+    excluded, pending = set(opaque), list(opaque)
+    while pending:
+        for child in children.get(pending.pop(), ()):
+            if child not in excluded:
+                excluded.add(child)
+                pending.append(child)
+    return excluded
+
+
 def _coalesce_attempt(prior, item):
     """An exact duplicate assignment may differ only in recomputed freshness."""
     _require(prior.question == item.question, 'Duplicate attempt changes its assignment')
@@ -453,6 +467,7 @@ def _history(run, rows, graph):
                 'Completed outcome counts differ')
     catalog = q._catalog(graph)
     history, journal_index, overlays, attempts, repeated, accepted = [], {}, [], {}, {}, {}
+    parents, opaque = {}, set()
     for key, (question, owner) in assignments.items():
         packet = packets[key]
         for acquisition in acquisitions.get(key, ()):
@@ -499,10 +514,12 @@ def _history(run, rows, graph):
             identity = observation['observation_id']
             _require(identity not in repeated or repeated[identity] == full, 'Observation identity reused with different stored content')
             repeated[identity] = full
+            parents[identity] = question.supersedes_observation_ids
+            if canonical is None: opaque.add(identity)
             # Rehash all dependencies, even when their subjects/candidate are stale.
             checks = [_dependency_current(run, d, packet, graph, acquisitions.get(key, ())) for d in deps]
             finding_provenance = inputs[key[0]]['finding_artifacts'] == list(_finding_refs(graph))
-            current = current_subjects and owner['status'] == 'complete' and all(checks) and finding_provenance
+            current = canonical is not None and current_subjects and owner['status'] == 'complete' and all(checks) and finding_provenance
             value = json.loads(observation['resolution_effect'])['value'] if observation['resolution_effect'] else None
             dependency_refs = tuple(json.loads(observation['dependency_refs']))
             evidence_refs = tuple(json.loads(observation['evidence_refs']))
@@ -527,7 +544,12 @@ def _history(run, rows, graph):
             attempts[attempt] = item if prior is None else _coalesce_attempt(prior,item)
     _require(all(row.get('observation_id') in accepted and q._bytes(row) ==
         q._bytes(accepted[row['observation_id']]) for row in authoritative), 'Historical accepted input differs from durable evidence')
-    history = tuple(attempts[k] for k in sorted(attempts))
+    excluded = _opaque_lineage(parents, opaque)
+    history = tuple(dataclasses.replace(attempts[k], dependency_current=False) if attempts[k].observation_id in excluded
+        else attempts[k] for k in sorted(attempts))
+    journal_index = {identity:dataclasses.replace(entry, status='stale') if identity in excluded else entry
+        for identity,entry in journal_index.items()}
+    overlays = [item for item in overlays if item['observation_id'] not in excluded]
     # The pure derivation validates contracts, attempts and complete supersession.
     q._history(graph, catalog, history)
     overlay = tuple({q._bytes(i):i for i in overlays}[key] for key in sorted({q._bytes(i) for i in overlays}))
@@ -934,7 +956,13 @@ def _reconstruct(con, run, root, upstream):
         _require(all(owner[k] == v for k,v in counts.items()), 'Prepared denominator/counts differ')
         for name in ('observations','dependencies','acquisitions'):
             _require(all(r['question_id'] in packets for r in owned[name]), 'History row lacks exact question')
-        for acquisition in owned['acquisitions']: results._sealed_acquisition(run,acquisition,packets[acquisition['question_id']])
+        for acquisition in owned['acquisitions']:
+            global_owners = surface._query(con,
+                'SELECT image_id,dive_generation,question_id FROM cba_firmware_dive_acquisitions WHERE acquisition_id=?',
+                (acquisition['acquisition_id'],))
+            _require(global_owners == [{key:acquisition[key] for key in ('image_id','dive_generation','question_id')}],
+                'Acquisition identity has multiple or foreign owners')
+            results._sealed_acquisition(run,acquisition,packets[acquisition['question_id']])
         receipts = {r['question_id']:r for r in owned['receipts']}
         _require(len(receipts) == len(owned['receipts']) and set(receipts) <= (set(packets) if packets else {None}), 'Receipt denominator differs')
         observations = {r['question_id']:r for r in owned['observations']}
@@ -983,6 +1011,10 @@ def _reconstruct(con, run, root, upstream):
             _require(owner['status'] == 'pending' and owner['completed_at'] is None and owner['journal_path'] is None and owner['journal_sha256'] is None and
                 all(owner[name+'_count'] == 0 for name in ('supported','refuted','inconclusive')), 'Pending publication state differs')
         generations[generation] = (owner,owned,counts,full,index,graph)
+    excluded = _opaque_lineage({a['observation']['observation_id']:a['question'].supersedes_observation_ids for a in attempts},
+        {a['observation']['observation_id'] for a in attempts if not a['canonical']})
+    for attempt in attempts:
+        if attempt['observation']['observation_id'] in excluded: attempt['current'] = False
     history = _histories(run,generations,attempts)
     _frozen_links(run,generations,attempts,history)
     return rows,generations,attempts
@@ -1053,11 +1085,13 @@ def _frozen_links(run,generations,attempts,history=None):
             _require(any(matches), 'Frozen input overlay differs from durable evidence')
         _require(index['input_overlay'] == sorted({q._bytes(row):row for row in index['input_overlay']}.values(),key=q._bytes),
             'Frozen input overlay ordering differs')
-        active = {ref['observation_id'] for ref in index['input_overlay']}
+        # Reproduce old frozen denominators using exact historical context, including
+        # legacy inputs. This never restores their independently excluded live authority.
+        frozen_context = {ref['observation_id'] for ref in index['input_overlay']}
         selected,catalog = {},q._catalog(graph)
         for candidate,item in history:
             if candidate != graph.candidate_snapshot_sha256 or not set(item.question.subject_refs) <= set(catalog): continue
-            item = dataclasses.replace(item,dependency_current=item.observation_id in active)
+            item = dataclasses.replace(item,dependency_current=item.observation_id in frozen_context)
             key = (item.question.question_id,item.attempt_ordinal)
             selected[key] = _coalesce_attempt(selected[key],item) if key in selected else item
         questions = [_question(_json(_read(run,row['packet_path'],row['packet_sha256']))['question']) for row in owned['questions']]
@@ -1094,7 +1128,9 @@ def _overlay(attempts, prospective=None):
             question.settling_observation,question.axes,question.resolution_contract,question.supersedes_observation_ids))
         _require(identity not in contracts or contracts[identity] == contract, 'History changes an immutable question contract')
         contracts[identity] = contract
-    all_observations = {a['observation']['observation_id']:a for a in attempts if a['canonical']}
+    all_observations = {a['observation']['observation_id']:a for a in attempts}
+    excluded = _opaque_lineage({identity:a['question'].supersedes_observation_ids for identity,a in all_observations.items()},
+        {identity for identity,a in all_observations.items() if not a['canonical']})
     roots, visiting = {}, set()
     for identity in all_observations:
         pending = [(identity,False)]
@@ -1126,7 +1162,7 @@ def _overlay(attempts, prospective=None):
     active = {}
     for attempt in attempts:
         observation = attempt['observation']
-        if attempt['current'] and (attempt['owner']['status'] == 'complete' or attempt['owner']['dive_generation'] == prospective) and observation['outcome'] in ('supported','refuted'):
+        if observation['observation_id'] not in excluded and attempt['current'] and (attempt['owner']['status'] == 'complete' or attempt['owner']['dive_generation'] == prospective) and observation['outcome'] in ('supported','refuted'):
             active[observation['observation_id']] = attempt
     superseded = {ref for item in active.values() if item['question'].origin == 'conflict'
         for ref in item['question'].supersedes_observation_ids}

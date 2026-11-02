@@ -311,11 +311,35 @@ def test_retry_uses_durable_attempts_and_preserves_older_generations(graph_case)
     with pytest.raises(api().FirmwareDiveError): prepare(graph_case, retry=('0' * 64,))
 
 
+def canonical_accepted(case, summary, *, value='admin', outcome='supported', question_id=None):
+    """Current preparation fixtures require independently reconstructible canonical results."""
+    from tests.test_firmware_dive_import import build, record as dive_record, save
+    con,run=case[:2]
+    assigned=[r for r in rows(con,'cba_firmware_dive_questions') if r['dive_generation']==summary.dive_generation]
+    question=next(r for r in assigned if r['question_id']==question_id) if question_id else next(
+        r for r in assigned if r['origin']=='surface-unknown' and 'overlap' in r['subject_refs'])
+    for n,row in enumerate(assigned):
+        directory=run/'scratch-canonical-history'/summary.dive_generation/str(n);directory.mkdir(parents=True,exist_ok=True)
+        selected=row['question_id']==question['question_id']
+        item=build(case,row,directory,outcome=outcome if selected else 'inconclusive')
+        if selected and outcome!='inconclusive':
+            item[2]['questions'][0]['resolution_effect']['value']=value
+            save(item)
+        dive_record(item)
+    journal=run/'artifacts/test-dive'/summary.dive_generation/'journal.json'
+    journal.parent.mkdir(parents=True,exist_ok=True);journal.write_bytes(b'preparation fixture journal')
+    values=[r for r in rows(con,'cba_firmware_dive_observations') if r['dive_generation']==summary.dive_generation]
+    con.execute("UPDATE cba_firmware_dive_runs SET status='complete',journal_path=?,journal_sha256=?,completed_at='2026-01-02 03:04:05',supported_count=?,refuted_count=?,inconclusive_count=? WHERE dive_generation=?",
+        (journal.relative_to(run).as_posix(),sha(journal.read_bytes()),*(sum(r['outcome']==name for r in values) for name in ('supported','refuted','inconclusive')),summary.dive_generation))
+    con.commit()
+    return question,next(r for r in values if r['question_id']==question['question_id'])
+
+
 def contested(case):
     first = prepare(case)
-    question, one = accepted(case, first)
+    question, one = canonical_accepted(case, first)
     second = prepare(case, retry=(question['question_id'],))
-    _, two = accepted(case, second, value='pre-auth', identity='2' * 64, question_id=question['question_id'])
+    _, two = canonical_accepted(case, second, value='pre-auth', question_id=question['question_id'])
     firmware_chain.invalidate(case[0], 'target', commit=True)
     return first, second, question, one, two
 
@@ -329,7 +353,7 @@ def test_conflict_only_after_invalidation_and_exact_inconclusive_retry(graph_cas
     assert prepare(graph_case)==result
     assert state(graph_case[0])==before and graph_case[0].total_changes==writes and files(graph_case[1])==artifacts
     row = next(r for r in rows(graph_case[0], 'cba_firmware_dive_questions') if r['dive_generation'] == result.dive_generation)
-    assert json.loads(row['supersedes_observation_ids']) == [one['observation_id'], two['observation_id']]
+    assert json.loads(row['supersedes_observation_ids']) == sorted([one['observation_id'], two['observation_id']])
     accepted(graph_case, result, outcome='inconclusive', identity='3' * 64, question_id=row['question_id'])
     retry = prepare(graph_case, retry=(row['question_id'],))
     assert retry.question_count == retry.conflict_count == retry.retry_count == 1
@@ -345,8 +369,7 @@ def test_conflict_retry_ignores_older_owner_without_later_linked_subject(graph_c
     older = prepare(graph_case)
     old_question = next(r for r in rows(con, 'cba_firmware_dive_questions')
         if r['dive_generation'] == older.dive_generation and r['origin'] == 'chain-blocker')
-    accepted(graph_case, older, outcome='inconclusive', question_id=old_question['question_id'],
-        identity=sha(canonical([old_question['question_id'], old_question['attempt_ordinal']])))
+    canonical_accepted(graph_case, older, outcome='inconclusive', question_id=old_question['question_id'])
     firmware_chain.invalidate(con, 'target', commit=True)
     prepared = firmware_chain.prepare(con, run, root, image_id='target')
     graph_case[3]['worklist_sha256'] = prepared.worklist_sha256
@@ -364,7 +387,7 @@ def test_conflict_retry_ignores_older_owner_without_later_linked_subject(graph_c
     assert retried.question_count == retried.conflict_count == retried.retry_count == 1
     packet = json.loads(next((pathlib.Path(retried.question_index_path).parent / 'questions').iterdir()).read_bytes())
     assert packet['question']['attempt_ordinal'] == 2
-    assert packet['question']['supersedes_observation_ids'] == [one['observation_id'], two['observation_id']]
+    assert packet['question']['supersedes_observation_ids'] == sorted([one['observation_id'], two['observation_id']])
     assert retried.graph_sha256 == second.graph_sha256 != older.graph_sha256
 
 
@@ -715,7 +738,9 @@ def test_dynamic_history_requires_exact_owned_acquisition_and_method_rung(graph_
     before,artifacts=state(con),files(run)
     if damage=='none':
         second=prepare(graph_case)
-        assert second.dive_generation!=first.dive_generation
+        assert second.dive_generation==first.dive_generation
+        assert state(con)==before and files(run)==artifacts
+        assert json.loads(pathlib.Path(second.question_index_path).read_bytes())['input_overlay']==[]
     else:
         with pytest.raises(api().FirmwareDiveError): prepare(graph_case)
         assert state(con)==before and files(run)==artifacts
@@ -779,7 +804,7 @@ def test_conflict_retained_owner_chronology_and_ambiguous_ties(graph_case):
     con,run,root=graph_case[:3]
     complete(graph_case)
     first=prepare(graph_case)
-    question,one=accepted(graph_case,first)
+    question,one=canonical_accepted(graph_case,first)
     firmware_chain.invalidate(con,'target',commit=True)
     prep=firmware_chain.prepare(con,run,root,image_id='target')
     graph_case[3]['worklist_sha256']=prep.worklist_sha256
@@ -787,7 +812,7 @@ def test_conflict_retained_owner_chronology_and_ambiguous_ties(graph_case):
     record(graph_case)
     check(graph_case)
     second=prepare(graph_case,retry=(question['question_id'],))
-    accepted(graph_case,second,value='pre-auth',identity='2'*64,question_id=question['question_id'])
+    canonical_accepted(graph_case,second,value='pre-auth',question_id=question['question_id'])
     assert first.graph_sha256!=second.graph_sha256
     firmware_chain.invalidate(con,'target',commit=True)
     before,artifacts=state(con),files(run)
@@ -854,8 +879,7 @@ def test_private_dependency_provenance_stays_behind_index_digest(graph_case):
     raw=pathlib.Path(result.question_index_path).read_bytes()
     assert private.encode() not in raw
     index=json.loads(raw)
-    assert len(index['input_overlay'])==1
-    assert all(len(digest)==64 for digest in index['input_overlay'][0]['dependencies'])
+    assert index['input_overlay']==[]  # Opaque provenance remains historical, never accepted input.
 
 
 @pytest.mark.parametrize('kind',['chain-artifact','extract-record'])

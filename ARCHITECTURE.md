@@ -899,10 +899,17 @@ outcome counts. Frozen input-overlay references must match their original
 upstream/artifact/subject ownership; pure question derivation re-establishes the
 exact automatic, analyst and conflict assignments. Identical repeated attempts
 coalesce only their recomputed currentness; immutable contracts and contiguous
-retry ordinals remain exact. Legacy opaque history retains exact compatibility
-checks and cannot contribute current conclusions. `check` requires one pending
-generation; multiple pending generations or ambiguous completed-owner ties
-refuse because this API has no generation selector.
+retry ordinals remain exact. Each acquisition ID, including uncited acquisitions,
+must have exactly one global image/generation/question owner, checked again
+under the completion lock. Distinct-ID sibling acquisitions remain valid.
+Opaque observations retain exact journal and explicit-retry history but are
+always noncurrent for preparation and excluded from accepted input overlays.
+Resolvers with any opaque ancestor are transitively noncurrent. Already-frozen
+legacy conflict generations replay their exact input projections only as
+historical denominator authority, so they can complete without suppressing or
+poisoning current canonical conclusions. `check` requires one pending generation;
+multiple pending generations or ambiguous completed-owner ties refuse because
+this API has no generation selector.
 
 The canonical journal preserves every exact row and timestamp for its generation
 at `artifacts/firmware-dive/<generation>/<journal-sha256>/journal.json`. Live status
