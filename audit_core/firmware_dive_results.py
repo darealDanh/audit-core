@@ -649,6 +649,17 @@ def _probe_manifest_contract(manifest, spec):
             _require(dep['path'] not in guest or guest[dep['path']] == dep['before'], 'Aliased probe input facts differ')
             guest[dep['path']] = dep['before']
         elif dep['role'] == 'runner': runner = dep['before']
+    pre_staging = not term['executed'] and not native and (
+        reason in ('unsupported-limits','unsupported-helper','unsupported-runner') or
+        reason == 'isolation-unavailable' and not has_adapter)
+    if not pre_staging:
+        reserved = ({'_runner'} if spec.runner is not None else set()) | (
+            {'_environment-launcher'} if has_helper else set())
+        staged = set(guest)
+        _require(staged.isdisjoint(reserved), 'Probe guest conflicts with reserved staged tool')
+        staged.update(reserved)
+        directories = {parent.as_posix() for name in staged for parent in pathlib.PurePosixPath(name).parents}
+        _require(staged.isdisjoint(directories), 'Probe staged files have ancestor/descendant collisions')
     # A sealed runner omits its host path; identical facts can alias one guest
     # file. Distinct facts must count as a distinct staged file and byte total.
     extra_runner = runner is not None and runner not in guest.values()

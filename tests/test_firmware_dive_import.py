@@ -915,3 +915,97 @@ def test_builder_many_role_aliases_preserve_unique_staged_file_limit(probe):
     provenance,paths,manifest = results._sealed_acquisition(probe[0][1],row,packet)
     assert len(manifest['dependencies']) == 513
     assert provenance['logical_id'] == summary.acquisition_id
+
+
+_STAGED_TOPOLOGY_STATES = ['direct-exited','native-exited','adapter-unready','native-limits','direct-tool-unavailable','native-tool-unavailable']
+_NATIVE_TOPOLOGY_STATES = ['native-exited','adapter-unready','native-limits','native-tool-unavailable']
+
+
+def topology_probe(body, state, shape, role='input'):
+    spec = body['spec']
+    spec.update(executable='a',argv=['a'],libraries=[],inputs=[],loader=None,nvram_shim=None,stdin=None,
+        runner=None,environment={},isolation_backend='bwrap',user_namespace_policy='isolated-nested-disabled')
+    guest = [('executable','a')]
+    runner = shape.startswith('runner-') or state == 'early-runner'
+    helper = shape.startswith('helper-') or state == 'early-helper'
+    if shape in ('descendant','ancestor','alias'):
+        executable_path,other_path = ('a/child','a') if shape == 'ancestor' else ('a','a' if shape == 'alias' else 'a/child')
+        spec.update(executable=executable_path,argv=[executable_path])
+        guest = [('executable',executable_path),(role,other_path)]
+    else:
+        prefix = '_runner' if shape.startswith(('runner-','absent-runner-')) else '_environment-launcher'
+        suffix = '/child' if shape.endswith('child') else '-sibling/child' if shape.endswith('sibling') else ''
+        path = prefix+suffix
+        spec.update(executable=path,argv=[path]); guest = [('executable',path)]
+    for kind,path in guest[1:]:
+        if kind in ('input','library'): spec['inputs' if kind == 'input' else 'libraries'] = [path]
+        else: spec[{'nvram-shim':'nvram_shim'}.get(kind,kind)] = path
+    if runner: spec['runner'] = 'verified-runner'
+    if helper:
+        spec.update(isolation_backend='sandbox-exec',user_namespace_policy='not-applicable',environment={'MODE':'fixture'})
+    native = state in _NATIVE_TOPOLOGY_STATES
+    executed = state in ('direct-exited','native-exited')
+    reason = {'direct-exited':'exited','native-exited':'adapter-exited','adapter-unready':'isolation-unavailable',
+        'native-limits':'unsupported-limits','direct-tool-unavailable':'tool-unavailable','native-tool-unavailable':'tool-unavailable',
+        'early-none':'isolation-unavailable','early-limits':'unsupported-limits','early-helper':'unsupported-helper','early-runner':'unsupported-runner'}[state]
+    source = spec['isolation_backend']+'-adapter' if native else 'direct-process'
+    body['termination'] = dict(executed=executed,reason=reason,exit_code=0 if executed and not native else None,
+        signal=None,timed_out=False,stdout_truncated=False,stderr_truncated=False,
+        adapter_exit_code=0 if executed and native else None,adapter_signal=None,status_source=source)
+    body['runtime'].update(platform='darwin' if helper else 'linux' if native else body['runtime']['platform'],
+        stream_source=source if executed else 'not-executed',
+        system_read_roots=['/System','/usr/lib','/private/var/db/dyld','/dev/null','/dev/urandom'] if helper else [],
+        limitation='Apple system runtime reads are not firmware library evidence' if helper else None)
+    fact = dict(sha256=sha(b'guest'),byte_count=5)
+    ordered = [('executable',spec['executable']),*[('library',path) for path in spec['libraries']],*[('input',path) for path in spec['inputs']]]
+    ordered += [(kind,spec[key]) for kind,key in (('loader','loader'),('nvram-shim','nvram_shim'),('stdin','stdin')) if spec[key] is not None]
+    if runner: ordered.append(('runner',None))
+    if state != 'early-none': ordered.append(('adapter',None))
+    if helper: ordered.append(('environment-launcher',None))
+    body['dependencies'] = [dict(role=kind,path=path,before=None if kind == 'environment-launcher' and state == 'early-helper' else copy.deepcopy(fact),
+        after=None if kind == 'environment-launcher' and state == 'early-helper' else copy.deepcopy(fact)) for kind,path in ordered]
+
+
+_TOPOLOGY_COLLISIONS = [(state,shape,'input') for state in _STAGED_TOPOLOGY_STATES for shape in ('descendant','ancestor','runner-exact','runner-child')]
+_TOPOLOGY_COLLISIONS += [(state,shape,'input') for state in _NATIVE_TOPOLOGY_STATES for shape in ('helper-exact','helper-child')]
+_TOPOLOGY_COLLISIONS += [('direct-exited',shape,role) for shape in ('descendant','ancestor') for role in ('library','loader','nvram-shim','stdin')]
+@pytest.mark.parametrize('state_name,shape,role',_TOPOLOGY_COLLISIONS)
+def test_resealed_staged_topology_cannot_claim_impossible_regular_files(probe,tmp_path,state_name,shape,role):
+    sealed = probe_run(probe)
+    sealed = reseal_probe(probe,sealed,lambda body:topology_probe(body,state_name,shape,role))
+    item = probe_item(probe,sealed,tmp_path,outcome='supported' if state_name in ('direct-exited','native-exited') else 'inconclusive')
+    before = state(probe[0][0])
+    with pytest.raises(results.FirmwareDiveResultError): record(item)
+    assert state(probe[0][0]) == before
+
+
+_TOPOLOGY_CONTROLS = [(state,shape) for state in _STAGED_TOPOLOGY_STATES for shape in
+    ('alias','absent-runner-exact','absent-runner-child','absent-helper-exact','absent-helper-child','runner-sibling')]
+_TOPOLOGY_CONTROLS += [(state,'helper-sibling') for state in _NATIVE_TOPOLOGY_STATES]
+@pytest.mark.parametrize('state_name,shape',_TOPOLOGY_CONTROLS)
+def test_resealed_staged_aliases_and_unreserved_names_remain_valid(probe,tmp_path,state_name,shape):
+    sealed = probe_run(probe)
+    sealed = reseal_probe(probe,sealed,lambda body:topology_probe(body,state_name,shape))
+    item = probe_item(probe,sealed,tmp_path,outcome='supported' if state_name in ('direct-exited','native-exited') else 'inconclusive')
+    record(item); validate(item)
+
+
+_EARLY_TOPOLOGY_CONTROLS = [(state,shape) for state in ('early-none','early-limits','early-helper','early-runner') for shape in
+    ('descendant','ancestor','runner-exact','runner-child')]
+_EARLY_TOPOLOGY_CONTROLS += [(state,shape) for state in ('early-limits','early-helper') for shape in ('helper-exact','helper-child')]
+@pytest.mark.parametrize('state_name,shape',_EARLY_TOPOLOGY_CONTROLS)
+def test_true_pre_staging_refusal_keeps_unrealized_topology(probe,tmp_path,state_name,shape):
+    sealed = probe_run(probe)
+    sealed = reseal_probe(probe,sealed,lambda body:topology_probe(body,state_name,shape))
+    item = probe_item(probe,sealed,tmp_path,outcome='inconclusive')
+    record(item); validate(item)
+
+
+@pytest.mark.parametrize('collision',['guest-prefix','reserved-runner'])
+def test_task6_stager_independently_rejects_reviewer_topologies(tmp_path,collision):
+    from audit_core import firmware_dive_acquisition as acq
+    staged = tmp_path/'stage'; staged.mkdir()
+    deps = [('executable','a',None,b'guest'),('input','a/child',None,b'guest')] if collision == 'guest-prefix' else [
+        ('executable','_runner',None,b'guest'),('runner','unused-host-identity',None,b'runner')]
+    with pytest.raises((dive.FirmwareDiveError,acq.AcquisitionError)):
+        acq._stage_probe(staged,deps)

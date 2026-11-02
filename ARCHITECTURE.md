@@ -858,8 +858,15 @@ canonical reference arrays and contiguous semantic dependency ordinals are store
 Only conclusive answers receive a method-derived rung; dynamic conclusions need
 limitations and evidence from the corresponding acquisition. Probe manifests
 independently reconstruct the complete Task 6 dependency, termination, runtime and
-evidence state machine; hash agreement alone grants no authority. Every cited
-probe in a conclusive answer must be clean: a coherent direct fixture exit or a
+evidence state machine; hash agreement alone grants no authority. Once staging
+was reached, distinct guest files cannot be ancestors/descendants; exact aliases
+require identical facts, and active `_runner`/`_environment-launcher` files reserve
+their exact names and file topology. Absent tools reserve nothing. Validated
+nonexecuted direct pre-stage refusal shapes retain unrealized topology; native
+refusals and adapter readiness failures enforce staging checks. The wire has no
+phase field, so an indistinguishable direct early-limit refusal retains this
+conservative compatibility waiver without authorizing conclusive evidence.
+Every cited probe in a conclusive answer must be clean: a coherent direct fixture exit or a
 matching native adapter exit 0 with payload status unknown. Timeout, signal,
 output-limit, unsupported and unavailable facts remain inconclusive-only. Clean
 bounded stream truncation is preserved, and direct voluntary exit codes (including

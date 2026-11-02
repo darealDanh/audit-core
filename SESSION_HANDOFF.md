@@ -5,8 +5,8 @@ retains Stage 4g at `30ca3ba`, not pushed ·
 **Status:** Stage 4h firmware `dive` is in progress, integration pending.
 Tasks 1–8 implement schema, graph/question contracts, immutable preparation,
 sealed acquisitions, strict results and exact immutable observation import;
-Task 9 completion/journal/overlay validation is next. **Verification:** Task 8 fix round 1: 7,803 full-suite tests passed;
-0/10,621 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
+Task 9 completion/journal/overlay validation is next. **Verification:** Task 8 fix round 2: 7,905 full-suite tests passed;
+0/10,632 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
 and benchmark gates pass.
 Measured gate details and historical Stage 4g results are preserved below.
 
@@ -1148,8 +1148,15 @@ canonical reference arrays and contiguous semantic dependency ordinals are store
 Only conclusive answers receive a method-derived rung; dynamic conclusions need
 limitations and evidence from the corresponding acquisition. Probe manifests
 independently reconstruct the complete Task 6 dependency, termination, runtime and
-evidence state machine; hash agreement alone grants no authority. Every cited
-probe in a conclusive answer must be clean: a coherent direct fixture exit or a
+evidence state machine; hash agreement alone grants no authority. Once staging
+was reached, distinct guest files cannot be ancestors/descendants; exact aliases
+require identical facts, and active `_runner`/`_environment-launcher` files reserve
+their exact names and file topology. Absent tools reserve nothing. Validated
+nonexecuted direct pre-stage refusal shapes retain unrealized topology; native
+refusals and adapter readiness failures enforce staging checks. The wire has no
+phase field, so an indistinguishable direct early-limit refusal retains this
+conservative compatibility waiver without authorizing conclusive evidence.
+Every cited probe in a conclusive answer must be clean: a coherent direct fixture exit or a
 matching native adapter exit 0 with payload status unknown. Timeout, signal,
 output-limit, unsupported and unavailable facts remain inconclusive-only. Clean
 bounded stream truncation is preserved, and direct voluntary exit codes (including
@@ -1187,11 +1194,25 @@ benchmark remains recall 9/19, 45 findings, precision 39/40 and $73.15 per match
 These are mechanical measurements; paid semantic quality and real-tool runtime
 behavior remain unmeasured. `make mutate` was not run.
 
-Task 8 fix round 1 full-suite cold monitoring passed 7,803 tests with zero
+Historical Task 8 fix round 1 full-suite cold monitoring passed 7,803 tests with zero
 skips/failures and 0/10,621 unexecuted statements (zero allowed). The final
 focused result/import command passed 397 tests. The frozen combined cold run
 passed all 894 tests, with 0/580 preparation/history, 0/818 acquisition, 0/654
 question and 0/832 result/import statements unexecuted.
+
+The six measured ancillary gates remain clean: 29 dispatchable verbs; 44 SQLite
+tables/43 contracts; four unchanged migrations preserving both firmware baselines;
+6 CRLF/238 LF files; 63 features/16 stages/21 open items; 116 installed markdown
+files/zero sentinels/real install untouched; clean skill lint. Benchmark remains
+recall 9/19, 45 findings, precision 39/40 and $73.15 per match. Native runtime,
+Linux/alternate Python and paid semantic quality remain unmeasured; no mutation
+sweep was run.
+
+Task 8 fix round 2 full-suite cold monitoring passed 7,905 tests with zero
+skips/failures and 0/10,632 unexecuted statements (zero allowed). The final
+focused result/import command passed 499 tests. The frozen combined cold run
+passed all 996 tests, with 0/580 preparation/history, 0/818 acquisition, 0/654
+question and 0/843 result/import statements unexecuted.
 
 The six measured ancillary gates remain clean: 29 dispatchable verbs; 44 SQLite
 tables/43 contracts; four unchanged migrations preserving both firmware baselines;
