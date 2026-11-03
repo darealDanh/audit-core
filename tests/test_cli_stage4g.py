@@ -59,7 +59,6 @@ def test_route_syntax_errors_exit_two_before_database_access(tmp_path, monkeypat
     (["--prepare"], "--root is required"), (["--check"], "--root is required"),
     (["--prepare", "--root", "root", "--replace"], "--replace requires --record"),
     (["--check", "--root", "root", "--replace"], "--replace requires --record"),
-    (["--record", "result", "--root", "root"], "--root"),
     (["--record", "result", "--image-id", "target"], "--image-id"),
 ])
 def test_semantic_constraints_exit_one_before_database_access(tmp_path, monkeypatch, capsys, flags, message):
@@ -418,3 +417,22 @@ def test_expected_diagnostics_survive_root_normalization_failures(tmp_path, monk
                 con.execute("SELECT 1")
     finally:
         con.close()
+
+
+def test_real_record_with_dive_history_requires_and_forwards_live_root(graph_case, tmp_path):
+    from tests.test_firmware_dive_overlay import observed
+    observation = observed(graph_case, tmp_path)
+    graph_case[3]['chains'][0]['initial_evidence_refs'].append('dive:' + observation.observation_id + '#evidence')
+    con, run, root = graph_case[:3]
+    source = run / 'regenerated.json'; source.write_text(json.dumps(graph_case[3]))
+    before = tuple(con.iterdump())
+    refused = run_cli('chain', '--run', run, '--record', source)
+    assert refused.returncode == 1 and refused.stdout == '' and 'live firmware root' in refused.stderr
+    assert tuple(con.iterdump()) == before
+    recorded = run_cli('chain', '--run', run, '--record', source, '--root', root, '--json')
+    assert recorded.returncode == 0 and recorded.stderr == ''
+    payload = json.loads(recorded.stdout)
+    assert set(payload) == RECORD_FIELDS and payload['chain_count'] == 1
+    assert str(root) not in recorded.stdout and 'resolution_effect' not in recorded.stdout
+    checked = run_cli('chain', '--run', run, '--check', '--root', root, '--json')
+    assert checked.returncode == 0 and json.loads(checked.stdout)['complete']

@@ -132,18 +132,45 @@ def test_pending_and_deleted_current_graph_never_use_retained_fallback(graph_cas
     assert state(con) == before and con.total_changes == writes and files(graph_case[1]) == artifacts
 
 
-def test_explicit_retained_graph_survives_stage4g_sql_and_worker_artifact_deletion(graph_case):
+def legacy_graph(case):
+    """Retain an actual pre-overlay worklist/graph, without changing live Stage4f."""
+    con, run, root = case[:3]
+    owner, = rows(con, 'cba_firmware_dive_runs')
+    graph = json.loads((run / owner['chain_graph_path']).read_bytes())
+    worklist = dict(case[4]); worklist.pop('dive_overlay')
+    raw = surface.canonical_bytes(worklist)
+    digest = hashlib.sha256(raw).hexdigest()
+    path = run / 'files/firmware-chain' / digest / 'worklist.json'
+    path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(raw)
+    graph['worklist_sha256'] = digest
+    content = surface.canonical_bytes(graph); graph_hash = hashlib.sha256(content).hexdigest()
+    target = run / 'artifacts/firmware-chain' / digest / graph_hash / 'chains.json'
+    target.parent.mkdir(parents=True); target.write_bytes(content)
+    con.execute('UPDATE cba_firmware_dive_runs SET chain_graph_path=?,chain_graph_sha256=?',
+        (target.relative_to(run).as_posix(), graph_hash))
+    con.commit()
+    return path
+
+
+def test_explicit_legacy_retained_graph_survives_sql_and_worker_artifact_deletion(graph_case):
     con, run = graph_case[:2]
     complete(graph_case)
-    expected = snapshot(graph_case)
     own_graph(graph_case)
+    old_worklist = legacy_graph(graph_case)
+    expected = retained(graph_case)
     chain_run, = rows(con, 'cba_firmware_chain_runs')
     receipt, = rows(con, 'cba_firmware_chain_receipts')
     firmware_chain.invalidate(con, 'target', commit=True)
+    old_worklist.unlink()
     pathlib.Path(chain_run['worklist_path']).unlink()
     pathlib.Path(receipt['result_path']).unlink()
     before, writes, artifacts = state(con), con.total_changes, files(run)
     assert retained(graph_case) == expected
+    from audit_core import firmware_dive
+    owner, = rows(con, 'cba_firmware_dive_runs')
+    index = {'graph_projection': {'chain_worklist_sha256': expected.chain_worklist_sha256}}
+    upstream = firmware_fpcheck.verified_findings_snapshot(*graph_case[:3], image_id='target')
+    assert firmware_dive._historical_graph(run, owner, index, upstream) == expected
     with sqlite3.connect(f'file:{run / "audit.db"}?mode=ro', uri=True) as readonly:
         readonly.row_factory = sqlite3.Row
         assert retained(graph_case, con=readonly) == expected
@@ -273,7 +300,7 @@ def test_snapshot_keeps_one_sql_generation_during_concurrent_change(graph_case, 
         helper(graph_case)
 
 
-def test_retained_graph_keeps_historical_worklist_provenance(graph_case):
+def test_retained_graph_rejects_modified_worklist_hash_even_with_owned_graph(graph_case):
     con, run = graph_case[:2]
     summary = complete(graph_case)
     expected = snapshot(graph_case)
@@ -289,10 +316,8 @@ def test_retained_graph_keeps_historical_worklist_provenance(graph_case):
     con.execute('UPDATE cba_firmware_dive_runs SET chain_graph_path=?,chain_graph_sha256=?',
         (path.relative_to(run).as_posix(), digest))
     con.commit()
-    actual = retained(graph_case)
-    assert actual.chain_worklist_sha256 == '0' * 64
-    assert (actual.findings, actual.surfaces, actual.unknowns) == (expected.findings, expected.surfaces, expected.unknowns)
-    assert actual.graph_path == path.relative_to(run).as_posix() and actual.graph_sha256 == digest
+    with pytest.raises(firmware_chain.FirmwareChainError):
+        retained(graph_case)
 
 
 def test_empty_unicode_snapshot_preserves_sibling_image_and_exact_selection(graph_case, tmp_path):
@@ -334,3 +359,56 @@ def test_prepare_never_substitutes_retained_history_for_a_broken_current_publica
         firmware_dive.prepare(con, run, root, image_id='target')
     assert state(con) == before and con.total_changes == writes and files(run) == artifacts
     assert not con.in_transaction
+
+
+@pytest.mark.parametrize('damage', ['deleted', 'modified', 'missing-key'])
+def test_keyed_historical_worklist_requires_retained_exact_bytes(graph_case, damage):
+    con, run = graph_case[:2]
+    complete(graph_case); own_graph(graph_case)
+    chain_run, = rows(con, 'cba_firmware_chain_runs')
+    firmware_chain.invalidate(con, 'target', commit=True)
+    path = pathlib.Path(chain_run['worklist_path'])
+    if damage == 'deleted': path.unlink()
+    elif damage == 'modified': path.write_bytes(path.read_bytes() + b' ')
+    else:
+        body = json.loads(path.read_bytes()); body.pop('dive_overlay')
+        path.write_bytes(surface.canonical_bytes(body))
+    before, artifacts = state(con), files(run)
+    with pytest.raises(firmware_chain.FirmwareChainError): retained(graph_case)
+    assert state(con) == before and files(run) == artifacts and not con.in_transaction
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_stale_current_snapshot_requires_retained_legacy_worklist(graph_case, missing):
+    from audit_core import firmware_dive
+    from tests.test_firmware_dive_gate import revise_review
+    con, run, root = graph_case[:3]
+    complete(graph_case); own_graph(graph_case)
+    path = legacy_graph(graph_case)
+    owner, = rows(con, 'cba_firmware_dive_runs')
+    graph_body = json.loads((run / owner['chain_graph_path']).read_bytes())
+    index = {'graph_projection': {'chain_worklist_sha256': graph_body['worklist_sha256']}}
+    from audit_core import firmware_fpcheck_results
+    review_path = run / 'richer-review.json'
+    review = json.loads(review_path.read_bytes())
+    for decision in review['decisions']:
+        if decision['true_positive'] is not None:
+            decision['true_positive']['root_cause'] = 'Revised independent Stage4f evidence'
+    review_path.write_bytes(surface.canonical_bytes(review))
+    firmware_fpcheck_results.record(con, run, review_path, replace=True)
+    firmware_fpcheck.check(con, run, root, image_id='target')
+    upstream = firmware_fpcheck.verified_findings_snapshot(con, run, root, image_id='target')
+    if missing: path.unlink()
+    before, artifacts = state(con), files(run)
+    if missing:
+        with pytest.raises((OSError, firmware_dive.FirmwareDiveError)):
+            firmware_dive._historical_graph(run, owner, index, upstream)
+    else:
+        # Public retained conflict ownership still requires the exact current
+        # review; historical journal replay can reconstruct the old worklist.
+        with pytest.raises(firmware_chain.FirmwareChainError, match='Retained worklist differs'):
+            retained(graph_case)
+        graph = firmware_dive._historical_graph(run, owner, index, upstream)
+        assert graph.chain_worklist_sha256 == graph_body['worklist_sha256']
+        assert graph.findings != upstream.findings
+    assert state(con) == before and files(run) == artifacts

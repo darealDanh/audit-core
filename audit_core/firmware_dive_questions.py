@@ -382,8 +382,14 @@ def parse_retry_directives(values) -> tuple[RetryDirective, ...]:
     return tuple(sorted(result, key=lambda r: r.question_id))
 
 
+def _subject_evidence(refs):
+    # Overlay citations are provenance attached to a stable subject, not part of
+    # that subject's identity. Malformed/ordinary refs remain identity-bearing.
+    return tuple(ref for ref in refs if re.fullmatch(r'dive:[0-9a-f]{64}#(?:conclusion|evidence)', ref) is None)
+
+
 def _chain_context(chain):
-    return {name: getattr(chain, name) for name in ('member_ids', 'initial_attacker_position',
+    return {name: _subject_evidence(chain.initial_evidence_refs) if name == 'initial_evidence_refs' else getattr(chain, name) for name in ('member_ids', 'initial_attacker_position',
         'initial_evidence_refs', 'initial_lifecycle', 'initial_posture', 'initial_authentication')}
 
 
@@ -393,7 +399,7 @@ def edge_fingerprint(snapshot: firmware_chain.VerifiedFirmwareGraphSnapshot, edg
         'producer_evidence_refs', 'consumer_evidence_refs', 'supplemental_evidence_refs',
         'required_state', 'result_state', 'transition_kind')
     return _hash(dict(image_id=snapshot.image_id, candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256,
-        context=_chain_context(chain), edge={k: getattr(edge, k) for k in fields}))
+        context=_chain_context(chain), edge={k: _subject_evidence(getattr(edge, k)) if k.endswith('_evidence_refs') else getattr(edge, k) for k in fields}))
 
 
 def chain_fingerprint(snapshot: firmware_chain.VerifiedFirmwareGraphSnapshot, chain: firmware_chain.VerifiedFirmwareChain) -> str:

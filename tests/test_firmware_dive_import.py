@@ -440,28 +440,34 @@ def test_write_lock_contention_preserves_sql_and_candidate_is_unreferenced(assig
         con.rollback(); second.close()
 
 
-def test_completed_and_pending_retry_share_semantics_without_stale_overlay(assignment,tmp_path):
-    con,run = assignment[0][:2]
+def test_completed_and_pending_retry_share_semantics_without_stale_overlay(graph_case, tmp_path):
+    from tests.test_firmware_dive_prepare import retry_manifest
+    from tests.test_firmware_dive_gate import regenerate
+    case = graph_case
+    complete(case)
+    path = retry_manifest(case)
+    generation = prepare(case, questions_path=path)
+    question = next(r for r in rows(case[0], 'cba_firmware_dive_questions') if r['origin'] == 'analyst')
+    assignment = build(case, question, tmp_path)
     first = record(assignment)
-    target = assignment[2]['questions'][0]['question_id']
-    for row in rows(con,'cba_firmware_dive_questions'):
+    target = question['question_id']
+    for row in rows(case[0], 'cba_firmware_dive_questions'):
         if row['question_id'] != target:
-            record(build(assignment[0],row,tmp_path,outcome='inconclusive'))
-    journal = run/'test-completed-journal'; journal.write_bytes(b'opaque completed Task 4 journal')
-    con.execute("UPDATE cba_firmware_dive_runs SET status='complete',completed_at='2026-01-01',journal_path=?,journal_sha256=?,supported_count=1,inconclusive_count=2",
-        (journal.relative_to(run).as_posix(),sha(journal.read_bytes())))
-    con.commit()
-    newer = prepare(assignment[0],retry=(target,))
-    question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['dive_generation'] == newer.dive_generation and r['question_id'] == target)
-    second = build(assignment[0],question,tmp_path)
+            record(build(case, row, tmp_path, outcome='inconclusive'))
+    dive.check(*case[:3], image_id='target')
+    regenerate(case)
+    con, run = case[:2]
+    newer = prepare(case, questions_path=path, retry=(target,))
+    question = next(r for r in rows(con, 'cba_firmware_dive_questions') if r['dive_generation'] == newer.dive_generation and r['question_id'] == target)
+    second = build(case, question, tmp_path)
     summary = record(second)
     assert summary.observation_id == first.observation_id
     validate(second)
-    history,_,overlay = dive._history(run,dive._rows(con,'target'),snapshot(assignment[0]))
+    history, _, accepted_overlay = dive._history(run, dive._rows(con, 'target'), snapshot(case))
     matching = [h for h in history if h.observation_id == first.observation_id]
-    assert len(matching) == 2 and sorted(h.dependency_current for h in matching) == [False,True]
-    assert len(overlay) == 1 and overlay[0]['observation_id'] == first.observation_id
-    assert all(isinstance(ref,str) for ref in overlay[0]['dependency_refs'])
+    assert len(matching) == 2 and sorted(h.dependency_current for h in matching) == [False, True]
+    assert len(accepted_overlay) == 1 and accepted_overlay[0]['observation_id'] == first.observation_id
+    assert all(isinstance(ref, str) for ref in accepted_overlay[0]['dependency_refs'])
 
 
 def test_all_static_dependency_owners_and_ordinals_are_reconstructed(assignment):
@@ -547,11 +553,17 @@ def test_upstream_ambiguous_legacy_coverage_uses_result_error_and_preserves_tran
     con.rollback()
 
 
-def test_exact_retained_graph_import_survives_current_chain_invalidation(assignment):
+@pytest.mark.parametrize('delete_worklist', [False, True])
+def test_exact_retained_graph_import_survives_current_chain_invalidation(assignment, delete_worklist):
     con,run,root = assignment[0][:3]
     firmware_chain.invalidate(con,'target'); con.commit()
     shutil.rmtree(root)
-    shutil.rmtree(run/'files/firmware-chain')
+    if delete_worklist:
+        shutil.rmtree(run/'files/firmware-chain')
+        before = state(con)
+        with pytest.raises(results.FirmwareDiveResultError): validate(assignment)
+        assert state(con) == before
+        return
     validated = validate(assignment)
     summary = record(assignment)
     assert summary.observation_id == validated.observation['observation_id']

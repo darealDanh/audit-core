@@ -751,3 +751,20 @@ def test_restored_review_result_directory_invalidates_completed_chains(completed
     assert not con.in_transaction
     assert firmware_fpcheck.check(con, run, root).complete
     assert_chain_ownership(con, before, cleared=True)
+
+
+def test_completion_rechecks_current_overlay_under_write_lock(graph_case, tmp_path):
+    from tests.test_firmware_dive_overlay import observed
+    observed(graph_case, tmp_path)
+    path = graph_case[1] / 'overlay-result.json'; path.write_text(json.dumps(graph_case[3]))
+    results.record(graph_case[0], graph_case[1], path, root=graph_case[2])
+    before = state(graph_case[0])
+    class Connection:
+        def __getattr__(self, name): return getattr(graph_case[0], name)
+        def execute(self, sql, *args):
+            cursor = graph_case[0].execute(sql, *args)
+            if sql == 'BEGIN IMMEDIATE':
+                graph_case[0].execute("UPDATE cba_firmware_dive_observations SET conclusion='raced'")
+            return cursor
+    with pytest.raises(firmware_chain.FirmwareChainError): check(graph_case, connection=Connection())
+    assert state(graph_case[0]) == before and not graph_case[0].in_transaction

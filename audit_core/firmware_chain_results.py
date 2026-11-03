@@ -24,6 +24,7 @@ RESULT_SCHEMA_VERSION = 1
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 MAX_LINK_KEY_BYTES = 4096
 _ID_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+_DIVE_PATTERN = re.compile(r"dive:([0-9a-f]{64})#(conclusion|evidence)")
 _EVIDENCE_PATTERN = re.compile(rf"(finding|surface|unknown):({_ID_PATTERN})#([a-z_]+)")
 _EVIDENCE_FIELDS = {
     "finding": ("root_cause", "attacker_position", "data_flow", "impact_hypothesis", "evidence_summary"),
@@ -200,6 +201,8 @@ def _evidence_refs(value: object, label: str, *, initial: bool = False,
         raise FirmwareChainError(f"{label} requires at least one evidence reference")
     for entry in values:
         _text(entry, label)
+        if _DIVE_PATTERN.fullmatch(entry):
+            continue
         match = _EVIDENCE_PATTERN.fullmatch(entry)
         if match is None:
             raise FirmwareChainError(f"{label} requires machine-addressable evidence references")
@@ -604,11 +607,11 @@ def _review_index(con, run_dir: pathlib.Path, review: dict) -> list[dict]:
     return receipts
 
 
-def _prepared_evidence(con, run_dir: pathlib.Path, result: GraphResult) -> dict:
-    """Rebuild the exact frozen boundary from current SQL; never access live roots.
+def _prepared_evidence(con, run_dir: pathlib.Path, result: GraphResult, *, root=None) -> dict:
+    """Reconstruct frozen evidence and exact current dive authority read-only.
 
-    Preparation and final check own live-root verification. Import-time validation
-    proves the retained generation's complete-run identity and every evidence row.
+    Rootless compatibility exists only for a literal empty overlay and no dive
+    history. Every history-bearing generation rechecks live Stage4f and overlay.
     """
     from audit_core import firmware_chain, surface
 
@@ -687,6 +690,20 @@ def _prepared_evidence(con, run_dir: pathlib.Path, result: GraphResult) -> dict:
             rebuilt[collection].append(row)
         if run[collection[:-1] + "_count" if collection != "unknowns" else "unknown_count"] != len(rebuilt[collection]):
             raise FirmwareChainError("Prepared evidence counts differ")
+    overlay = firmware_chain._checked_overlay(frozen['dive_overlay'])
+    has_history = any(con.execute(f'SELECT 1 FROM cba_firmware_dive_{table} WHERE image_id=? LIMIT 1',
+        (result.image_id,)).fetchone() for table in ('runs', 'questions', 'receipts', 'observations', 'dependencies', 'acquisitions'))
+    if root is None:
+        if has_history or overlay['observations']:
+            raise FirmwareChainError('Dive history requires a live firmware root')
+        rebuilt['dive_overlay'] = dict(schema_version=1, observations=[])
+    else:
+        from audit_core import firmware_fpcheck
+        try:
+            snapshot = firmware_fpcheck.verified_findings_snapshot(con, run_dir, root, image_id=result.image_id)
+            rebuilt['dive_overlay'] = firmware_chain._current_overlay(con, run_dir, root, snapshot)
+        except firmware_fpcheck.FpcheckError as exc:
+            raise FirmwareChainError('Cannot verify live chain review') from exc
     if (type(rebuilt["schema_version"]) is not int or rebuilt["schema_version"] != 1
             or _json_bytes(rebuilt) != content):
         raise FirmwareChainError("Prepared evidence differs from current SQL")
@@ -699,6 +716,84 @@ def _prepared_evidence(con, run_dir: pathlib.Path, result: GraphResult) -> dict:
     return rebuilt
 
 
+class _DiveAuthority:
+    """Map structured observations to exact graph loci, without reading prose."""
+
+    def __init__(self, result, frozen, blocker_ids):
+        from types import SimpleNamespace
+        from audit_core import firmware_chain, firmware_dive_questions as q
+
+        overlay = firmware_chain._checked_overlay(frozen['dive_overlay'])
+        self.observations = {row['observation_id']: row for row in overlay['observations']}
+        self.findings = {row['finding_id']: row for row in frozen['findings']}
+        self.unknowns = {row['id']: row for row in frozen['unknowns']}
+        self.settled = {ref for row in overlay['observations'] for ref in row['subject_refs']
+            if ref.startswith(('chain-blocker:', 'surface-unknown:'))}
+        if any('chain-blocker:' + identity in self.settled for identity in blocker_ids.values()):
+            raise FirmwareChainError('A settled dive blocker cannot be recreated unchanged')
+        projected_chains, projected_edges = [], []
+        for chain in result.chains:
+            projected_chains.append(SimpleNamespace(chain_id=chain.chain_key, member_ids=chain.member_ids,
+                initial_attacker_position=chain.initial_attacker_position, initial_evidence_refs=chain.initial_evidence_refs,
+                initial_lifecycle=chain.initial_state.lifecycle, initial_posture=chain.initial_state.posture,
+                initial_authentication=chain.initial_state.authentication))
+            projected_edges.extend(SimpleNamespace(chain_id=chain.chain_key, ordinal=n, **dataclasses.asdict(edge))
+                for n, edge in enumerate(chain.edges))
+        graph = SimpleNamespace(image_id=result.image_id, candidate_snapshot_sha256=result.candidate_snapshot_sha256,
+            chains=projected_chains, edges=projected_edges)
+        self.chain_subjects = {chain.chain_id: 'chain:' + q.chain_fingerprint(graph, chain) for chain in projected_chains}
+        self.edge_subjects = {(edge.chain_id, edge.ordinal): 'edge:' + q.edge_fingerprint(graph, edge) for edge in projected_edges}
+        for row in overlay['observations']:
+            effect = row['resolution_effect']
+            if row['outcome'] == 'refuted' and effect['target_subject'] in self.edge_subjects.values():
+                raise FirmwareChainError('An exactly refuted edge cannot be recreated')
+        for chain in result.chains:
+            self.constraints(chain, None, chain.member_ids[0], dataclasses.asdict(chain.initial_state))
+
+    def matches(self, row, chain, ordinal, owner):
+        target = row['resolution_effect']['target_subject']
+        kind, identity = target.split(':', 1)
+        if kind == 'finding':
+            return identity == owner
+        if kind == 'chain':
+            return ordinal is None and target == self.chain_subjects[chain.chain_key]
+        if kind == 'edge':
+            return ordinal is not None and target == self.edge_subjects[chain.chain_key, ordinal]
+        if kind == 'surface-unknown':
+            unknown, finding = self.unknowns.get(identity), self.findings.get(owner)
+            return bool(unknown and finding and (unknown['surface_id'] in finding['surface_ids']
+                if unknown['surface_id'] is not None else unknown['component_path'] in finding['component_paths']))
+        # Blocker effects settle the exact question. There is no blocker evidence
+        # slot in the result wire, so linkage cannot grant an edge citation.
+        return False
+
+    def constraints(self, chain, ordinal, owner, state):
+        for row in self.observations.values():
+            effect = row['resolution_effect']
+            if (effect['predicate'] == 'state-value' and self.matches(row, chain, ordinal, owner)
+                    and effect['axis'] in state and state[effect['axis']] != effect['value']):
+                raise FirmwareChainError('Explicit state contradicts the current dive effect')
+
+    def evidence(self, ref, chain, ordinal, owner, state, edge):
+        identity, _ = _DIVE_PATTERN.fullmatch(ref).groups()
+        row = self.observations.get(identity)
+        if row is None or row['outcome'] != 'supported' or not self.matches(row, chain, ordinal, owner):
+            raise FirmwareChainError('Dive evidence does not support this exact current subject')
+        effect = row['resolution_effect']
+        predicate, value = effect['predicate'], effect['value']
+        if predicate == 'state-value':
+            allowed = state.get(effect['axis']) == value
+        elif predicate == 'reachability':
+            allowed = value == 'evidenced'
+        else:
+            allowed = (edge is not None and effect['target_subject'] == self.edge_subjects[chain.chain_key, ordinal]
+                and value is True and (effect['capability_kind'], effect['link_key']) == (edge.capability_kind, edge.link_key)
+                and (predicate != 'transition-observed' or effect['transition_kind'] == edge.transition_kind))
+        if not allowed:
+            raise FirmwareChainError('Dive effect does not establish the cited proposition')
+        return predicate == 'transition-observed'
+
+
 def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
     findings = {row["finding_id"]: row for row in frozen["findings"]}
     surfaces = {row["surface_id"]: row for row in frozen["surfaces"]}
@@ -707,6 +802,7 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
     blockers = {row.blocker_key: row for row in result.blockers}
     blocker_ids = {key: canonical_blocker_id(result.image_id, result.candidate_snapshot_sha256, b) for key, b in blockers.items()}
     chain_ids = {c.chain_key: canonical_chain_id(result.image_id, result.candidate_snapshot_sha256, c, blocker_ids) for c in result.chains}
+    authority = _DiveAuthority(result, frozen, blocker_ids)
     memberships = {identifier: set() for identifier in findings}
     for chain in result.chains:
         for identifier in chain.member_ids:
@@ -717,13 +813,18 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
         raise FirmwareChainError("Dispositions must cover every reviewed finding exactly")
 
     def open_unknown(identifier):
+        if "surface-unknown:" + identifier in authority.settled:
+            raise FirmwareChainError("A settled dive unknown cannot remain a blocker")
         if identifier not in unknowns or unknowns[identifier]["status"] != "open" or identifier in pivots:
             raise FirmwareChainError("Blocker must be a current open unknown")
         return unknowns[identifier]
 
-    def evidence(refs, *, owner=None, initial=False):
-        texts = []
+    def evidence(refs, *, owner=None, initial=False, chain=None, ordinal=None, state=None, edge=None):
+        texts, transition = [], False
         for ref in refs:
+            if _DIVE_PATTERN.fullmatch(ref):
+                transition |= authority.evidence(ref, chain, ordinal, owner, state, edge)
+                continue
             kind, identifier, field = _EVIDENCE_PATTERN.fullmatch(ref).groups()
             if identifier in pivots:
                 raise FirmwareChainError("Pivots cannot supply evidence")
@@ -737,7 +838,7 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
             if kind == "unknown" and rows[identifier]["status"] != "resolved":
                 raise FirmwareChainError("Only resolved unknowns can supply evidence")
             texts.append(_text(rows[identifier][field], "retained evidence"))
-        return texts
+        return texts, transition
 
     for blocker in result.blockers:
         if not set(blocker.affected_finding_ids) <= findings.keys() or set(blocker.affected_finding_ids) & pivots:
@@ -767,7 +868,7 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
             _cell(d.existing_unknown_ids), _cell(sorted(blocker_ids[k] for k in d.blocker_keys)), _cell(d.pivot_followup_ids)))
     validated_chains, validated_edges = [], []
     for chain in result.chains:
-        evidence(chain.initial_evidence_refs, owner=chain.member_ids[0], initial=True)
+        evidence(chain.initial_evidence_refs, owner=chain.member_ids[0], initial=True, chain=chain, state=dataclasses.asdict(chain.initial_state))
         carried = dataclasses.asdict(chain.initial_state)
         chain_unknowns, chain_blockers = set(), set()
         # Finding-level blockers are conservatively relevant even when the worker
@@ -780,9 +881,18 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
                 chain_unknowns.update(d.existing_unknown_ids)
                 chain_blockers.update(blocker_ids[k] for k in d.blocker_keys)
         for ordinal, edge in enumerate(chain.edges):
-            producer = evidence(edge.producer_evidence_refs, owner=edge.producer_finding_id)
-            consumer = evidence(edge.consumer_evidence_refs, owner=edge.consumer_finding_id)
-            evidence(edge.supplemental_evidence_refs)
+            after_state = carried | {axis: value for axis, value in dataclasses.asdict(edge.result_state).items() if value != 'unchanged'}
+            producer = evidence(edge.producer_evidence_refs, owner=edge.producer_finding_id,
+                chain=chain, ordinal=ordinal, state=carried, edge=edge)
+            consumer = evidence(edge.consumer_evidence_refs, owner=edge.consumer_finding_id,
+                chain=chain, ordinal=ordinal, state=carried, edge=edge)
+            evidence(edge.supplemental_evidence_refs, owner=edge.consumer_finding_id,
+                chain=chain, ordinal=ordinal, state=after_state, edge=edge)
+            for owner in (edge.producer_finding_id, edge.consumer_finding_id):
+                authority.constraints(chain, ordinal, owner,
+                    {axis: value for axis, value in dataclasses.asdict(edge.required_state).items() if value != 'any'})
+                authority.constraints(chain, ordinal, owner,
+                    {axis: value for axis, value in dataclasses.asdict(edge.result_state).items() if value != 'unchanged'})
             for claim in (edge.produced_capability, edge.required_precondition):
                 if claim.strip().casefold().rstrip('.!') in _GENERIC_CLAIMS:
                     raise FirmwareChainError("Generic transition claim")
@@ -800,7 +910,7 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
                 # This is an explicit-boundary presence check, not a prose truth
                 # oracle. Both retained sides must name the claimed boundary.
                 pattern = _BOUNDARY_TERMS[edge.transition_kind]
-                if not all(any(re.search(pattern, text, re.IGNORECASE) for text in side) for side in (producer, consumer)):
+                if not all(transition or any(re.search(pattern, text, re.IGNORECASE) for text in texts) for texts, transition in (producer, consumer)):
                     raise FirmwareChainError("Transition boundary requires explicit producer and consumer evidence")
             carried.update({axis: value for axis, value in after.items() if value != "unchanged"})
             for ref in edge.existing_unknowns:
@@ -835,10 +945,10 @@ def _validate_graph(result: GraphResult, frozen: dict) -> ValidatedGraph:
         tuple(dispositions), validated_blockers, tuple(validated_chains), tuple(validated_edges))
 
 
-def validate(con, run_dir: str | pathlib.Path, result: GraphResult) -> ValidatedGraph:
+def validate(con, run_dir: str | pathlib.Path, result: GraphResult, *, root=None) -> ValidatedGraph:
     """Prove current ownership, coverage, transitions and conservative derivation.
 
-    No writes, artifact installs, or live-root reads occur. An owned read snapshot
+    No writes or artifact installs occur. Dive history requires live-root reads. An owned read snapshot
     is ended only when this call opened it; caller transactions remain untouched.
     """
     import sqlite3
@@ -852,7 +962,7 @@ def validate(con, run_dir: str | pathlib.Path, result: GraphResult) -> Validated
         if not con.in_transaction:
             con.execute("BEGIN")
             owned = True
-        frozen = _prepared_evidence(con, pathlib.Path(run_dir).absolute(), result)
+        frozen = _prepared_evidence(con, pathlib.Path(run_dir).absolute(), result, **({"root": root} if root is not None else {}))
         return _validate_graph(result, frozen)
     except sqlite3.Error as exc:
         raise FirmwareChainError("database operation failed") from exc
@@ -919,7 +1029,7 @@ def _checked_result_install(run_dir: pathlib.Path, destination: pathlib.Path, co
 
 
 def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
-           result_path: str | pathlib.Path, *, replace: bool = False) -> ImportSummary:
+           result_path: str | pathlib.Path, *, replace: bool = False, root=None) -> ImportSummary:
     """Install canonical result bytes, then atomically publish one owned graph.
 
     Retained provenance and selected-image state are rechecked under a write
@@ -933,7 +1043,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         if con.in_transaction:
             raise FirmwareChainError("Chain import requires a connection without an active transaction")
         run_dir = pathlib.Path(run_dir).absolute()
-        validated = validate(con, run_dir, load(result_path))
+        validated = validate(con, run_dir, load(result_path), root=root)
         result = validated.result
         prior = _publication_state(con, result, replace=replace)
         content = canonical_bytes(result)
@@ -944,7 +1054,7 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         surface.atomic_install(destination, {"result.json": content})
         con.execute("BEGIN IMMEDIATE")
         started = True
-        if (validate(con, run_dir, result) != validated or
+        if (validate(con, run_dir, result, root=root) != validated or
                 _publication_state(con, result, replace=replace) != prior):
             raise FirmwareChainError("Firmware chain inputs changed before publication")
         _checked_result_install(run_dir, destination, content)

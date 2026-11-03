@@ -642,6 +642,8 @@ def _firmware_chain_refs(row: dict[str, str], column: str, *, initial: bool = Fa
         raise DbError(f"{column} requires at least one evidence reference")
     for value in values:
         _firmware_fp_text(value, column)
+        if re.fullmatch(r"dive:[0-9a-f]{64}#(?:conclusion|evidence)", value):
+            continue
         match = re.fullmatch(r"(finding|surface|unknown):([A-Za-z0-9][A-Za-z0-9._:-]{0,127})#([a-z_]+)", value)
         if match is None:
             raise DbError(f"{column} requires machine-addressable evidence references")

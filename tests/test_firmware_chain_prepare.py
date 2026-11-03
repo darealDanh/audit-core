@@ -312,7 +312,7 @@ def test_chain_literal_global_worklist_and_idempotent_preservation(chain_ready):
     # Literal semantic fields; only upstream cryptographic identities/provenance
     # depend on fixture bytes. Neither the snapshot projection nor serializer is
     # used to derive this oracle.
-    expected = dict(schema_version=1, image_id='target', manifest_sha256=prep.manifest_sha256,
+    expected = dict(schema_version=1, dive_overlay={'schema_version': 1, 'observations': []}, image_id='target', manifest_sha256=prep.manifest_sha256,
         surface_snapshot_sha256=prep.surface_snapshot_sha256,
         candidate_snapshot_sha256=prep.candidate_snapshot_sha256,
         fpcheck_worklist_sha256=prep.worklist_sha256,
@@ -678,3 +678,18 @@ def test_chain_valid_upstream_replacement_between_read_and_publication_is_refuse
         chain_prepare(chain_ready)
     assert published_state and chain_rows(con) == published_state and not con.in_transaction
     assert firmware_fpcheck.verified_findings_snapshot(con, run, root).findings[0].root_cause == 'New fully verified evidence'
+
+
+def test_pending_dive_does_not_change_empty_overlay_generation(prepared, tmp_path):
+    from tests.test_firmware_chain_validation import graph_case as fixture
+    graph_case = fixture.__wrapped__(prepared, tmp_path)
+    from audit_core import firmware_chain, firmware_dive
+    from tests.test_firmware_chain_import import record
+    from tests.test_firmware_chain_gate import check
+    record(graph_case); check(graph_case)
+    first = firmware_chain.prepare(*graph_case[:3], image_id='target')
+    firmware_dive.prepare(*graph_case[:3], image_id='target')
+    before, artifacts = state(graph_case[0]), files(graph_case[1])
+    assert firmware_chain.prepare(*graph_case[:3], image_id='target') == first
+    assert json.loads(pathlib.Path(first.worklist_path).read_bytes())['dive_overlay'] == {'schema_version': 1, 'observations': []}
+    assert state(graph_case[0]) == before and files(graph_case[1]) == artifacts

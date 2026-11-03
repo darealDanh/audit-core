@@ -46,7 +46,8 @@ def populate(case, tmp_path, outcome='inconclusive', generation=None):
         answer = outcome if question['method'] == 'static' and json.loads((case[1]/question['packet_path']).read_bytes())['question']['resolution_contract']['mode'] == 'boolean-claim' else 'inconclusive'
         item = build(case, question, directory, outcome=answer)
         if answer == 'refuted':
-            item[2]['questions'][0]['resolution_effect']['value'] = False
+            effect = item[2]['questions'][0]['resolution_effect']
+            effect['value'] = 'refuted' if effect['predicate'] == 'reachability' else False
             save(item)
         record(item)
 
@@ -180,21 +181,26 @@ def regenerate(case):
     from tests.test_firmware_chain_gate import check as chain_check
     prepared_chain = firmware_chain.prepare(*case[:3], image_id='target')
     case[3].update(worklist_sha256=prepared_chain.worklist_sha256,candidate_snapshot_sha256=prepared_chain.candidate_snapshot_sha256)
-    chain_record(case); chain_check(case)
+    chain_record(case, root=case[2]); chain_check(case)
 
 
 def test_retry_deduplicates_then_conflict_excludes_without_timestamp_winner(graph_case,tmp_path):
-    complete(graph_case); first = prepare(graph_case); populate(graph_case,tmp_path,'supported')
+    from tests.test_firmware_dive_prepare import retry_manifest
+    from tests.test_firmware_chain_import import record as chain_record
+    from tests.test_firmware_chain_gate import check as chain_check
+    chain_record(graph_case); chain_check(graph_case)
+    path = retry_manifest(graph_case)
+    first = prepare(graph_case, questions_path=path); populate(graph_case,tmp_path,'supported')
     check(graph_case)
     before = overlay(graph_case)
-    static = next(r for r in rows(graph_case[0],'cba_firmware_dive_questions') if r['origin']=='chain-blocker')
+    static = next(r for r in rows(graph_case[0],'cba_firmware_dive_questions') if r['origin']=='analyst')
     regenerate(graph_case)
-    second = prepare(graph_case,retry=[static['question_id']])
+    second = prepare(graph_case,questions_path=path,retry=[static['question_id']])
     populate(graph_case,tmp_path,'supported',second.dive_generation)
     check(graph_case)
     assert overlay(graph_case) == before
     assert rows(graph_case[0],'cba_firmware_chain_runs')
-    third = prepare(graph_case,retry=[static['question_id']])
+    third = prepare(graph_case,questions_path=path,retry=[static['question_id']])
     populate(graph_case,tmp_path,'refuted',third.dive_generation)
     summary = check(graph_case)
     assert overlay(graph_case).observations == () and summary.contested_count == 1
@@ -420,10 +426,11 @@ def test_extract_currentness_is_separate_from_immutable_history(graph_case,tmp_p
     assert summary.stale_count == (1 if damage=='source' else 0)
 
 
-def test_current_matching_upstream_needs_no_retained_chain_worklist(pending):
+def test_keyed_worklist_retention_is_required_even_with_current_upstream(pending):
     check(pending)
     for path in (pending[1]/'files/firmware-chain').glob('*/worklist.json'): path.unlink()
-    assert check(pending).complete and overlay(pending).observations == ()
+    with pytest.raises(dive.FirmwareDiveError): check(pending)
+    with pytest.raises(dive.FirmwareDiveError): overlay(pending)
 
 
 @pytest.mark.parametrize('table',['questions','receipts','observations','dependencies'])
@@ -725,10 +732,15 @@ def test_frozen_input_overlay_cannot_claim_stale_review_ownership(graph_case,tmp
 
 def test_retry_prior_observation_is_reconstructed_exactly(graph_case,tmp_path):
     from audit_core import firmware_dive_questions as q
-    complete(graph_case);prepare(graph_case);populate(graph_case,tmp_path,'supported');check(graph_case)
+    from tests.test_firmware_dive_prepare import retry_manifest
+    from tests.test_firmware_chain_import import record as chain_record
+    from tests.test_firmware_chain_gate import check as chain_check
+    chain_record(graph_case); chain_check(graph_case)
+    path = retry_manifest(graph_case)
+    prepare(graph_case, questions_path=path);populate(graph_case,tmp_path,'supported');check(graph_case)
     observation=next(r for r in rows(graph_case[0],'cba_firmware_dive_observations') if r['outcome']=='supported')
     regenerate(graph_case)
-    retry=prepare(graph_case,retry=[q.RetryDirective(observation['question_id'],observation['observation_id'])])
+    retry=prepare(graph_case,questions_path=path,retry=[q.RetryDirective(observation['question_id'],observation['observation_id'])])
     populate(graph_case,tmp_path,'supported',retry.dive_generation)
     assert check(graph_case).complete
 
@@ -744,7 +756,7 @@ def test_empty_generation_still_validates_unique_frozen_journal_index(pending,tm
     root=tmp_path/'empty-root';empty_review(con,run,root,'target')
     chain=firmware_chain.prepare(con,run,root,image_id='target')
     case=(con,run,root,dict(schema_version=1,image_id='target',candidate_snapshot_sha256=chain.candidate_snapshot_sha256,worklist_sha256=chain.worklist_sha256,blockers=[],dispositions=[],chains=[]),{})
-    chain_record(case);chain_check(case)
+    chain_record(case, root=case[2]);chain_check(case)
     generation=dive.prepare(con,run,root,image_id='target')
     assert generation.question_count==0
     result=tmp_path/'empty-result.json';result.write_bytes(canonical(dict(schema_version=1,image_id='target',dive_generation=generation.dive_generation,questions=[])))
@@ -760,11 +772,15 @@ def test_empty_generation_still_validates_unique_frozen_journal_index(pending,tm
 def opaque_first(case, tmp_path):
     """One real pre-canonical conclusion, with canonical unrelated receipts."""
     from tests.test_firmware_dive_prepare import accepted
-    complete(case)
-    first = prepare(case)
+    from tests.test_firmware_chain_import import record as chain_record
+    from tests.test_firmware_chain_gate import check as chain_check
+    from tests.test_firmware_dive_prepare import retry_manifest
+    chain_record(case); chain_check(case)
+    path = retry_manifest(case, reachability=True)
+    first = prepare(case, questions_path=path)
     con = case[0]
-    question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['origin']=='chain-blocker')
-    _, observed = accepted(case,first,value=True,question_id=question['question_id'],_fill=False)
+    question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['origin']=='analyst')
+    _, observed = accepted(case,first,value='evidenced',question_id=question['question_id'],_fill=False)
     con.execute("UPDATE cba_firmware_dive_runs SET status='pending',completed_at=NULL,journal_path=NULL,journal_sha256=NULL,supported_count=0,refuted_count=0,inconclusive_count=0")
     con.commit()
     for n,row in enumerate(rows(con,'cba_firmware_dive_questions')):
@@ -777,7 +793,7 @@ def opaque_first(case, tmp_path):
 
 def test_opaque_retry_history_never_creates_current_conflict(graph_case,tmp_path):
     question,old=opaque_first(graph_case,tmp_path)
-    retry=prepare(graph_case,retry=[question['question_id']+':'+old['observation_id']])
+    retry=prepare(graph_case,questions_path=graph_case[1]/'scratch-analyst/analyst.json',retry=[question['question_id']+':'+old['observation_id']])
     con,run=graph_case[:2]
     row=next(r for r in rows(con,'cba_firmware_dive_questions') if r['dive_generation']==retry.dive_generation and r['question_id']==question['question_id'])
     assert row['attempt_ordinal']==2 and row['prior_observation_id']==old['observation_id']
@@ -799,8 +815,8 @@ def freeze_legacy_conflict(case, old, monkeypatch):
     """Replay the old preparer's accepted opaque context to retain a real frozen owner."""
     from audit_core import firmware_dive_questions as q
     original=dive._history
-    def historical(run,stored,graph):
-        history,index,inputs=original(run,stored,graph)
+    def historical(run,stored,graph,upstream=None):
+        history,index,inputs=original(run,stored,graph,upstream)
         history=tuple(dataclasses.replace(h,dependency_current=True) if h.observation_id==old['observation_id'] else h for h in history)
         index=tuple(dataclasses.replace(i,status='current') if i.observation_id==old['observation_id'] else i for i in index)
         deps=[{k:v for k,v in d.items() if k not in ('image_id','dive_generation','question_id','ordinal','observation_id','recorded_at')}
@@ -816,7 +832,7 @@ def freeze_legacy_conflict(case, old, monkeypatch):
 
 def test_frozen_opaque_conflict_completes_as_stale_without_poisoning_canonical_overlay(graph_case,tmp_path,monkeypatch):
     question,old=opaque_first(graph_case,tmp_path)
-    retry=prepare(graph_case,retry=[question['question_id']])
+    retry=prepare(graph_case,questions_path=graph_case[1]/'scratch-analyst/analyst.json',retry=[question['question_id']])
     populate(graph_case,tmp_path,'refuted',retry.dive_generation);check(graph_case)
     accepted=overlay(graph_case)
     regenerate(graph_case)
@@ -833,7 +849,7 @@ def test_frozen_opaque_conflict_completes_as_stale_without_poisoning_canonical_o
     assert check(graph_case)==summary and overlay(graph_case)==accepted
     assert state(graph_case[0])==before and files(graph_case[1])==artifacts and graph_case[0].total_changes==changes
     # A later prepare must retain the historical conflict only as stale context.
-    later=prepare(graph_case,retry=[question['question_id']])
+    later=prepare(graph_case,questions_path=graph_case[1]/'scratch-analyst/analyst.json',retry=[question['question_id']])
     owner=next(r for r in rows(graph_case[0],'cba_firmware_dive_runs') if r['dive_generation']==later.dive_generation)
     index=json.loads((graph_case[1]/owner['question_index_path']).read_bytes())
     assert {r['observation_id'] for r in index['input_overlay']}=={accepted.observations[0].observation_id}

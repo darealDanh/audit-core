@@ -19,13 +19,13 @@ GRAPH_TABLES = ('cba_firmware_chain_edges', 'cba_firmware_chains', 'cba_firmware
                 'cba_firmware_chain_unknowns', 'cba_firmware_chain_receipts')
 
 
-def record(case, *, connection=None, replace=False):
+def record(case, *, connection=None, replace=False, root=None):
     con, run, _, value, _ = case
     path = run / 'worker-graph.json'
     path.write_text(json.dumps(value, ensure_ascii=False))
     importer = getattr(results, 'record', None)
     assert callable(importer), 'Task 6 atomic importer is missing'
-    return importer(con if connection is None else connection, run, path, replace=replace)
+    return importer(con if connection is None else connection, run, path, replace=replace, **({"root": root} if root is not None else {}))
 
 
 def rows(con, table, image='target'):

@@ -398,3 +398,38 @@ def test_review_receipt_cannot_relabel_counts_even_when_totals_are_consistent(gr
                 'duplicate_count=duplicate_count+1 WHERE true_positive_count>0')
     with pytest.raises(results.FirmwareChainError):
         validate(graph_case)
+
+
+def test_new_prepared_worklist_cannot_omit_overlay_even_with_matching_hash(graph_case):
+    import hashlib
+    con, run, _, value, frozen = graph_case
+    frozen.pop('dive_overlay')
+    content = (json.dumps(frozen, sort_keys=True, ensure_ascii=False, separators=(',', ':')) + '\n').encode()
+    digest = hashlib.sha256(content).hexdigest()
+    path = run / 'files/firmware-chain' / digest / 'worklist.json'
+    path.parent.mkdir(); path.write_bytes(content)
+    con.execute('UPDATE cba_firmware_chain_runs SET worklist_path=?,worklist_sha256=?', (str(path), digest))
+    con.commit(); value['worklist_sha256'] = digest
+    before = state(con)
+    with pytest.raises(results.FirmwareChainError): validate(graph_case)
+    assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize('reference', ['dive:' + '1' * 64 + '#conclusion', 'dive:' + 'a' * 64 + '#evidence'])
+@pytest.mark.parametrize('position', ['initial_evidence_refs', 'producer_evidence_refs', 'consumer_evidence_refs', 'supplemental_evidence_refs'])
+def test_dive_reference_exact_syntax_in_sql_contract(reference, position):
+    from tests.test_firmware_chain_schema import ROWS
+    table = 'cba_firmware_chains' if position == 'initial_evidence_refs' else 'cba_firmware_chain_edges'
+    row = next(dict(row) for name, row in ROWS if name == table)
+    row[position] = json.dumps([reference], separators=(',', ':'))
+    db.TABLE_SPECS[table].validate(row)
+
+
+@pytest.mark.parametrize('reference', ['dive:' + 'A' * 64 + '#conclusion', 'dive:' + '1' * 63 + '#evidence',
+    'dive:' + '1' * 64 + '#body', 'dive:' + '1' * 64 + '#evidence\n', 'dive:g' + '1' * 63 + '#evidence'])
+def test_malformed_dive_references_fail_parser_and_sql(reference):
+    from tests.test_firmware_chain_schema import ROWS
+    row = next(dict(row) for name, row in ROWS if name == 'cba_firmware_chain_edges')
+    row['supplemental_evidence_refs'] = json.dumps([reference], separators=(',', ':'))
+    with pytest.raises(db.DbError): db.TABLE_SPECS['cba_firmware_chain_edges'].validate(row)
+    with pytest.raises(results.FirmwareChainError): results._evidence_refs([reference], 'supplemental', supplemental=True)

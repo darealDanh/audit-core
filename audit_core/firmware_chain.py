@@ -34,15 +34,70 @@ class PreparationSummary:
     pivot_count: int
 
 
-def _worklist(snapshot: firmware_fpcheck.VerifiedFirmwareFindingsSnapshot) -> bytes:
+def _worklist(snapshot: firmware_fpcheck.VerifiedFirmwareFindingsSnapshot, overlay=None, *, legacy=False) -> bytes:
     """Preserve the complete verified input with context-only pivots, without caps."""
     projection = dataclasses.asdict(snapshot)
     projection["schema_version"] = 1
+    if not legacy:
+        projection["dive_overlay"] = _checked_overlay(overlay if overlay is not None else dict(schema_version=1, observations=[]))
     for collection, identifier in (("findings", "finding_id"), ("surfaces", "surface_id"),
                                    ("unknowns", "id"), ("pivots", "pivot_id")):
         projection[collection] = sorted(projection[collection], key=lambda row: row[identifier])
     projection["pivots"] = [row | {"context_only": True} for row in projection["pivots"]]
     return surface.canonical_bytes(projection)
+
+
+def _checked_overlay(value) -> dict:
+    """Strict additive-v1 wire; historical graphs freeze, never refresh, this value."""
+    from audit_core import firmware_dive as dive, firmware_dive_questions as q, firmware_dive_results as results
+
+    try:
+        body = q._object(value, dive.CurrentDiveOverlay)
+        if type(body['schema_version']) is not int or body['schema_version'] != 1 or not isinstance(body['observations'], list):
+            raise ValueError('Invalid overlay schema')
+        identities = []
+        for raw in body['observations']:
+            row = q._object(raw, dive.CurrentDiveObservation)
+            identities.append(q._digest(row['observation_id']))
+            q._digest(row['question_id'])
+            subjects = q._subjects(row['subject_refs'])
+            q._enum(row['outcome'], ('supported', 'refuted'))
+            q._enum(row['evidence_rung'], db.FIRMWARE_DIVE_EVIDENCE_RUNGS)
+            effect = results._effect(row['resolution_effect'])
+            if effect is None or effect.target_subject not in subjects or (row['outcome'] == 'refuted' and effect.mode != 'boolean-claim'):
+                raise ValueError('Invalid overlay resolution authority')
+            for key in ('dependency_refs', 'evidence_refs'):
+                q._canonical(row[key], key, minimum=1)
+                for ref in row[key]: q._digest(ref)
+        if identities != sorted(set(identities)):
+            raise ValueError('Duplicate or unordered overlay observations')
+        return body
+    except (ValueError, TypeError, KeyError) as exc:
+        raise FirmwareChainError('Invalid frozen dive overlay') from exc
+
+
+def _current_overlay(con, run_dir, root, snapshot) -> dict:
+    from audit_core import firmware_dive as dive, firmware_dive_questions as q
+
+    try:
+        return _checked_overlay(q._wire(dive.current_overlay(con, run_dir, root, snapshot)))
+    except dive.FirmwareDiveError as exc:
+        raise FirmwareChainError('Cannot verify current chain dive overlay') from exc
+
+
+def _retained_worklist_overlay(run_dir, snapshot, worklist_sha256):
+    """Recover exact historical authority, with a pre-overlay hash fallback only."""
+    results = firmware_chain_results
+    if hashlib.sha256(_worklist(snapshot, legacy=True)).hexdigest() == worklist_sha256:
+        return None
+    retained = results._retained_bytes(run_dir,
+        'files/firmware-chain/' + worklist_sha256 + '/worklist.json', worklist_sha256)
+    frozen = json.loads(retained, object_pairs_hook=results._pairs, parse_constant=results._constant)
+    legacy = 'dive_overlay' not in frozen
+    overlay = None if legacy else _checked_overlay(frozen['dive_overlay'])
+    if _worklist(snapshot, overlay, legacy=legacy) != retained:
+        raise FirmwareChainError('Retained worklist differs from verified review')
+    return overlay
 
 
 def invalidate(con: sqlite3.Connection, image_id: str, *, commit: bool = False) -> None:
@@ -88,7 +143,8 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         run_dir = pathlib.Path(run_dir).absolute()
         snapshot = firmware_fpcheck.verified_findings_snapshot(con, run_dir, root, image_id=image_id)
         prior = surface._query(con, "SELECT * FROM cba_firmware_chain_runs WHERE image_id=?", (snapshot.image_id,))
-        content = _worklist(snapshot)
+        overlay = _current_overlay(con, run_dir, root, snapshot)
+        content = _worklist(snapshot, overlay)
         digest = hashlib.sha256(content).hexdigest()
         destination = run_dir / "files/firmware-chain" / digest
         summary = PreparationSummary(snapshot.image_id, snapshot.manifest_sha256, snapshot.surface_snapshot_sha256,
@@ -103,7 +159,8 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: str | pa
         con.execute("BEGIN IMMEDIATE")
         started = True
         if (firmware_fpcheck.verified_findings_snapshot(con, run_dir, root, image_id=image_id) != snapshot or
-                surface._query(con, "SELECT * FROM cba_firmware_chain_runs WHERE image_id=?", (snapshot.image_id,)) != prior):
+                surface._query(con, "SELECT * FROM cba_firmware_chain_runs WHERE image_id=?", (snapshot.image_id,)) != prior or
+                _current_overlay(con, run_dir, root, snapshot) != overlay):
             raise FirmwareChainError("Firmware chain inputs changed before publication")
         _checked_install(destination, content)
         if not same:
@@ -286,7 +343,7 @@ def _checked_graph_install(run_dir: pathlib.Path, destination: pathlib.Path, con
         raise FirmwareChainError("Installed firmware chain graph differs before completion")
 
 
-def _verified_graph(snapshot, parsed, result_sha256: str) -> tuple:
+def _verified_graph(snapshot, parsed, result_sha256: str, overlay=None) -> tuple:
     """Derive one canonical graph from verified Stage 4f evidence, without SQL.
 
     Historical worklist/result digests are retained provenance. In particular,
@@ -297,7 +354,7 @@ def _verified_graph(snapshot, parsed, result_sha256: str) -> tuple:
     results._digest(result_sha256, "result_sha256")
     if (parsed.image_id, parsed.candidate_snapshot_sha256) != (snapshot.image_id, snapshot.candidate_snapshot_sha256):
         raise FirmwareChainError("Firmware chain graph differs from verified review ownership")
-    validated = results._validate_graph(parsed, json.loads(_worklist(snapshot)))
+    validated = results._validate_graph(parsed, json.loads(_worklist(snapshot, overlay)))
     graph = dict(schema_version=1, image_id=snapshot.image_id,
         candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256,
         worklist_sha256=parsed.worklist_sha256, result_sha256=result_sha256)
@@ -423,7 +480,11 @@ def verified_retained_graph_snapshot(con: sqlite3.Connection, run_dir: str | pat
         content = results._retained_bytes(run_dir, relative, digest)
         graph = json.loads(content, object_pairs_hook=results._pairs, parse_constant=results._constant)
         parsed = _graph_result(graph)
-        validated, expected = _verified_graph(snapshot, parsed, graph["result_sha256"])
+        # Only an exact independently reconstructed pre-overlay hash can stand
+        # in for a deleted historical worklist. Keyed worklists always retain
+        # their original overlay; never refresh it through current_overlay.
+        overlay = _retained_worklist_overlay(run_dir, snapshot, parsed.worklist_sha256)
+        validated, expected = _verified_graph(snapshot, parsed, graph["result_sha256"], overlay)
         destination = run_dir / "artifacts/firmware-chain" / parsed.worklist_sha256 / digest
         if relative != (destination / "chains.json").relative_to(run_dir).as_posix() or content != expected:
             raise FirmwareChainError("Retained firmware graph is not its canonical owned projection")
@@ -467,7 +528,8 @@ def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None)
         db.TABLE_SPECS["cba_firmware_chain_runs"].validate(run)
         if not isinstance(run["prepared_at"], str) or not run["prepared_at"].strip():
             raise FirmwareChainError("Firmware chain preparation timestamp is missing")
-        worklist = _worklist(snapshot)
+        overlay = _current_overlay(con, run_dir, root, snapshot)
+        worklist = _worklist(snapshot, overlay)
         generation = hashlib.sha256(worklist).hexdigest()
         worklist_dir = run_dir / "files/firmware-chain" / generation
         expected_run = dict(image_id=snapshot.image_id, manifest_sha256=snapshot.manifest_sha256,
@@ -492,12 +554,12 @@ def _completion_evidence(con, run_dir: pathlib.Path, root, image_id: str | None)
             raise FirmwareChainError("Firmware chain result path is not canonical")
         retained = results._retained_bytes(run_dir, result_path.relative_to(run_dir).as_posix(), receipt["result_sha256"])
         parsed = results.load(result_path)
-        results._prepared_evidence(con, run_dir, parsed)
+        results._prepared_evidence(con, run_dir, parsed, root=root)
         content = results.canonical_bytes(parsed)
         if retained != content:
             raise FirmwareChainError("Firmware chain result bytes are not canonical")
         results._checked_result_install(run_dir, result_dir, content)
-        validated, graph_content = _verified_graph(snapshot, parsed, receipt["result_sha256"])
+        validated, graph_content = _verified_graph(snapshot, parsed, receipt["result_sha256"], overlay)
         expected_receipt = dict(image_id=snapshot.image_id, candidate_snapshot_sha256=snapshot.candidate_snapshot_sha256,
             worklist_sha256=generation, result_path=str(result_path), result_sha256=hashlib.sha256(content).hexdigest(),
             disposition_count=len(validated.dispositions), blocker_count=len(validated.blockers),

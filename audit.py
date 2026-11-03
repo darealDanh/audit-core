@@ -1021,8 +1021,6 @@ def _cmd_firmware_chain(args: argparse.Namespace) -> int:
     """Delegate firmware operations and expose only scalar provenance/counts."""
     if args.replace and args.record is None:
         error = "--replace requires --record"
-    elif args.record is not None and args.root is not None:
-        error = "--root is only valid for prepare or check"
     elif args.record is not None and args.image_id is not None:
         error = "--image-id is not valid with --record"
     elif (args.prepare or args.check) and args.root is None:
@@ -1058,7 +1056,8 @@ def _cmd_firmware_chain(args: argparse.Namespace) -> int:
                       "finding_count", "surface_count", "unknown_count", "pivot_count")
         elif args.record is not None:
             result = firmware_chain_results_mod.record(
-                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace)
+                con, run_dir, pathlib.Path(args.record).expanduser(), replace=args.replace,
+                **({"root": root} if root is not None else {}))
             fields = ("image_id", "finding_count", "disposition_count", "blocker_count",
                       "chain_count", "edge_count", "complete_chains", "blocked_chains", "artifact_path")
         else:
@@ -1675,7 +1674,8 @@ def build_parser() -> argparse.ArgumentParser:
     chain_mode.add_argument("--prepare", action="store_true", help="prepare a firmware chain worklist")
     chain_mode.add_argument("--record", metavar="RESULT", help="import firmware chain review JSON")
     chain_mode.add_argument("--check", action="store_true", help="verify and complete firmware chains")
-    ch.add_argument("--root", metavar="ROOT", help="live firmware root for prepare or check")
+    ch.add_argument("--root", metavar="ROOT",
+                    help="live firmware root for prepare/check; required for record with dive history")
     ch.add_argument("--image-id", metavar="ID", help="select the firmware image")
     ch.add_argument("--compose", default=None, metavar="CHAIN_ID",
                     help="record a chain instead of proposing")

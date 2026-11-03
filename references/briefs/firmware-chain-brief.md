@@ -32,6 +32,51 @@ required fields and explicit empty arrays where appropriate. An empty finding
 generation still requires a valid bound result with zero dispositions, chains,
 and blockers; absence of a result is not a negative review.
 
+## Current dive overlay
+
+The worklist always contains `dive_overlay` with exactly `schema_version: 1`
+and `observations` (an empty array when no observations are current). Each
+observation contains exactly `observation_id`, `question_id`, `subject_refs`,
+`outcome`, `resolution_effect`, `evidence_rung`, `dependency_refs`, and
+`evidence_refs`. Subjects use their stable `kind:identity` wire. The effect has
+exactly `target_subject`, `mode`, `predicate`, `axis`, `value`,
+`capability_kind`, `link_key`, and `transition_kind`. Dependency/evidence refs
+are identity digests, not private evidence bodies or access paths. Consume this
+exact frozen projection; do not fetch private dive conclusions to infer effects.
+
+Only `supported` current observations authorize
+`dive:<64-lowercase-hex-observation-id>#conclusion` or `#evidence`; both fragments
+have identical authority. These may appear only in existing initial, producer,
+consumer, or supplemental evidence arrays. Every citation must independently
+match the effect's exact target and containing locus. `subject_refs` establish
+frozen linkage and settlement; they never broaden an edge target's authority.
+
+A state-value citation must equal the initial state in an initial slot, the
+carried required state in a producer/consumer slot, or the effective result
+state in a supplemental slot. Initial evidence targets the first finding,
+exact chain, or its exactly linked surface unknown. Edge evidence targets the
+exact stable edge, its specified endpoint finding, or its exactly linked
+unknown. Reachability evidence requires `value: evidenced`. Edge-validity and
+capability-present require true and the exact capability/link identity.
+Only transition-observed with true and the exact transition identity can
+establish a non-direct boundary; other dive predicates cannot replace that
+proof. An other-specific discovery settles its exact unknown only.
+
+Honor supported effects and refuted constraints even when not cited. Never
+recreate a settled chain-blocker or surface-unknown from a conclusive
+observation's frozen subjects. A changed question must have its own distinct
+identity. Never recreate an exactly refuted edge fingerprint. Refuted state
+effects record the observed alternative: an explicit claim on that exact
+subject must not contradict it, but a refuted observation is never positive
+evidence. Stale, contested, inconclusive, and foreign observations are absent
+and cannot be cited. Stable edge/chain fingerprints exclude only well-formed
+dive citations; static evidence and all other semantic fields remain exact.
+
+Evidence rung describes provenance strength. It never establishes severity,
+exploit reliability, or confidence and never licenses inference beyond the
+exact observed environment and subject. Worklist ownership binds this overlay;
+if it changes, stop and request regeneration rather than repairing the input.
+
 ## Finding coverage and paths
 
 Give exactly one disposition for every current reviewed finding and no foreign
@@ -87,7 +132,7 @@ proof that one attacker can traverse the whole path.
 Declare `initial_attacker_position`, supported `initial_evidence_refs`, and one
 exact `initial_state` for lifecycle, posture, and authentication. Initial
 references must belong to the first finding's attacker-position/evidence fields
-or its current referenced surface. Separate alternative initial states into
+or its current referenced surface, with exact structured dive evidence as above. Separate alternative initial states into
 separate chains.
 
 For every edge declare `required_state` (an exact value or `any` on each axis)

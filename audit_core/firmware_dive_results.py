@@ -501,11 +501,12 @@ def _retained_graph(con, run, owner):
     raw = dive._read(run,relative,digest)
     body = dive._json(raw,newline=True)
     parsed = firmware_chain._graph_result(body)
-    validated, expected = firmware_chain._verified_graph(snapshot,parsed,body['result_sha256'])
+    overlay = firmware_chain._retained_worklist_overlay(run,snapshot,parsed.worklist_sha256)
+    validated, expected = firmware_chain._verified_graph(snapshot,parsed,body['result_sha256'],overlay)
     _require(raw == expected and relative == 'artifacts/firmware-chain/' + parsed.worklist_sha256 + '/' + digest + '/chains.json',
         'Prepared dive graph is not its canonical owned projection')
     dive._checked_install(run/pathlib.PurePosixPath(relative).parent,{'chains.json':raw},run)
-    return firmware_chain._graph_snapshot(snapshot,validated,relative,digest)
+    return firmware_chain._graph_snapshot(snapshot,validated,relative,digest), snapshot
 
 
 def _static_provenance(run, dependency, packet, owner, *, retained=False):
@@ -921,8 +922,8 @@ def _authority(con,run,result):
     owner, = owners
     _require(owner['status'] == 'pending' and owner['completed_at'] is None and owner['journal_path'] is None and owner['journal_sha256'] is None,
         'Result requires pending prepared generation')
-    graph = _retained_graph(con,run,owner)
-    dive._history(run,rows,graph)
+    graph, upstream = _retained_graph(con,run,owner)
+    dive._history(run,rows,graph,upstream)
     index = dive._json(dive._read(run,owner['question_index_path'],owner['question_index_sha256'],dive.MAX_INDEX_BYTES))
     assigned = [row for row in rows['questions'] if row['dive_generation'] == result.dive_generation]
     for column, origin in (('chain_blocker_count','chain-blocker'),('surface_unknown_count','surface-unknown'),

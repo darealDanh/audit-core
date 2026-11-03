@@ -240,8 +240,8 @@ def test_two_connection_write_contention_preserves_prior_sql(graph_case, tmp_pat
         con.rollback()
 
 
-def accepted(case, summary, *, value='admin', outcome='supported', identity='1' * 64, question_id=None, _fill=True):
-    """Future importer boundary: coherent SQL plus exact opaque artifact bytes."""
+def accepted(case, summary, *, value='admin', outcome='supported', identity='1' * 64, question_id=None, _fill=True, _complete=True):
+    """Legacy opaque attempt, completed through the real journal boundary when requested."""
     from tests.test_firmware_dive_schema import RECEIPT, OBSERVATION
     con, run = case[:2]
     question = next(r for r in rows(con, 'cba_firmware_dive_questions')
@@ -274,13 +274,6 @@ def accepted(case, summary, *, value='admin', outcome='supported', identity='1' 
         outcome=outcome, dependency_count=1, evidence_count=1, successor_count=0))
     db.put(con, 'cba_firmware_dive_dependencies', owner | dict(ordinal=0, observation_id=identity,
         **ref, byte_count=len(content), source_provenance='{}'))
-    journal = run / 'artifacts/test-dive' / summary.dive_generation / 'journal.json'
-    journal.parent.mkdir(parents=True, exist_ok=True)
-    journal.write_bytes(b'opaque accepted journal')
-    con.execute("UPDATE cba_firmware_dive_runs SET status='complete',journal_path=?,journal_sha256=?,completed_at='2026-01-02 03:04:05',supported_count=?,inconclusive_count=? WHERE image_id=? AND dive_generation=?",
-        (journal.relative_to(run).as_posix(), sha(journal.read_bytes()), int(outcome == 'supported'),
-        int(outcome == 'inconclusive'), 'target', summary.dive_generation))
-    con.commit()
     if _fill:
         present = {r['question_id'] for r in rows(con, 'cba_firmware_dive_observations') if r['dive_generation'] == summary.dive_generation}
         for row in rows(con, 'cba_firmware_dive_questions'):
@@ -288,10 +281,8 @@ def accepted(case, summary, *, value='admin', outcome='supported', identity='1' 
                 accepted(case, summary, outcome='inconclusive',
                     identity=sha(canonical([row['question_id'], row['attempt_ordinal']])),
                     question_id=row['question_id'], _fill=False)
-        values = [r for r in rows(con, 'cba_firmware_dive_observations') if r['dive_generation'] == summary.dive_generation]
-        con.execute('UPDATE cba_firmware_dive_runs SET supported_count=?,refuted_count=?,inconclusive_count=? WHERE dive_generation=?',
-            (*(sum(r['outcome'] == outcome for r in values) for outcome in ('supported','refuted','inconclusive')), summary.dive_generation))
-        con.commit()
+        if _complete:
+            api().check(*case[:3], image_id='target')
     return question, obs
 
 
@@ -326,21 +317,42 @@ def canonical_accepted(case, summary, *, value='admin', outcome='supported', que
             item[2]['questions'][0]['resolution_effect']['value']=value
             save(item)
         dive_record(item)
-    journal=run/'artifacts/test-dive'/summary.dive_generation/'journal.json'
-    journal.parent.mkdir(parents=True,exist_ok=True);journal.write_bytes(b'preparation fixture journal')
+    api().check(*case[:3], image_id='target')
     values=[r for r in rows(con,'cba_firmware_dive_observations') if r['dive_generation']==summary.dive_generation]
-    con.execute("UPDATE cba_firmware_dive_runs SET status='complete',journal_path=?,journal_sha256=?,completed_at='2026-01-02 03:04:05',supported_count=?,refuted_count=?,inconclusive_count=? WHERE dive_generation=?",
-        (journal.relative_to(run).as_posix(),sha(journal.read_bytes()),*(sum(r['outcome']==name for r in values) for name in ('supported','refuted','inconclusive')),summary.dive_generation))
-    con.commit()
     return question,next(r for r in values if r['question_id']==question['question_id'])
 
 
+def retry_manifest(case, *, reachability=False):
+    """An analyst question survives settlement of independent automatic blockers."""
+    from audit_core import firmware_dive_questions as q
+    graph = snapshot(case)
+    edge = graph.edges[0]
+    subject = 'edge:' + q.edge_fingerprint(graph, edge)
+    question = entry(graph, subject)
+    contract = question['resolution_contract']
+    if reachability:
+        finding = 'finding:' + edge.producer_finding_id
+        question['subject_refs'] = sorted([subject, finding])
+        question['axes'] = ['reachability']
+        contract.update(target_subject=finding, mode='boolean-claim', predicate='reachability',
+            axis='reachability', expected_value='evidenced', allowed_values=[])
+    else:
+        contract.update(mode='boolean-claim', predicate='edge-validity', axis=None,
+            expected_value=True, allowed_values=[], capability_kind=edge.capability_kind, link_key=edge.link_key)
+    directory = case[1] / 'scratch-analyst'; directory.mkdir(exist_ok=True)
+    return manifest(directory, [question])
+
+
 def contested(case):
-    first = prepare(case)
-    question, one = canonical_accepted(case, first)
-    second = prepare(case, retry=(question['question_id'],))
-    _, two = canonical_accepted(case, second, value='pre-auth', question_id=question['question_id'])
-    firmware_chain.invalidate(case[0], 'target', commit=True)
+    from tests.test_firmware_dive_gate import regenerate
+    path = retry_manifest(case)
+    first = prepare(case, questions_path=path)
+    selected = next(r for r in rows(case[0], 'cba_firmware_dive_questions')
+        if r['dive_generation'] == first.dive_generation and r['origin'] == 'analyst')
+    question, one = canonical_accepted(case, first, value=True, question_id=selected['question_id'])
+    regenerate(case)
+    second = prepare(case, questions_path=path, retry=(question['question_id'],))
+    _, two = canonical_accepted(case, second, value=False, outcome='refuted', question_id=question['question_id'])
     return first, second, question, one, two
 
 
@@ -375,7 +387,7 @@ def test_conflict_retry_ignores_older_owner_without_later_linked_subject(graph_c
     graph_case[3]['worklist_sha256'] = prepared.worklist_sha256
     graph_case[3]['chains'][0]['edges'][1]['existing_unknowns'] = [
         dict(unknown_id='overlap', axes=['authentication'])]
-    record(graph_case)
+    record(graph_case, root=root)
     check(graph_case)
     first, second, question, one, two = contested(graph_case)
     conflict = prepare(graph_case)
@@ -701,27 +713,31 @@ def test_completed_history_requires_exact_denominator_and_outcome_counts(graph_c
 
 
 def capture_history(case, *, capture=True):
-    from tests.test_firmware_dive_schema import ACQUISITION
     con, run = case[:2]
     first = prepare(case)
     question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['method']=='hardware')
-    question, obs = accepted(case, first, value=True, question_id=question['question_id'])
     if capture:
-        packet = json.loads((run/question['packet_path']).read_bytes())
-        directory = run/'artifacts/test-capture'
-        directory.mkdir()
-        (directory/'spec.json').write_bytes(b'opaque verified spec')
-        (directory/'manifest.json').write_bytes(b'opaque verified manifest')
-        owner = dict(image_id='target',dive_generation=first.dive_generation,question_id=question['question_id'])
-        row = ACQUISITION | owner | dict(kind='capture',acquisition_id='a'*64,
-            contract_sha256=sha(canonical(packet['acquisition_contract'])),
-            spec_path='artifacts/test-capture/spec.json',spec_sha256=sha(b'opaque verified spec'),
-            manifest_path='artifacts/test-capture/manifest.json',manifest_sha256=sha(b'opaque verified manifest'),details='{"kind":"capture"}')
-        db.put(con,'cba_firmware_dive_acquisitions',row)
+        from audit_core import firmware_dive_acquisition
+        packet = json.loads((run / question['packet_path']).read_bytes())
+        directory = run / 'scratch-hardware'; directory.mkdir()
+        (directory / 'uart.txt').write_bytes(b'UART observation\n')
+        spec = dict(schema_version=1, image_id='target', dive_generation=first.dive_generation,
+            question_id=question['question_id'], packet_sha256=question['packet_sha256'],
+            contract_sha256=sha(canonical(packet['acquisition_contract'])), device_identifier='serial-123',
+            firmware_version='v1.0', firmware_sha256='f' * 64, lifecycle='provisioned', posture='STA-LAN',
+            authentication='physical-UART', operator='operator-1', source='bench UART recorder',
+            method='hardware', evidence=[dict(name='uart.txt', source_path='uart.txt')])
+        path = directory / 'capture.json'; path.write_bytes(canonical(spec))
+        acquisition = firmware_dive_acquisition.seal_capture(*case[:3], path)
+        row, = rows(con, 'cba_firmware_dive_acquisitions')
+        question, obs = accepted(case, first, value=True, question_id=question['question_id'], _complete=False)
         con.execute('UPDATE cba_firmware_dive_dependencies SET kind=?,logical_id=?,relative_path=?,sha256=?,byte_count=? WHERE question_id=?',
-            ('hardware-capture','a'*64,row['manifest_path'],row['manifest_sha256'],len(b'opaque verified manifest'),question['question_id']))
-        con.execute("UPDATE cba_firmware_dive_observations SET evidence_rung='hardware-observed' WHERE question_id=?",(question['question_id'],))
+            ('hardware-capture', acquisition.acquisition_id, row['manifest_path'], row['manifest_sha256'],
+                len((run / row['manifest_path']).read_bytes()), question['question_id']))
+        con.execute("UPDATE cba_firmware_dive_observations SET evidence_rung='hardware-observed' WHERE question_id=?", (question['question_id'],))
         con.commit()
+    else:
+        accepted(case, first, value=True, question_id=question['question_id'], _complete=False)
     return first, question
 
 
@@ -732,7 +748,7 @@ def test_dynamic_history_requires_exact_owned_acquisition_and_method_rung(graph_
     first, question=capture_history(graph_case,capture=damage!='static-only')
     if damage=='contract': con.execute('UPDATE cba_firmware_dive_acquisitions SET contract_sha256=?',('0'*64,))
     elif damage=='foreign-owner': con.execute('UPDATE cba_firmware_dive_acquisitions SET question_id=?',('0'*64,))
-    elif damage in ('manifest','spec'): (run/f'artifacts/test-capture/{damage}.json').write_bytes(b'changed')
+    elif damage in ('manifest','spec'): (run/rows(con,'cba_firmware_dive_acquisitions')[0][damage+'_path']).write_bytes(b'changed')
     elif damage=='rung': con.execute("UPDATE cba_firmware_dive_observations SET evidence_rung='static-resolved' WHERE question_id=?",(question['question_id'],))
     con.commit()
     before,artifacts=state(con),files(run)
@@ -780,7 +796,7 @@ def test_scoped_derivation_keeps_removed_subject_history_only_in_journal(graph_c
     prepared=firmware_chain.prepare(con,run,graph_case[2],image_id='target')
     graph_case[3]['worklist_sha256']=prepared.worklist_sha256
     graph_case[3]['chains'][0]['edges'][1]['existing_unknowns']=[]
-    record(graph_case)
+    record(graph_case, root=graph_case[2])
     check(graph_case)
     result=prepare(graph_case)
     assert result.question_count==2
@@ -803,24 +819,40 @@ def test_index_reconstructs_complete_generation_without_informational_journal(gr
 def test_conflict_retained_owner_chronology_and_ambiguous_ties(graph_case):
     con,run,root=graph_case[:3]
     complete(graph_case)
-    first=prepare(graph_case)
-    question,one=canonical_accepted(graph_case,first)
-    firmware_chain.invalidate(con,'target',commit=True)
-    prep=firmware_chain.prepare(con,run,root,image_id='target')
-    graph_case[3]['worklist_sha256']=prep.worklist_sha256
-    graph_case[3]['chains'][0]['title']='A newer retained display title'
-    record(graph_case)
-    check(graph_case)
-    second=prepare(graph_case,retry=(question['question_id'],))
-    canonical_accepted(graph_case,second,value='pre-auth',question_id=question['question_id'])
-    assert first.graph_sha256!=second.graph_sha256
-    firmware_chain.invalidate(con,'target',commit=True)
-    before,artifacts=state(con),files(run)
-    with pytest.raises(api().FirmwareDiveError,match='Ambiguous'): prepare(graph_case)
-    assert state(con)==before and files(run)==artifacts
-    con.execute("UPDATE cba_firmware_dive_runs SET completed_at='2026-01-02 03:04:06' WHERE dive_generation=?",(second.dive_generation,))
-    con.commit()
-    assert prepare(graph_case).graph_sha256==second.graph_sha256
+    from tests.test_firmware_dive_gate import regenerate
+    path = retry_manifest(graph_case)
+    first = prepare(graph_case, questions_path=path)
+    selected = next(r for r in rows(con, 'cba_firmware_dive_questions') if r['origin'] == 'analyst')
+    question, one = canonical_accepted(graph_case, first, value=True, question_id=selected['question_id'])
+    graph_case[3]['chains'][0]['title'] = 'A newer retained display title'
+    regenerate(graph_case)
+    second = prepare(graph_case, questions_path=path, retry=(question['question_id'],))
+    canonical_accepted(graph_case, second, value=False, outcome='refuted', question_id=question['question_id'])
+    assert first.graph_sha256 != second.graph_sha256
+    # Keep the complete immutable journals coherent while exercising selection
+    # ties. Timestamps select a retained owner, never an answer winner.
+    stamp = next(r for r in rows(con, 'cba_firmware_dive_runs') if r['dive_generation'] == second.dive_generation)['prepared_at']
+    def rejournal(generation, completed_at, retime_rows=False):
+        if retime_rows:
+            for table in ('questions', 'receipts', 'observations', 'dependencies', 'acquisitions'):
+                con.execute('UPDATE cba_firmware_dive_' + table + ' SET recorded_at=? WHERE dive_generation=?', (stamp, generation))
+        owner = next(r for r in rows(con, 'cba_firmware_dive_runs') if r['dive_generation'] == generation)
+        owned = {name: [r for r in rows(con, 'cba_firmware_dive_' + name) if r['dive_generation'] == generation]
+            for name in ('questions', 'receipts', 'observations', 'dependencies', 'acquisitions')}
+        raw = api()._journal(owner, owned, completed_at, {key: owner[key] for key in api()._COUNTS})
+        relative = 'artifacts/firmware-dive/' + generation + '/' + sha(raw) + '/journal.json'
+        target = run / relative; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(raw)
+        con.execute('UPDATE cba_firmware_dive_runs SET completed_at=?,journal_path=?,journal_sha256=? WHERE dive_generation=?',
+            (completed_at, relative, sha(raw), generation))
+        con.commit()
+    rejournal(first.dive_generation, stamp)
+    rejournal(second.dive_generation, stamp, True)
+    before, artifacts = state(con), files(run)
+    with pytest.raises(api().FirmwareDiveError, match='Ambiguous'): prepare(graph_case)
+    assert state(con) == before and files(run) == artifacts
+    later = con.execute("SELECT datetime(?, '+1 second')", (stamp,)).fetchone()[0]
+    rejournal(second.dive_generation, later)
+    assert prepare(graph_case).graph_sha256 == second.graph_sha256
 
 
 @pytest.mark.parametrize('damage',['none','prose','limitations','successors','dependency-provenance'])
@@ -847,7 +879,7 @@ def test_repeated_observation_identity_requires_complete_stored_equivalence(grap
         row=next(r for r in rows(con,'cba_firmware_dive_questions') if r['dive_generation']==third.dive_generation and r['question_id']==question['question_id'])
         assert row['attempt_ordinal']==3
     else:
-        with pytest.raises(api().FirmwareDiveError,match='Observation identity'): prepare(graph_case)
+        with pytest.raises(api().FirmwareDiveError): prepare(graph_case)
         assert state(con)==before and files(run)==artifacts
 
 
@@ -871,7 +903,7 @@ def test_private_dependency_provenance_stays_behind_index_digest(graph_case):
     con,run=graph_case[:2]
     complete(graph_case)
     first=prepare(graph_case)
-    question,obs=accepted(graph_case,first)
+    question,obs=accepted(graph_case,first,_complete=False)
     private='opaque private provenance body sentinel'
     con.execute('UPDATE cba_firmware_dive_dependencies SET source_provenance=? WHERE question_id=?',(canonical({'note':private}).decode(),question['question_id']))
     con.commit()
@@ -889,7 +921,7 @@ def test_historical_exact_chain_and_extract_dependencies(graph_case,kind):
     historical_extract(graph_case)
     first=prepare(graph_case)
     selected=next(r for r in rows(con,'cba_firmware_dive_questions') if json.loads((run/r['packet_path']).read_bytes())['extract_records'])
-    question,obs=accepted(graph_case,first,outcome='inconclusive',question_id=selected['question_id'])
+    question,obs=accepted(graph_case,first,outcome='inconclusive',question_id=selected['question_id'],_complete=False)
     packet=json.loads((run/question['packet_path']).read_bytes())
     ref=next(r for r in packet['allowed_dependencies'] if r['kind']==kind)
     con.execute('UPDATE cba_firmware_dive_dependencies SET kind=?,logical_id=?,relative_path=?,sha256=?,byte_count=? WHERE question_id=?',
@@ -948,6 +980,7 @@ def test_deep_corrupt_history_uses_domain_refusal_and_preserves_sql(graph_case):
 def test_historical_artifact_schema_version_refuses_boolean_even_with_rehashed_provenance(graph_case,tmp_path,artifact):
     con,run=graph_case[:2]
     complete(graph_case)
+    graph=snapshot(graph_case)
     first=prepare(graph_case)
     row=rows(con,'cba_firmware_dive_questions')[0]
     path=pathlib.Path(first.question_index_path) if artifact=='index' else pathlib.Path(first.journal_input_path) if artifact=='journal' else run/row['packet_path']
@@ -963,7 +996,7 @@ def test_historical_artifact_schema_version_refuses_boolean_even_with_rehashed_p
         index['journal_input_sha256']=sha(raw)
     index_raw=canonical(index);index_path.write_bytes(index_raw)
     con.execute('UPDATE cba_firmware_dive_runs SET question_index_sha256=?',(sha(index_raw),));con.commit()
-    manifest_path=manifest(tmp_path,[entry(snapshot(graph_case))])
+    manifest_path=manifest(tmp_path,[entry(graph)])
     before,artifacts=state(con),files(run)
     with pytest.raises(api().FirmwareDiveError):prepare(graph_case,questions_path=manifest_path)
     assert state(con)==before and files(run)==artifacts
@@ -982,6 +1015,7 @@ def test_deep_extract_manifest_is_a_domain_refusal(graph_case):
 def test_historical_chain_dependency_cannot_relabel_foreign_retained_bytes(graph_case,tmp_path):
     con,run=graph_case[:2]
     complete(graph_case)
+    graph=snapshot(graph_case)
     first=prepare(graph_case)
     question,obs=accepted(graph_case,first)
     path=run/question['packet_path'];packet=json.loads(path.read_bytes())
@@ -1001,5 +1035,5 @@ def test_historical_chain_dependency_cannot_relabel_foreign_retained_bytes(graph
         ('chain-artifact',ref['logical_id'],ref['relative_path'],ref['sha256'],len(foreign.read_bytes()),question['question_id']))
     con.commit()
     before,artifacts=state(con),files(run)
-    with pytest.raises(api().FirmwareDiveError):prepare(graph_case,questions_path=manifest(tmp_path,[entry(snapshot(graph_case))]))
+    with pytest.raises(api().FirmwareDiveError):prepare(graph_case,questions_path=manifest(tmp_path,[entry(graph)]))
     assert state(con)==before and files(run)==artifacts

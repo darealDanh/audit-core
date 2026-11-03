@@ -354,7 +354,7 @@ def _coalesce_attempt(prior, item):
     return dataclasses.replace(prior,dependency_current=prior.dependency_current or item.dependency_current)
 
 
-def _history(run, rows, graph):
+def _history(run, rows, graph, upstream=None):
     """Validate every retained row/artifact; scope only derivation, never integrity."""
     runs = {r['dive_generation']:r for r in rows['runs']}
     assignments, observations, receipts, dependencies, acquisitions = {}, {}, {}, {}, {}
@@ -399,7 +399,7 @@ def _history(run, rows, graph):
         selected.sort(key=lambda r:r['ordinal'])
         _require(len(selected) == owner['question_count'] and [r['ordinal'] for r in selected] == list(range(len(selected))),
             'Historical question denominator differs')
-        manifest, frozen_questions = [], []
+        manifest, frozen_questions, historical = [], [], None
         for row in selected:
             raw = _read(run, row['packet_path'], row['packet_sha256'], q.MAX_PACKET_BYTES)
             packet = _json(raw)
@@ -417,8 +417,10 @@ def _history(run, rows, graph):
                 _require(set(ref) == {f.name for f in dataclasses.fields(q.RetainedRef)}, 'Invalid retained reference')
                 _read(run, ref['relative_path'], ref['sha256'])
             if owner['candidate_snapshot_sha256'] == graph.candidate_snapshot_sha256 and set(question.subject_refs) <= set(q._catalog(graph)):
-                expected_packet = json.loads(q.packet_bytes(question, dataclasses.replace(graph,
-                    graph_path=owner['chain_graph_path'], graph_sha256=owner['chain_graph_sha256'])))
+                if historical is None:
+                    historical = (_historical_graph(run, owner, index, upstream) if upstream is not None else
+                        dataclasses.replace(graph, graph_path=owner['chain_graph_path'], graph_sha256=owner['chain_graph_sha256']))
+                expected_packet = json.loads(q.packet_bytes(question, historical))
                 _require([(r['kind'],r['logical_id']) for r in packet['retained_refs']] ==
                     [(r['kind'],r['logical_id']) for r in expected_packet['retained_refs']] and
                     [r for r in packet['retained_refs'] if r['kind'] == 'chain-artifact'] ==
@@ -563,7 +565,7 @@ def _capture(con, run, root, image_id, analyst, retries):
     conflict_only = not chain_runs
     if not conflict_only:
         graph = firmware_chain.verified_graph_snapshot(con, run, root, image_id=upstream.image_id)
-        history, index, overlay = _history(run, rows, graph)
+        history, index, overlay = _history(run, rows, graph, upstream)
         questions = q.derive_questions(graph, analyst, history, retries)
     else:
         _require(not analyst, 'Conflict-only preparation refuses analyst questions')
@@ -573,7 +575,7 @@ def _capture(con, run, root, image_id, analyst, retries):
                 continue
             graph = firmware_chain.verified_retained_graph_snapshot(con, run, root,
                 image_id=upstream.image_id, dive_generation=owner['dive_generation'])
-            history, index, overlay = _history(run, rows, graph)
+            history, index, overlay = _history(run, rows, graph, upstream)
             derived = q.derive_questions(graph, (), history)
             conflicts = tuple(question for question in derived.questions if question.origin == 'conflict')
             contested = {ref for question in conflicts for ref in question.supersedes_observation_ids}
@@ -771,13 +773,16 @@ def _historical_graph(run, owner, index, upstream):
     """Historical authority is immutable; current SQL only supplies a matching snapshot."""
     projection = index['graph_projection']
     worklist_hash = projection['chain_worklist_sha256']
+    overlay = None
     if all(owner[key] == getattr(upstream,key) for key in ('image_id','manifest_sha256',
-            'surface_snapshot_sha256','candidate_snapshot_sha256')) and _digest(firmware_chain._worklist(upstream)) == worklist_hash:
+            'surface_snapshot_sha256','candidate_snapshot_sha256')) and _digest(firmware_chain._worklist(upstream,legacy=True)) == worklist_hash:
         snapshot = upstream
     else:
         raw = _read(run,'files/firmware-chain/'+worklist_hash+'/worklist.json',worklist_hash)
         body = _json(raw,newline=True)
-        _require(body.pop('schema_version') == 1, 'Historical worklist version differs')
+        _require(type(body['schema_version']) is int and body.pop('schema_version') == 1, 'Historical worklist version differs')
+        legacy = 'dive_overlay' not in body
+        overlay = None if legacy else firmware_chain._checked_overlay(body.pop('dive_overlay'))
         classes = dict(findings=firmware_fpcheck.VerifiedFirmwareFinding,surfaces=firmware_fpcheck.VerifiedFirmwareSurface,
             unknowns=firmware_fpcheck.VerifiedFirmwareUnknown,pivots=firmware_fpcheck.VerifiedFirmwarePivot)
         for name, cls in classes.items():
@@ -815,14 +820,14 @@ def _historical_graph(run, owner, index, upstream):
                 parsed.append(record)
             body[name] = tuple(parsed)
         snapshot = firmware_fpcheck.VerifiedFirmwareFindingsSnapshot(**body)
-        _require(firmware_chain._worklist(snapshot) == raw, 'Historical worklist is not exact typed projection')
+        _require(firmware_chain._worklist(snapshot,overlay,legacy=legacy) == raw, 'Historical worklist is not exact typed projection')
         _read(run,snapshot.findings_artifact_path,snapshot.findings_artifact_sha256)
     _require(all(owner[key] == getattr(snapshot,key) for key in ('image_id','manifest_sha256',
         'surface_snapshot_sha256','candidate_snapshot_sha256')), 'Historical upstream ownership differs')
     raw = _read(run,owner['chain_graph_path'],owner['chain_graph_sha256'])
     graph_body = _json(raw,newline=True)
     parsed = firmware_chain._graph_result(graph_body)
-    validated, expected = firmware_chain._verified_graph(snapshot,parsed,graph_body['result_sha256'])
+    validated, expected = firmware_chain._verified_graph(snapshot,parsed,graph_body['result_sha256'],overlay)
     _require(raw == expected and parsed.worklist_sha256 == worklist_hash and
         owner['chain_graph_path'] == 'artifacts/firmware-chain/'+worklist_hash+'/'+owner['chain_graph_sha256']+'/chains.json',
         'Historical canonical graph differs')
