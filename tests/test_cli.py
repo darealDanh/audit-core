@@ -21,7 +21,7 @@ def test_selftest_cross_checks_the_table_contract_against_the_real_schema():
     r = run("selftest")
     assert r.returncode == 0, r.stderr
     assert "44 in schema.sql, 43 under contract" in r.stdout
-    assert "29 declared, all dispatchable" in r.stdout
+    assert "30 declared, all dispatchable" in r.stdout
 
 
 def test_selftest_fails_when_a_spec_column_is_not_in_the_schema(tmp_path):

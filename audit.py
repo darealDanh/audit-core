@@ -47,6 +47,11 @@ from audit_core import firmware_fpcheck as firmware_fpcheck_mod  # noqa: E402
 from audit_core import firmware_fpcheck_results as firmware_fpcheck_results_mod  # noqa: E402
 from audit_core import firmware_chain as firmware_chain_mod  # noqa: E402
 from audit_core import firmware_chain_results as firmware_chain_results_mod  # noqa: E402
+from audit_core import firmware_dive as firmware_dive_mod  # noqa: E402
+from audit_core import firmware_dive_acquisition as firmware_dive_acquisition_mod  # noqa: E402
+from audit_core import firmware_dive_results as firmware_dive_results_mod  # noqa: E402
+
+
 
 
 def cmd_selftest(_args: argparse.Namespace) -> int:
@@ -1114,6 +1119,123 @@ def _cmd_firmware_chain(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dive(args: argparse.Namespace) -> int:
+    """Run one bounded firmware dive operation and print scalar provenance."""
+    mode = ("prepare" if args.prepare else "probe" if args.probe is not None
+            else "capture" if args.capture is not None else "record"
+            if args.record is not None else "check")
+    if mode != "prepare" and (args.questions is not None or args.retry):
+        option = "--questions" if args.questions is not None else "--retry"
+        error = f"{option} requires --prepare"
+    elif mode in {"prepare", "probe", "capture", "check"} and args.root is None:
+        error = f"--root is required for dive {mode}"
+    elif mode == "record" and args.root is not None:
+        error = "--root is not valid with --record"
+    elif mode not in {"prepare", "check"} and args.image_id is not None:
+        error = f"--image-id is not valid with --{mode}"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    expected_errors = (firmware_dive_mod.FirmwareDiveError,
+                       firmware_dive_acquisition_mod.AcquisitionError,
+                       firmware_dive_results_mod.FirmwareDiveResultError,
+                       db_mod.DbError, OSError, sqlite3.Error)
+    def diagnostic(exc):
+        return _hunt_error_message(exc, root, verb="dive")
+    try:
+        con = _open_db(str(run_dir / "audit.db"), error_message=diagnostic)
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(diagnostic(exc), file=sys.stderr)
+        return 1
+    if con is None:
+        return 1
+
+    failure = None
+    try:
+        if mode == "prepare":
+            result = firmware_dive_mod.prepare(
+                con, run_dir, root, image_id=args.image_id,
+                questions_path=(pathlib.Path(args.questions).expanduser()
+                                if args.questions is not None else None),
+                retry=tuple(args.retry))
+            fields = ("image_id", "dive_generation", "graph_sha256",
+                      "analyst_manifest_sha256", "journal_input_path",
+                      "question_index_path", "question_count",
+                      "chain_blocker_count", "surface_unknown_count",
+                      "analyst_question_count", "retry_count", "conflict_count")
+        elif mode == "probe":
+            result = firmware_dive_acquisition_mod.run_probe(
+                con, run_dir, root, pathlib.Path(args.probe).expanduser())
+            fields = ("image_id", "dive_generation", "question_id",
+                      "acquisition_id", "kind", "spec_path", "manifest_path",
+                      "file_count", "byte_count")
+        elif mode == "capture":
+            result = firmware_dive_acquisition_mod.seal_capture(
+                con, run_dir, root, pathlib.Path(args.capture).expanduser())
+            fields = ("image_id", "dive_generation", "question_id",
+                      "acquisition_id", "kind", "spec_path", "manifest_path",
+                      "file_count", "byte_count")
+        elif mode == "record":
+            result = firmware_dive_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser())
+            fields = ("image_id", "dive_generation", "receipt_key",
+                      "observation_id", "artifact_path", "dependency_count",
+                      "evidence_count", "successor_count")
+        else:
+            result = firmware_dive_mod.check(
+                con, run_dir, root, image_id=args.image_id)
+            fields = ("image_id", "dive_generation", "question_count",
+                      "supported_count", "refuted_count", "inconclusive_count",
+                      "current_count", "stale_count", "contested_count",
+                      "journal_path", "journal_sha256", "overlay_sha256",
+                      "complete")
+        payload = {field: getattr(result, field) for field in fields}
+    except Exception as exc:
+        failure = exc
+    finally:
+        try:
+            if failure is not None and con.in_transaction:
+                con.rollback()
+        except Exception as exc:
+            if failure is None or isinstance(failure, expected_errors):
+                exc.__context__ = failure
+                failure = exc
+        finally:
+            try:
+                con.close()
+            except Exception as exc:
+                if failure is None or isinstance(failure, expected_errors):
+                    exc.__context__ = failure
+                    failure = exc
+    if failure is not None:
+        if isinstance(failure, expected_errors):
+            print(diagnostic(failure), file=sys.stderr)
+            return 1
+        raise failure
+
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        count_fields = tuple(field for field in fields if field.endswith("_count"))
+        counts = ", ".join(f"{payload[field]} {field.replace('_', ' ')}"
+                           for field in count_fields)
+        status = f", {'complete' if payload['complete'] else 'pending'}" if mode == "check" else ""
+        lines = [f"dive {mode} {payload['image_id']}: {counts}{status}",
+                 f"dive generation {payload['dive_generation']}"]
+        for field in ("journal_input_path", "question_index_path", "spec_path",
+                      "manifest_path", "artifact_path", "journal_path"):
+            if field in payload:
+                lines.append(payload[field])
+        for line in lines:
+            print(_bounded_cli_text(line, root))
+    return 0
+
+
 def cmd_chain(args: argparse.Namespace) -> int:
     if args.run is not None:
         return _cmd_firmware_chain(args)
@@ -1458,6 +1580,7 @@ HANDLERS = {
     "surface": cmd_surface,
     "hunt": cmd_hunt,
     "fpcheck": cmd_fpcheck,
+    "dive": cmd_dive,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1691,6 +1814,20 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("--replace", action="store_true",
         help="overwrite an existing row; an omitted or empty optional field KEEPS the stored value and cannot be cleared this way; to blank one deliberately, write an explicit placeholder value")
     ch.add_argument("--json", action="store_true")
+    dv = sub.add_parser("dive", help="prepare, acquire, record, or check firmware dive evidence")
+    dv.add_argument("--run", required=True, metavar="RUN", help="firmware run directory")
+    dive_mode = dv.add_mutually_exclusive_group(required=True)
+    dive_mode.add_argument("--prepare", action="store_true", help="prepare the immutable question denominator")
+    dive_mode.add_argument("--probe", metavar="SPEC", help="run one prepared isolated probe")
+    dive_mode.add_argument("--capture", metavar="SPEC", help="seal one prepared hardware capture")
+    dive_mode.add_argument("--record", metavar="RESULT", help="import one worker result")
+    dive_mode.add_argument("--check", action="store_true", help="complete and publish the dive overlay")
+    dv.add_argument("--root", metavar="ROOT", help="live firmware root")
+    dv.add_argument("--image-id", metavar="ID", help="select the firmware image")
+    dv.add_argument("--questions", metavar="JSON", help="additional analyst questions for prepare")
+    dv.add_argument("--retry", action="append", default=[], metavar="QUESTION_ID",
+                    help="repeat a stale or contested question during prepare")
+    dv.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)
