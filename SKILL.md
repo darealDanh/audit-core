@@ -328,6 +328,43 @@ coverage, evidence ownership, and state continuity. Outputs are static-chained;
 no severity/CVSS, dynamic confirmation, runtime reachability, or exploit claim
 is authorized. Unsettled observations remain blockers for later dive/decide.
 
+### Stage 4h firmware dive
+
+After Stage 4g check, use the bounded dive route to settle frozen chain blockers,
+surface unknowns, and analyst questions. Read
+[references/briefs/firmware-dive-brief.md](references/briefs/firmware-dive-brief.md).
+Prepare one immutable denominator and index:
+
+    python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --root ${ROOTFS} --prepare --json
+
+For every indexed question, render one brief with exactly the eight variables
+below. Dispatch only the rendered brief path and necessary scalars to one fresh strongest
+worker. Never inline packets or evidence in dispatch.
+
+    python3 __SKILL_DIR__/audit.py brief --phase firmware-dive \
+      --unit ${QUESTION_ID} --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var rootfs=${ROOTFS} \
+      --var image_id=${IMAGE_ID} --var dive_generation=${DIVE_GENERATION} \
+      --var question_id=${QUESTION_ID} --var packet_path=${PACKET_PATH} \
+      --var journal_index_path=${JOURNAL_INDEX_PATH} \
+      --var result_path=${RESULT_PATH}
+
+Workers own result JSON only. When the packet authorizes deterministic
+acquisition, the orchestrator optionally runs exactly one prepared operation:
+
+    python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --root ${ROOTFS} --probe ${PROBE_SPEC}
+    python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --root ${ROOTFS} --capture ${CAPTURE_SPEC}
+
+Record each DONE result; PARTIAL is nonimportable and resumes the same frozen
+assignment. After every assignment terminates, run the completion gate:
+
+    python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+Fresh workers have no SQL, canonical artifact, completion, chain-regeneration,
+severity, exploit, or report authority. The final check owns publication and
+then deterministically regenerates any invalidated firmware chain outputs.
+
 ### Cross-client tool mapping
 
 The workflows name **capabilities**, not one client's tool IDs. Use your client's equivalent:

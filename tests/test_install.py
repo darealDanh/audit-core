@@ -35,6 +35,10 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
     assert (target / "audit_core" / "schema.sql").is_file()
     assert (target / "audit_core" / "hunt_results.py").is_file()
     assert (target / "references" / "briefs" / "hunt-brief.md").is_file()
+    assert (target / "references" / "briefs" / "firmware-dive-brief.md").is_file()
+    for module in ("firmware_dive.py", "firmware_dive_questions.py",
+                   "firmware_dive_acquisition.py", "firmware_dive_results.py"):
+        assert (target / "audit_core" / module).is_file()
 
     s = subprocess.run([sys.executable, str(target / "audit.py"), "selftest"],
                        capture_output=True, text=True)

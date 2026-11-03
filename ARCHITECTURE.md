@@ -939,15 +939,21 @@ timestamp, journal and counts together with six-table Stage 4g invalidation only
 when overlay bytes change. Failures and commit failures preserve pending dive
 history and the prior graph; only an unreferenced immutable journal may remain.
 
-Task 10 Stage 4g overlay consumption is next: bind this verified overlay into
-chain worklists, evidence validation and completion, including positive/refuted
-constraints and regeneration after invalidation. Stage 4g consumption, CLI/worker
-routing, integration and whole-stage review are still pending. Historical graph
-retention is required when upstream changes; Linux, alternate Python, real native
-tools and paid semantic quality remain unverified. No mutation sweep, merge or
-push was performed.
+Task 10 binds the verified current overlay into Stage 4g worklists, evidence
+validation, completion, and deterministic regeneration after invalidation.
+Task 11 exposes the five mutually exclusive `dive` CLI modes with scalar-only
+bounded output. Task 12 installs the per-question worker interface: prepare one
+frozen denominator, render one `firmware-dive-brief.md` for every indexed
+question, dispatch each path and scalars to a fresh strongest worker, optionally
+run only the packet-authorized probe or capture, record each DONE result, and
+check only after every frozen assignment terminates. Workers write result JSON
+only. They own no SQL, canonical artifact, receipt, observation, completion,
+chain-regeneration, severity, exploit, or report authority. PARTIAL is
+nonimportable and resumes the identical assignment. The exact return is
+`firmware-dive <DONE|PARTIAL|FAILED> question=<question-id> artifact=<path>
+[flags=<csv>]`.
 
-CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
+Integration and full Stage 4h review remain pending. Tests execute only purpose
 fixtures through injected adapters; real-tool integration is not claimed. Runtime
 verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
 unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
