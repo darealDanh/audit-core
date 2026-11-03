@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; Stage 4h in progress, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** Task 9 fix loop 1: 8,033 full-suite tests passed; 0/11,178 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install and benchmark gates pass. Measured gate details are in the Stage 4h section. Historical merged Stage 4g results remain below. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-04 · **Branch:** `stage4h-firmware-dive`; Stage 4h implemented, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
+**Current verification:** final reconciled `make all` passed all eight gates: 8,168 tests; 30 dispatchable verbs; 44 SQLite tables / 43 contracts; four migrations; 6 CRLF / 243 LF files; 65 features / 16 stages / 21 open items; 120 installed markdown files with zero sentinel survivors; 0/11,376 unexecuted statements with zero allowed; benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match. Historical merged Stage 4g results remain intact. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -29,11 +29,12 @@ five-table row contracts, verified completed-hunt snapshots, deterministic revie
 batches, strict results, atomic import, canonical reviewed findings, upstream
 invalidation, bounded CLI, worker brief and installed routing. Final review found
 JSON identity/path corruption; `303232e` preserves machine-readable values and
-retains bounded human output. The scoped re-review was clean. Stage 4h firmware `dive` is now in progress
-on `stage4h-firmware-dive`; schema, verified graph snapshots, strict questions,
-immutable preparation, hardware captures, bounded isolated probes and pure strict result/identity contracts are implemented,
-with result authority/publication, exact completion and current overlays implemented; Stage 4g consumption, CLI/worker integration and remaining lifecycle tasks are pending.
-Stage 5 has not started.
+retains bounded human output. The scoped re-review was clean. Stage 4h firmware
+`dive` is implemented on `stage4h-firmware-dive`, with integration pending and
+no merge or push claimed. Exact graph/question authority, immutable preparation,
+bounded acquisitions, strict import, exact completion/current overlays, Stage 4g
+consumption, bounded CLI and installed per-question worker routing are complete.
+Stage 4i `decide` is next. Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -50,7 +51,7 @@ Stage 5 has not started.
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
-| 4h | `dive` — runtime evidence settlement | through Task 9 | `stage4h-firmware-dive` | **in progress**; schema, snapshots, questions, preparation, acquisitions, strict results and immutable observation import, completion and current overlays implemented; Stage 4g consumption/integration pending |
+| 4h | `dive` — runtime evidence settlement | through final review fixes | `stage4h-firmware-dive` | **implemented; integration pending**; not merged or pushed; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; Stage 4i `decide` next |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -908,7 +909,7 @@ decision remain open. The next firmware slice is `dive`.
 
 ---
 
-### Stage 4h — preparation, captures and bounded probes (in progress)
+### Stage 4h — implementation history
 
 Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
 contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
@@ -1227,12 +1228,12 @@ effect/prose/reference projections; safe receipt keys bind exact assignment or
 explicit-empty projections. At the Task 7 boundary, only bounded stable-file
 `load` read files and the pure helpers made no SQL/filesystem writes. Task 8's
 prepared authority and atomic publication implementation is recorded below;
-Task 9 adds independent completion and current overlays below.
-CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
-fixtures through injected adapters; real-tool integration is not claimed. Runtime
-verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
-unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
-paid semantic quality limitations persist. `make mutate` remains separate.
+Task 9 adds independent completion and current overlays below. At that historical
+Task 7 boundary, CLI/worker routing and full-stage review had not started. Tests
+used purpose fixtures through injected adapters; no real corpus execution was
+claimed. Runtime verification was macOS Python 3.14; Linux and alternate
+interpreters were unverified. The inherited limitations and separate mutation
+gate remained.
 
 ### Stage 4h Task 8 — exact result authority and immutable observation import
 
@@ -1370,13 +1371,12 @@ timestamp, journal and counts together with six-table Stage 4g invalidation only
 when overlay bytes change. Failures and commit failures preserve pending dive
 history and the prior graph; only an unreferenced immutable journal may remain.
 
-Task 10 Stage 4g overlay consumption is next: bind this verified overlay into
-chain worklists, evidence validation and completion, including positive/refuted
-constraints and regeneration after invalidation. Stage 4g consumption, CLI/worker
-routing, integration and whole-stage review are still pending. Historical graph
-retention is required when upstream changes; Linux, alternate Python, real native
-tools and paid semantic quality remain unverified. No mutation sweep, merge or
-push was performed.
+At this historical Task 9 boundary, Task 10 Stage 4g overlay consumption,
+CLI/worker routing, integration and whole-stage review were pending. They are
+implemented later on this branch. Historical graph retention remains required
+when upstream changes; Linux, alternate Python, real native tools and paid
+semantic quality remain unverified. No mutation sweep, merge or push was
+performed.
 
 Task 9 fix-loop 1 frozen full-suite cold monitoring passed 8,033 tests with zero skips or
 failures and 0/11,178 unexecuted statements (zero allowed). The frozen
@@ -1560,28 +1560,47 @@ This is the spec's own path, not a deviation. §6.1, acknowledged limitations:
 Those leading indicators were built in Stage 3b. A useful comparison still
 needs the next audit run, so the first snapshot remains a one-point baseline.
 
+### Stage 4h final implementation and review
+
+Tasks 10–12 add exact current-overlay consumption to Stage 4g, the five-mode
+bounded `dive` CLI, and installed per-question worker routing. Whole-branch
+security review found four Important issues: context subjects could settle
+unrelated blockers/unknowns; uncited refuted reachability was optional; probes
+lacked memory containment; and the documented post-dive chain route both
+overclaimed regeneration and omitted the required live root. Fix commit
+`3ba4814` adds explicit settlement authority preserved through conflict roots,
+mandatory refuted-reachability constraints, fail-closed memory containment with
+shared sealed limits, and an explicit Stage 4g rerun/root-bound import route.
+Scoped re-review found no remaining Critical or Important issue.
+
+Authoritative final `make all` passed all eight gates: **8,168 tests**;
+**30 verbs**; **44 tables / 43 contracts**; **four migrations**;
+**6 CRLF / 243 LF files**; **65 features / 16 stages / 21 open items**;
+**120 installed markdown files**, zero sentinel survivors and the real install
+untouched; **0/11,376 unexecuted statements**, zero allowed; benchmark
+**recall 9/19 over 45 findings, precision 39/40, $73.15 per match**.
+Mutation, paid audit/milestone, Asus golden, second indicator snapshot and real
+corpus/hardware probe did not run. Linux/alternate-interpreter execution remains
+unverified. The branch is unmerged and unpushed; Stage 4i `decide` is next.
+
 ## 8. Next steps, in the order they make sense
 
 Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Continue Stage 4h firmware `dive` with Task 10 Stage 4g overlay consumption.**
-   Tasks 1–9 implement schema, snapshots, questions, preparation, sealed acquisitions,
-   strict result import, independent completion, immutable journals and verified
-   current overlays. Bind the overlay into Stage 4g worklists, result evidence and
-   completion, enforcing supported/refuted constraints and regeneration after
-   invalidation. Stale history needs its retained worklist/artifacts; completed
-   rechecks never repair them. CLI/worker integration and full-stage review remain
-   pending.
+1. **Design Stage 4i firmware `decide`.**
+   Stage 4h `dive` is implemented on `stage4h-firmware-dive`; integration is
+   pending until an explicit merge and no push is claimed. `decide` must consume
+   only current, non-contested dive observations and preserve exact provenance,
+   dependency currentness and the distinction between observation and policy.
+   It must not turn static or bounded dynamic evidence into severity, exploit
+   reliability or disclosure authority.
 
-   Stage 4g remains merged into local `main` at `30ca3ba`, not pushed.
-   `dive` must consume only completed, current `static-chained`
-   graphs and explicitly settle blockers/runtime reachability rather than treating
-   static correlation as causality. Triage's upsert-only snapshots and Stage 4d
-   retained-orphan scan scaling persist. The Asus golden and monorepo/submodule
-   decision remain prerequisites for the overall Stage 4 milestone/restructure;
-   paid semantic quality remains unmeasured.
+   Triage's upsert-only snapshots and Stage 4d retained-orphan scan scaling
+   persist. The Asus golden, paid milestone audit, mutation sweep, second
+   indicator snapshot, separate firmware skill tree and monorepo/submodule
+   decision remain open.
 2. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.

@@ -1,13 +1,18 @@
 # Session handoff
 
-**Written:** 2026-11-02 · **Branch:** `stage4h-firmware-dive`; local `main`
+**Written:** 2026-11-04 · **Branch:** `stage4h-firmware-dive`; local `main`
 retains Stage 4g at `30ca3ba`, not pushed ·
-**Status:** Stage 4h firmware `dive` is in progress, integration pending.
-Tasks 1–9 implement schema, graph/question contracts, immutable preparation,
-sealed acquisitions, strict imports, exact completion, journals and current overlays.
-Task 10 Stage 4g overlay consumption is next. **Verification:** Task 9 fix loop 1: 8,033 full-suite tests passed; 0/11,178 unexecuted statements (zero allowed); schema, lint, EOL, manifest, install
-and benchmark gates pass.
-Measured gate details and historical Stage 4g results are preserved below.
+**Status:** Stage 4h firmware `dive` is implemented; integration remains pending
+until an explicit merge. Nothing is pushed. Tasks 1–12 implement exact
+graph/question authority, immutable preparation, sealed/fail-closed acquisitions,
+strict imports, exact completion/current overlays, Stage 4g consumption, bounded
+CLI and installed per-question routing. Whole-branch review fixes are in
+`3ba4814`; scoped re-review found no remaining Critical/Important issue. Final
+`make all` passed all eight gates: 8,168 tests, 30 verbs, 44 tables / 43 contracts,
+four migrations, 6 CRLF / 243 LF files, 65 features / 16 stages / 21 open items,
+120 installed markdown files with zero sentinels, 0/11,376 unexecuted statements
+with zero allowed, and benchmark recall 9/19 over 45 findings, precision 39/40,
+$73.15 per match. Stage 4i `decide` is next.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -18,6 +23,23 @@ you can break expensively, the state you are inheriting, and what to do next.
 | How the pieces fit and why | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | A machine-readable inventory | [`feature_lists.json`](feature_lists.json) |
 | The binding authority for any design question | [`docs/superpowers/specs/2026-10-04-audit-suite-design.md`](docs/superpowers/specs/2026-10-04-audit-suite-design.md) |
+
+### Current pickup
+
+Do not continue Stage 4h implementation. Finish the final Task 13 gate/reconciliation
+if it is not recorded below, then present the unmerged branch for the operator's
+integration choice. The independent security review found four Important issues:
+context subjects falsely settled unknowns, uncited refuted reachability was
+optional, probes lacked memory containment, and the documented post-dive Stage 4g
+route falsely claimed regeneration while omitting `--root` on import. The branch
+now carries explicit `settled_subject_refs`, mandatory reachability constraints,
+fail-closed memory containment with Linux address-space/process bounds, and an
+explicit Stage 4g prepare/worker/root-bound-record/check rerun.
+
+Preserve these open items: Asus golden, paid milestone audit, mutation sweep,
+second indicator snapshot, real corpus/hardware probe, separate firmware skill
+tree, monorepo/submodule decision, triage upsert-only behavior and Stage 4d
+retained-orphan scan scaling.
 
 ---
 
@@ -773,7 +795,7 @@ expected on any machine but the operator's, and is not a failure.
 
 ---
 
-### Stage 4h Task 1–6 handoff (in progress)
+### Historical Stage 4h Tasks 1–6 handoff
 
 Task 1 adds six dedicated dive tables with 44 SQLite tables and 43 TableSpec
 contracts overall; the four migrations remain unchanged. Task 2 exposes frozen,
@@ -1127,14 +1149,14 @@ effect/prose/reference projections; safe receipt keys bind exact assignment or
 explicit-empty projections. At the Task 7 boundary, only bounded stable-file
 `load` read files and the pure helpers made no SQL/filesystem writes. Task 8's
 prepared authority and atomic publication implementation is recorded below;
-Task 9 adds independent completion and current overlays below.
-CLI/worker routing, integration and full Stage 4h review remain pending. Tests execute only purpose
-fixtures through injected adapters; real-tool integration is not claimed. Runtime
-verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
-unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
-paid semantic quality limitations persist. `make mutate` remains separate.
+Task 9 adds independent completion and current overlays below. At that historical
+Task 7 boundary, CLI/worker routing and full-stage review had not started. Tests
+used purpose fixtures through injected adapters; no real corpus execution was
+claimed. Runtime verification was macOS Python 3.14; Linux and alternate
+interpreters were unverified. The inherited limitations and separate mutation
+gate remained.
 
-### Continue firmware `dive` with Task 10 Stage 4g overlay consumption
+### Historical Stage 4h Task 8–9 handoff
 
 Task 8 implements read-only `validate` and immutable `record` in
 `firmware_dive_results.py`. Validation reconstructs the exact pending generation,
@@ -1270,13 +1292,12 @@ timestamp, journal and counts together with six-table Stage 4g invalidation only
 when overlay bytes change. Failures and commit failures preserve pending dive
 history and the prior graph; only an unreferenced immutable journal may remain.
 
-Task 10 Stage 4g overlay consumption is next: bind this verified overlay into
-chain worklists, evidence validation and completion, including positive/refuted
-constraints and regeneration after invalidation. Stage 4g consumption, CLI/worker
-routing, integration and whole-stage review are still pending. Historical graph
-retention is required when upstream changes; Linux, alternate Python, real native
-tools and paid semantic quality remain unverified. No mutation sweep, merge or
-push was performed.
+At this historical Task 9 boundary, Task 10 Stage 4g overlay consumption,
+CLI/worker routing, integration and whole-stage review were pending. They are
+implemented later on this branch. Historical graph retention remains required
+when upstream changes; Linux, alternate Python, real native tools and paid
+semantic quality remain unverified. No mutation sweep, merge or push was
+performed.
 
 Task 9 fix-loop 1 frozen full-suite cold monitoring passed 8,033 tests with zero skips or
 failures and 0/11,178 unexecuted statements (zero allowed). The frozen

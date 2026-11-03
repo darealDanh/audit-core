@@ -538,7 +538,7 @@ generic `cba_chains` and source-code findings remain untouched.
 
 ```bash
 python3 audit.py chain --run RUN --prepare --root ROOT [--image-id ID] [--json]
-python3 audit.py chain --run RUN --record RESULT.json [--replace] [--json]
+python3 audit.py chain --run RUN --record RESULT.json --root ROOT [--replace] [--json]
 python3 audit.py chain --run RUN --check --root ROOT [--image-id ID] [--json]
 ```
 
@@ -631,15 +631,15 @@ unpushed. The next firmware slice is `dive`. Triage's upsert-only snapshots and 
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
 
-### Stage 4h — partial dive foundation
+### Stage 4h — firmware dive evidence settlement
 
-Stage 4h is in progress on `stage4h-firmware-dive`; integration is pending.
-Six additive tables retain dive runs, questions, receipts, observations,
-dependencies and acquisitions. The schema now has 44 tables and 43 TableSpec
-contracts; all four existing migrations are unchanged. Question contracts and
-packet authority, acquisition sealing, strict results and exact immutable result
-publication, cross-row completion, immutable journals and current overlays are
-implemented below; Stage 4g consumption and CLI/worker integration remain pending.
+Stage 4h is implemented on `stage4h-firmware-dive`; integration remains pending
+until an explicit merge. Six additive tables retain dive runs, questions,
+receipts, observations, dependencies and acquisitions. The schema has 44 tables
+and 43 TableSpec contracts; all four existing migrations are unchanged.
+Question/packet authority, preparation, bounded fail-closed acquisition, strict
+result publication, exact completion/journals/current overlays, Stage 4g
+consumption, bounded CLI and installed worker routing are implemented below.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -804,10 +804,12 @@ precision for non-misattribution. Darwin zombie-group behavior is handled withou
 repeated signals or masking live cleanup failures.
 
 Payload children inherit fixed hard and soft Unix limits: 8 MiB file size,
-64 processes per UID and 64 file descriptors. Missing or insufficient resource
-support, setup failure and root UID (which can bypass process limits) refuse with
-`executed=false,reason=unsupported-limits`. The per-UID process bound can also
-make adapters unavailable on a busy host; it is never raised as a fallback.
+four processes per UID and 64 file descriptors. Linux additionally requires and
+sets a 256 MiB per-process address-space limit, bounding the four-process tree
+to at most 1 GiB of private address space. Hosts without enforceable memory
+containment, including current Darwin support, fail closed. Missing or
+insufficient resource support, setup failure and root UID refuse with
+`executed=false,reason=unsupported-limits`; limits are never raised as fallback.
 
 Only declared output files and parent directories are precreated. Directories
 are non-writable; macOS permits writes to exact file paths only, and bwrap drops
@@ -940,8 +942,10 @@ when overlay bytes change. Failures and commit failures preserve pending dive
 history and the prior graph; only an unreferenced immutable journal may remain.
 
 Task 10 binds the verified current overlay into Stage 4g worklists, evidence
-validation, completion, and deterministic regeneration after invalidation.
-Task 11 exposes the five mutually exclusive `dive` CLI modes with scalar-only
+validation and completion. A changed overlay invalidates Stage 4g atomically;
+regeneration then requires the explicit prepare/worker/root-bound record/check
+route because deterministic code cannot replace global worker review. Task 11
+exposes the five mutually exclusive `dive` CLI modes with scalar-only
 bounded output. Task 12 installs the per-question worker interface: prepare one
 frozen denominator, render one `firmware-dive-brief.md` for every indexed
 question, dispatch each path and scalars to a fresh strongest worker, optionally
@@ -953,11 +957,24 @@ nonimportable and resumes the identical assignment. The exact return is
 `firmware-dive <DONE|PARTIAL|FAILED> question=<question-id> artifact=<path>
 [flags=<csv>]`.
 
-Integration and full Stage 4h review remain pending. Tests execute only purpose
-fixtures through injected adapters; real-tool integration is not claimed. Runtime
-verification is macOS Python 3.14; Linux and alternate-interpreter execution remain
-unverified. Triage upsert-only snapshots, Stage 4d retained-orphan scan scaling and
-paid semantic quality limitations persist. `make mutate` remains separate.
+Stage 4h implementation is complete on its feature branch; integration remains
+pending. Whole-branch security review found four Important cross-layer failures.
+Commit `3ba4814` narrows settlement to explicit targets and automatic blocker
+family roots (including conflict descendants), makes refuted reachability a
+mandatory graph constraint, fails probes closed without memory containment while
+sharing one sealed limit map between producer and verifier, and corrects the
+installed post-dive Stage 4g regeneration route. Scoped re-review found no
+remaining Critical or Important issue. Final reconciled `make all` passed all
+eight gates: 8,168 tests; 30 verbs; 44 tables / 43 contracts; four migrations;
+6 CRLF / 243 LF files; 65 features / 16 stages / 21 open items; 120 installed
+markdown files with zero sentinels; 0/11,376 unexecuted statements with zero
+allowed; benchmark recall 9/19 over 45 findings, precision 39/40 and $73.15 per match.
+
+Tests execute purpose fixtures through injected adapters; real corpus/tool/hardware
+integration is not claimed. Runtime verification is macOS Python 3.14; Linux and
+alternate-interpreter execution remain unverified. Triage upsert-only snapshots,
+Stage 4d retained-orphan scan scaling and paid semantic quality limitations
+persist. `make mutate` remains separate.
 
 ### Stage 3's five quality mechanisms
 

@@ -113,10 +113,10 @@
     },
     {
       "id": "stage4h",
-      "name": "dive - runtime evidence settlement (in progress)",
-      "status": "planned",
-      "gate": "Task 9 fix loop 1: 8,033 full-suite tests passed; 0/11,178 unexecuted statements (zero allowed); 1,313 frozen combined tests with zero uncovered touched-module statements; schema/lint/eol/manifest/install/bench pass; Task 10 consumption and integration/full-stage review pending",
-      "summary": "In progress through Tasks 1–9 on stage4h-firmware-dive; not merged or pushed. Schema, snapshots, questions, immutable preparation, sealed acquisitions, strict result import, independent completion, immutable journals and read-only current overlays are implemented. Task 10 Stage 4g overlay consumption is next; CLI/worker integration and full-stage review remain pending."
+      "name": "dive - runtime evidence settlement",
+      "status": "shipped",
+      "gate": "final make all: 8/8 gates; 8,168 tests; 30 verbs; 44 tables / 43 contracts; four migrations; 6 CRLF / 243 LF; 65 features / 16 stages / 21 open items; 120 installed markdown files, zero sentinels; 0/11,376 unexecuted statements, zero allowed; benchmark recall 9/19, 45 findings, precision 39/40, $73.15 per match; whole-branch review fixes in 3ba4814 and scoped re-review clean",
+      "summary": "Implemented on stage4h-firmware-dive; integration pending, not merged or pushed. Exact frozen questions, bounded acquisitions, immutable observations and current overlays feed deterministic Stage 4g regeneration. The bounded dive CLI and installed per-question worker route are complete. Stage 4i decide is next; inherited milestone and scaling limitations remain."
     },
     {
       "id": "stage4",
@@ -320,6 +320,41 @@
         "SESSION_HANDOFF.md"
       ],
       "notes": "Implemented Task 9 on stage4h-firmware-dive; integration pending. Independent check reconstructs frozen generation and question authority, exact question/empty receipts, every canonical result and attempt-local successor, all acquisitions, stored rows/timestamps, contiguous retries and derived counts/rungs. Exact generation journals install at artifacts/firmware-dive/<generation>/<journal_sha256>/journal.json. Completed recheck is byte/row exact and read-only, with no repair. Read-only caller-transaction-compatible current_overlay verifies its supplied current Stage 4f/source snapshot, stable subjects and full dependencies; original graph bytes are historical provenance and current Stage 4g SQL is unnecessary. Matching current upstream may reproduce historical worklist authority; otherwise stale history requires its strict retained worklist and all immutable owner artifacts. Only completed current conclusive non-contested observations overlay, deduplicated by observation ID; legacy opacity and inconclusive answers never do. Opaque observations remain exact stale retry/journal context, never current preparation inputs; resolvers with opaque ancestry are transitively excluded. Old frozen legacy conflict assignments are independently replayed as historical denominator authority and remain completable without poisoning current canonical observations. Every acquisition ID, including uncited records, has exactly one global image/generation/question owner, rechecked under lock; distinct-ID siblings remain valid. Original frozen input projections independently re-derive exact conflict sets. Current conclusive resolvers suppress exactly their named ancestors through an iterative ID DAG; later compatible observations coexist and contradictions form a new contest, with no timestamp winner. Overlay bytes exclude private bodies, artifact paths and timestamps. Artifact-first publication repeats all authority under BEGIN IMMEDIATE and atomically publishes journal/counts/reserved timestamp plus six-table Stage 4g invalidation only when old/prospective overlay bytes differ. Failure/commit failure preserves pending dive and prior graph. Exact repeated assignments OR only recomputed currentness while preserving semantic identity. Task 10 Stage 4g consumption is next; CLI/worker routing, whole-stage review, native/Linux/alternate-Python and paid semantic verification remain pending. No mutation sweep, merge or push."
+    },
+    {
+      "id": "firmware-dive-integration",
+      "name": "Current dive overlay consumption, bounded CLI and installed worker routing",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4h",
+      "verbs": [
+        "dive",
+        "chain",
+        "brief"
+      ],
+      "modules": [
+        "audit.py",
+        "audit_core/firmware_chain.py",
+        "audit_core/firmware_chain_results.py",
+        "audit_core/firmware_dive.py",
+        "audit_core/firmware_dive_acquisition.py",
+        "references/briefs/firmware-dive-brief.md",
+        "references/briefs/firmware-chain-brief.md",
+        "SKILL.md"
+      ],
+      "tests": [
+        "tests/test_firmware_dive_overlay.py",
+        "tests/test_cli_stage4h.py",
+        "tests/test_firmware_dive_brief.py",
+        "tests/test_firmware_dive_probe.py",
+        "tests/test_install.py"
+      ],
+      "docs": [
+        "ARCHITECTURE.md",
+        "progress.md",
+        "SESSION_HANDOFF.md"
+      ],
+      "notes": "Implemented Tasks 10-12 and whole-branch review fixes on stage4h-firmware-dive; integration pending. Stage 4g consumes only a strict current overlay with explicit settlement subjects and mandatory refuted reachability constraints. A changed overlay atomically invalidates Stage 4g; the installed route explicitly repeats prepare, one global worker, root-bound record and check. Dive CLI modes expose bounded scalar output. Per-question workers receive only immutable brief paths/scalars and own result JSON only. Probe execution fails closed without memory containment; Linux also applies a fixed address-space limit and a four-process cap. Generic chain behavior remains compatible."
     },
     {
       "id": "firmware-chain",
