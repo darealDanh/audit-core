@@ -318,7 +318,7 @@ rows counts finding dispositions. Preserve PARTIAL checkpoints and resume the
 same immutable global assignment without fabricated dispositions. Import only
 a complete result, including a truthful empty result when there are no findings:
 
-    python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --root ${ROOTFS} --record ${RESULT_PATH}
     python3 __SKILL_DIR__/audit.py chain --run ${AUDIT_DIR} --root ${ROOTFS} --check
 
 Deterministic code owns SQL, canonical identities, artifact installation, and
@@ -362,8 +362,10 @@ assignment. After every assignment terminates, run the completion gate:
     python3 __SKILL_DIR__/audit.py dive --run ${AUDIT_DIR} --root ${ROOTFS} --check
 
 Fresh workers have no SQL, canonical artifact, completion, chain-regeneration,
-severity, exploit, or report authority. The final check owns publication and
-then deterministically regenerates any invalidated firmware chain outputs.
+severity, exploit, or report authority. The final check owns dive publication
+and invalidates Stage 4g when the current overlay changes; it cannot regenerate
+worker-reviewed chains itself. After invalidation, repeat the complete Stage 4g
+prepare, one-global-worker brief, root-bound record, and check route above.
 
 ### Cross-client tool mapping
 

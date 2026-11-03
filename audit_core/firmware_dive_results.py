@@ -720,9 +720,7 @@ def _sealed_acquisition(run, row, packet):
         _require(set(manifest) == {'kind','acquisition_id','spec','network_policy','dependencies','termination','evidence','runtime'}
             and manifest['kind'] == 'probe' and manifest['spec'] == spec and manifest['network_policy'] == 'none',
             'Probe manifest schema differs')
-        fixed = dict(stdout_bytes=1048576,stderr_bytes=1048576,output_bytes=8388608,output_files=256,
-            process_limit=64,descriptor_limit=64,file_size_limit=8388608,output_policy='precreated-exact-files',
-            user_namespace_policy='isolated-nested-disabled' if spec['isolation_backend'] == 'bwrap' else 'not-applicable')
+        fixed = acquisition._sealed_probe_limits(spec['isolation_backend'])
         _require(all(spec.get(key) == value and type(spec.get(key)) is type(value) for key,value in fixed.items()),
             'Probe sealed limits differ')
         original = {key:value for key,value in spec.items() if key not in fixed}

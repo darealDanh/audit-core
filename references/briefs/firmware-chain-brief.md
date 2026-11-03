@@ -37,8 +37,10 @@ and blockers; absence of a result is not a negative review.
 The worklist always contains `dive_overlay` with exactly `schema_version: 1`
 and `observations` (an empty array when no observations are current). Each
 observation contains exactly `observation_id`, `question_id`, `subject_refs`,
-`outcome`, `resolution_effect`, `evidence_rung`, `dependency_refs`, and
-`evidence_refs`. Subjects use their stable `kind:identity` wire. The effect has
+`settled_subject_refs`, `outcome`, `resolution_effect`, `evidence_rung`,
+`dependency_refs`, and `evidence_refs`. Subjects use their stable
+`kind:identity` wire. Only `settled_subject_refs` remove an exact blocker or
+unknown; context-only subjects never settle. The effect has
 exactly `target_subject`, `mode`, `predicate`, `axis`, `value`,
 `capability_kind`, `link_key`, and `transition_kind`. Dependency/evidence refs
 are identity digests, not private evidence bodies or access paths. Consume this
@@ -49,7 +51,7 @@ Only `supported` current observations authorize
 have identical authority. These may appear only in existing initial, producer,
 consumer, or supplemental evidence arrays. Every citation must independently
 match the effect's exact target and containing locus. `subject_refs` establish
-frozen linkage and settlement; they never broaden an edge target's authority.
+frozen linkage only; they never broaden settlement or an edge target's authority.
 
 A state-value citation must equal the initial state in an initial slot, the
 carried required state in a producer/consumer slot, or the effective result

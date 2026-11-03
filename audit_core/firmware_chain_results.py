@@ -727,8 +727,8 @@ class _DiveAuthority:
         self.observations = {row['observation_id']: row for row in overlay['observations']}
         self.findings = {row['finding_id']: row for row in frozen['findings']}
         self.unknowns = {row['id']: row for row in frozen['unknowns']}
-        self.settled = {ref for row in overlay['observations'] for ref in row['subject_refs']
-            if ref.startswith(('chain-blocker:', 'surface-unknown:'))}
+        self.settled = {ref for row in overlay['observations']
+            for ref in row['settled_subject_refs']}
         if any('chain-blocker:' + identity in self.settled for identity in blocker_ids.values()):
             raise FirmwareChainError('A settled dive blocker cannot be recreated unchanged')
         projected_chains, projected_edges = [], []
@@ -773,6 +773,9 @@ class _DiveAuthority:
             if (effect['predicate'] == 'state-value' and self.matches(row, chain, ordinal, owner)
                     and effect['axis'] in state and state[effect['axis']] != effect['value']):
                 raise FirmwareChainError('Explicit state contradicts the current dive effect')
+            if (effect['predicate'] == 'reachability' and effect['value'] == 'refuted'
+                    and self.matches(row, chain, ordinal, owner)):
+                raise FirmwareChainError('Current dive effect refutes graph reachability')
 
     def evidence(self, ref, chain, ordinal, owner, state, edge):
         identity, _ = _DIVE_PATTERN.fullmatch(ref).groups()

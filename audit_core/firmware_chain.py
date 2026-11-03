@@ -61,6 +61,9 @@ def _checked_overlay(value) -> dict:
             identities.append(q._digest(row['observation_id']))
             q._digest(row['question_id'])
             subjects = q._subjects(row['subject_refs'])
+            settled = q._subjects(row['settled_subject_refs']) if row['settled_subject_refs'] else ()
+            if any(ref not in subjects or ref.kind not in ('chain-blocker', 'surface-unknown') for ref in settled):
+                raise ValueError('Invalid overlay settlement authority')
             q._enum(row['outcome'], ('supported', 'refuted'))
             q._enum(row['evidence_rung'], db.FIRMWARE_DIVE_EVIDENCE_RUNGS)
             effect = results._effect(row['resolution_effect'])

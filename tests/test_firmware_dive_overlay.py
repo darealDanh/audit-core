@@ -337,9 +337,11 @@ def test_keyed_overlay_retained_graph_never_refreshes_current_overlay(graph_case
     assert result.edges[0].supplemental_evidence_refs == tuple(sorted(graph_case[3]['chains'][0]['edges'][0]['supplemental_evidence_refs']))
 
 
-@pytest.mark.parametrize('damage', ['version', 'extra', 'outcome', 'effect', 'subjects', 'duplicate', 'dependency', 'evidence'])
+@pytest.mark.parametrize('damage', ['version', 'extra', 'outcome', 'effect', 'subjects',
+    'settled-foreign', 'settled-kind', 'duplicate', 'dependency', 'evidence'])
 def test_frozen_overlay_strict_schema_rejects_corruption(damage):
-    row = dict(observation_id='1' * 64, question_id='2' * 64, subject_refs=['finding:f'], outcome='supported',
+    row = dict(observation_id='1' * 64, question_id='2' * 64,
+        subject_refs=['finding:f'], settled_subject_refs=[], outcome='supported',
         resolution_effect=dict(target_subject='finding:f', mode='value-discovery', predicate='state-value',
             axis='authentication', value='pre-auth', capability_kind=None, link_key=None, transition_kind=None),
         evidence_rung='static-resolved', dependency_refs=['3' * 64], evidence_refs=['4' * 64])
@@ -349,6 +351,10 @@ def test_frozen_overlay_strict_schema_rejects_corruption(damage):
     elif damage == 'outcome': row['outcome'] = 'inconclusive'
     elif damage == 'effect': row['resolution_effect'] = None
     elif damage == 'subjects': row['subject_refs'] = ['finding:other']
+    elif damage == 'settled-foreign':
+        row['settled_subject_refs'] = ['surface-unknown:other']
+    elif damage == 'settled-kind':
+        row['settled_subject_refs'] = ['finding:f']
     elif damage == 'duplicate': frozen['observations'] *= 2
     elif damage == 'dependency': row['dependency_refs'] = []
     elif damage == 'evidence': row['evidence_refs'] = ['G' * 64]
@@ -396,11 +402,44 @@ def test_overlay_record_failures_preserve_history_and_sibling(graph_case, tmp_pa
     assert state(con) == before and not con.in_transaction
 
 
+def test_context_only_unknown_is_not_settled_by_unrelated_finding_effect(graph_case):
+    frozen = copy.deepcopy(graph_case[4])
+    finding = graph_case[3]['chains'][0]['member_ids'][0]
+    unknown = frozen['unknowns'][0]['id']
+    frozen['dive_overlay']['observations'] = [dict(
+        observation_id='1' * 64, question_id='2' * 64,
+        subject_refs=sorted(['finding:' + finding, 'surface-unknown:' + unknown]),
+        settled_subject_refs=[], outcome='supported', evidence_rung='static-resolved',
+        dependency_refs=['3' * 64], evidence_refs=['4' * 64],
+        resolution_effect=dict(target_subject='finding:' + finding,
+            mode='value-discovery', predicate='state-value', axis='authentication',
+            value=graph_case[3]['chains'][0]['initial_state']['authentication'],
+            capability_kind=None, link_key=None, transition_kind=None))]
+    validated = chains._validate_graph(chains._parse(graph_case[3]), frozen)
+    assert len(validated.chains) == len(graph_case[3]['chains'])
+
+
+def test_uncited_refuted_reachability_rejects_matching_graph_locus(graph_case):
+    frozen = copy.deepcopy(graph_case[4])
+    finding = graph_case[3]['chains'][0]['member_ids'][0]
+    frozen['dive_overlay']['observations'] = [dict(
+        observation_id='1' * 64, question_id='2' * 64,
+        subject_refs=['finding:' + finding], settled_subject_refs=[],
+        outcome='supported', evidence_rung='emulated-observed',
+        dependency_refs=['3' * 64], evidence_refs=['4' * 64],
+        resolution_effect=dict(target_subject='finding:' + finding,
+            mode='value-discovery', predicate='reachability', axis='reachability',
+            value='refuted', capability_kind=None, link_key=None, transition_kind=None))]
+    with pytest.raises(firmware_chain.FirmwareChainError, match='refutes graph reachability'):
+        chains._validate_graph(chains._parse(graph_case[3]), frozen)
+
+
 def test_blocker_effect_has_no_graph_evidence_slot(graph_case):
     frozen = copy.deepcopy(graph_case[4])
     frozen['dive_overlay']['observations'] = [dict(observation_id='1' * 64, question_id='2' * 64,
-        subject_refs=['chain-blocker:old-question'], outcome='supported', evidence_rung='static-resolved',
-        dependency_refs=['3' * 64], evidence_refs=['4' * 64], resolution_effect=dict(
+        subject_refs=['chain-blocker:old-question'], settled_subject_refs=['chain-blocker:old-question'],
+        outcome='supported', evidence_rung='static-resolved', dependency_refs=['3' * 64],
+        evidence_refs=['4' * 64], resolution_effect=dict(
             target_subject='chain-blocker:old-question', mode='value-discovery', predicate='state-value',
             axis='authentication', value='pre-auth', capability_kind=None, link_key=None, transition_kind=None))]
     graph_case[3]['chains'][0]['initial_evidence_refs'].append('dive:' + '1' * 64 + '#conclusion')

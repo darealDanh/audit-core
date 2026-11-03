@@ -7,6 +7,7 @@ import signal
 import sqlite3
 import sys
 
+from types import SimpleNamespace
 import pytest
 
 from audit_core import firmware_dive_acquisition as acq
@@ -34,6 +35,10 @@ def probe(graph_case, tmp_path, monkeypatch):
     # The fixture adapter runs only purpose-built Python test programs. It never
     # executes the corpus bytes in root/a and never attempts network operations.
     monkeypatch.setattr(acq, '_select_adapter', lambda spec: None, raising=False)
+    # Darwin has no enforceable aggregate/address-space limit. Production
+    # probes fail closed there; purpose-built fixture programs exercise the
+    # remaining containment and receipt path without corpus execution.
+    monkeypatch.setattr(acq, '_memory_limits_available', lambda: True)
     return graph_case, path, spec
 
 
@@ -60,6 +65,17 @@ class FixtureAdapter:
     def command(self, spec, staging, output):
         program = 'import os; os.environ.clear(); os.environ.update('+repr(dict(spec.environment))+')\n'+self.program
         return [str(self.path), '-I', '-S', '-c', program, str(staging), str(output), *spec.argv]
+
+
+def test_probe_refuses_when_memory_containment_is_unavailable(probe, monkeypatch):
+    monkeypatch.setattr(acq, '_select_adapter', lambda spec: FixtureAdapter('pass'))
+    monkeypatch.setattr(acq, '_memory_limits_available', lambda: False)
+    monkeypatch.setattr(acq.subprocess, 'Popen',
+                        lambda *a, **k: pytest.fail('memory-unbounded firmware invoked'))
+    summary = run(probe)
+    value = manifest(summary)
+    assert not value['termination']['executed']
+    assert value['termination']['reason'] == 'unsupported-limits'
 
 
 def executable(probe, monkeypatch, program):
@@ -864,10 +880,12 @@ def test_output_files_are_precreated_and_only_exact_files_are_writable(probe, mo
 
 def test_child_resource_limits_are_fixed_and_inherited(tmp_path):
     import resource
-    program='import json,resource; print(json.dumps([resource.getrlimit(k) for k in (resource.RLIMIT_FSIZE,resource.RLIMIT_NPROC,resource.RLIMIT_NOFILE)]))'
+    names=('RLIMIT_FSIZE','RLIMIT_NPROC','RLIMIT_NOFILE')
+    program='import json,resource; print(json.dumps([resource.getrlimit(getattr(resource,k)) for k in '+repr(names)+']))'
     termination,out,_=acq._process([sys.executable,'-I','-S','-c',program],{},None,2,tmp_path)
     assert termination.exit_code==0
-    assert json.loads(out)==[[8388608,8388608],[64,64],[64,64]]
+    assert json.loads(out)==[[8388608,8388608],
+                             [acq.MAX_PROBE_PROCESSES]*2,[64,64]]
 
 
 def test_unavailable_child_limits_refuse_before_subprocess(tmp_path, monkeypatch):
@@ -913,6 +931,38 @@ def test_empty_output_ctime_change_is_produced_even_with_restored_mtime(probe, m
     value=manifest(run(probe))
     assert value['termination']['exit_code']==0
     assert [e for e in value['evidence'] if e['path'].startswith('outputs/')]==[{'path':'outputs/result','sha256':sha(b''),'byte_count':0}]
+@pytest.mark.parametrize('case,expected', [
+    ('nonlinux', False), ('missing', False), ('failure', False),
+    ('low', False), ('exact', True), ('infinite', True),
+])
+def test_memory_limit_support_is_explicit_and_fail_closed(monkeypatch, case, expected):
+    platform = 'darwin' if case == 'nonlinux' else 'linux'
+    monkeypatch.setattr(acq.sys, 'platform', platform)
+    if case == 'missing':
+        fake = SimpleNamespace()
+    else:
+        def getrlimit(_):
+            if case == 'failure':
+                raise OSError('unsupported')
+            hard = {'low': acq.MAX_PROBE_ADDRESS_BYTES - 1,
+                    'exact': acq.MAX_PROBE_ADDRESS_BYTES,
+                    'infinite': -1}.get(case, acq.MAX_PROBE_ADDRESS_BYTES)
+            return 0, hard
+        fake = SimpleNamespace(RLIMIT_AS=1, RLIM_INFINITY=-1, getrlimit=getrlimit)
+    monkeypatch.setattr(acq, 'resource', fake)
+    assert acq._memory_limits_available() is expected
+
+
+def test_linux_child_limits_include_address_space(monkeypatch):
+    calls = []
+    monkeypatch.setattr(acq.sys, 'platform', 'linux')
+    monkeypatch.setattr(acq.resource, 'setrlimit',
+                        lambda key, value: calls.append((key, value)))
+    acq._child_limits()
+    assert calls[0] == (acq.resource.RLIMIT_AS,
+                        (acq.MAX_PROBE_ADDRESS_BYTES,) * 2)
+
+
 
 
 def test_child_limit_setup_failure_cannot_execute_payload(tmp_path, monkeypatch):
@@ -928,7 +978,12 @@ def test_child_limit_syscalls_apply_the_fixed_hard_and_soft_bounds(monkeypatch):
     calls=[]
     monkeypatch.setattr(acq.resource,'setrlimit',lambda key,value:calls.append((key,value)))
     acq._child_limits()
-    assert calls==[(acq.resource.RLIMIT_FSIZE,(8388608,8388608)),(acq.resource.RLIMIT_NPROC,(64,64)),(acq.resource.RLIMIT_NOFILE,(64,64))]
+    expected=[(acq.resource.RLIMIT_FSIZE,(8388608,8388608)),
+              (acq.resource.RLIMIT_NPROC,(acq.MAX_PROBE_PROCESSES,)*2),
+              (acq.resource.RLIMIT_NOFILE,(64,64))]
+    if sys.platform.startswith('linux'):
+        expected.insert(0,(acq.resource.RLIMIT_AS,(acq.MAX_PROBE_ADDRESS_BYTES,)*2))
+    assert calls==expected
 
 
 @pytest.mark.parametrize('damage',['mode','extra','missing','symlink','directory-replaced','file-replaced','hardlink','oversize','stat-error'])

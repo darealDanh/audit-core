@@ -401,6 +401,22 @@ def test_set_resolution_is_exact_and_order_independent(pending,case):
     expected = {'agree':{'a','b'},'exact':{'d'},'stale-parent':{'d'}}.get(case,set())
     assert {i.observation_id for i in result.observations} == {i*64 for i in expected}
 
+def test_conflict_resolver_preserves_root_blocker_settlement_authority(pending):
+    from audit_core import firmware_dive_questions as q
+    make, question = pure_attempts(pending)
+    refs = ('a' * 64, 'b' * 64)
+    conflict = dataclasses.replace(question, question_id='d' * 64,
+        origin='conflict', question=q._conflict_text(refs),
+        supersedes_observation_ids=refs)
+    resolved, contested = dive._overlay([
+        make('a', 'supported', True), make('b', 'refuted', False),
+        make('d', 'supported', True, conflict)])
+    observation, = resolved.observations
+    assert not contested
+    assert observation.settled_subject_refs == tuple(
+        str(ref) for ref in question.subject_refs if ref.kind == 'chain-blocker')
+
+
 
 def test_same_question_contract_cannot_change_across_attempts(pending):
     make,question = pure_attempts(pending)
@@ -776,11 +792,12 @@ def opaque_first(case, tmp_path):
     from tests.test_firmware_chain_gate import check as chain_check
     from tests.test_firmware_dive_prepare import retry_manifest
     chain_record(case); chain_check(case)
-    path = retry_manifest(case, reachability=True)
+    path = retry_manifest(case)
     first = prepare(case, questions_path=path)
     con = case[0]
     question = next(r for r in rows(con,'cba_firmware_dive_questions') if r['origin']=='analyst')
-    _, observed = accepted(case,first,value='evidenced',question_id=question['question_id'],_fill=False)
+    _, observed = accepted(case,first,value=False,outcome='refuted',
+        question_id=question['question_id'],_fill=False)
     con.execute("UPDATE cba_firmware_dive_runs SET status='pending',completed_at=NULL,journal_path=NULL,journal_sha256=NULL,supported_count=0,refuted_count=0,inconclusive_count=0")
     con.commit()
     for n,row in enumerate(rows(con,'cba_firmware_dive_questions')):
@@ -799,10 +816,10 @@ def test_opaque_retry_history_never_creates_current_conflict(graph_case,tmp_path
     assert row['attempt_ordinal']==2 and row['prior_observation_id']==old['observation_id']
     index=json.loads((run/next(r for r in rows(con,'cba_firmware_dive_runs') if r['dive_generation']==retry.dive_generation)['question_index_path']).read_bytes())
     assert old['observation_id'] not in {r['observation_id'] for r in index['input_overlay']}
-    populate(graph_case,tmp_path,'refuted',retry.dive_generation)
+    populate(graph_case,tmp_path,'supported',retry.dive_generation)
     assert check(graph_case).complete
     accepted=overlay(graph_case)
-    assert len(accepted.observations)==1 and accepted.observations[0].outcome=='refuted'
+    assert len(accepted.observations)==1 and accepted.observations[0].outcome=='supported'
     before,artifacts,changes=state(con),files(run),con.total_changes
     assert check(graph_case).complete and overlay(graph_case)==accepted
     assert state(con)==before and files(run)==artifacts and con.total_changes==changes
@@ -833,7 +850,7 @@ def freeze_legacy_conflict(case, old, monkeypatch):
 def test_frozen_opaque_conflict_completes_as_stale_without_poisoning_canonical_overlay(graph_case,tmp_path,monkeypatch):
     question,old=opaque_first(graph_case,tmp_path)
     retry=prepare(graph_case,questions_path=graph_case[1]/'scratch-analyst/analyst.json',retry=[question['question_id']])
-    populate(graph_case,tmp_path,'refuted',retry.dive_generation);check(graph_case)
+    populate(graph_case,tmp_path,'supported',retry.dive_generation);check(graph_case)
     accepted=overlay(graph_case)
     regenerate(graph_case)
     frozen=freeze_legacy_conflict(graph_case,old,monkeypatch)

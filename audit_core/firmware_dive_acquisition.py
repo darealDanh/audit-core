@@ -234,6 +234,8 @@ def seal_capture(con, run_dir, root, spec_path) -> AcquisitionSummary:
 MAX_PROBE_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_PROBE_STREAM_BYTES = 1024 * 1024
 MAX_DEPENDENCY_BYTES = 64 * 1024 * 1024
+MAX_PROBE_ADDRESS_BYTES = 256 * 1024 * 1024
+MAX_PROBE_PROCESSES = 4
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -510,14 +512,19 @@ def _kill_group(process):
 
 
 def _child_limits():
-    for name, maximum in (('RLIMIT_FSIZE',MAX_PROBE_OUTPUT_BYTES),('RLIMIT_NPROC',64),('RLIMIT_NOFILE',64)):
+    limits = [('RLIMIT_FSIZE',MAX_PROBE_OUTPUT_BYTES),
+              ('RLIMIT_NPROC',MAX_PROBE_PROCESSES),('RLIMIT_NOFILE',64)]
+    if sys.platform.startswith('linux'):
+        limits.insert(0, ('RLIMIT_AS',MAX_PROBE_ADDRESS_BYTES))
+    for name, maximum in limits:
         resource.setrlimit(getattr(resource,name),(maximum,maximum))
 
 
 def _limits_available():
     if resource is None or os.getuid() == 0 or not (sys.platform.startswith('linux') or sys.platform == 'darwin'):
         return False
-    for name, maximum in (('RLIMIT_FSIZE',MAX_PROBE_OUTPUT_BYTES),('RLIMIT_NPROC',64),('RLIMIT_NOFILE',64)):
+    for name, maximum in (('RLIMIT_FSIZE',MAX_PROBE_OUTPUT_BYTES),
+            ('RLIMIT_NPROC',MAX_PROBE_PROCESSES),('RLIMIT_NOFILE',64)):
         key = getattr(resource,name,None)
         if key is None:
             return False
@@ -528,6 +535,20 @@ def _limits_available():
         if hard != resource.RLIM_INFINITY and hard < maximum:
             return False
     return True
+
+
+def _memory_limits_available():
+    """Only Linux RLIMIT_AS is enforceable here; other hosts fail closed."""
+    if resource is None or not sys.platform.startswith('linux'):
+        return False
+    key = getattr(resource, 'RLIMIT_AS', None)
+    if key is None:
+        return False
+    try:
+        _, hard = resource.getrlimit(key)
+    except (OSError, ValueError):
+        return False
+    return hard == resource.RLIM_INFINITY or hard >= MAX_PROBE_ADDRESS_BYTES
 
 
 def _prepare_outputs(output, declared):
@@ -781,7 +802,7 @@ def _adapter_termination(termination, backend):
 def _execute_probe(spec, dependencies, adapter):
     if adapter is None:
         return ProbeTermination(False,'isolation-unavailable',None,None,False,False,False), b'', b'', {}
-    if not _limits_available():
+    if not _limits_available() or not _memory_limits_available():
         return ProbeTermination(False,'unsupported-limits',None,None,False,False,False), b'', b'', {}
     helper = next(((raw,identity) for role,_,identity,raw in dependencies if role == 'environment-launcher'),None)
     if isinstance(adapter,_IsolationAdapter) and _needs_environment_launcher(spec) and (
@@ -837,16 +858,24 @@ def _execute_probe(spec, dependencies, adapter):
                  termination.reason == 'adapter-exited' and termination.adapter_exit_code == 0) else {})
 
 
+def _sealed_probe_limits(backend):
+    return dict(stdout_bytes=MAX_PROBE_STREAM_BYTES,
+        stderr_bytes=MAX_PROBE_STREAM_BYTES, output_bytes=MAX_PROBE_OUTPUT_BYTES,
+        output_files=256, address_space_bytes=MAX_PROBE_ADDRESS_BYTES,
+        process_limit=MAX_PROBE_PROCESSES, descriptor_limit=64,
+        file_size_limit=MAX_PROBE_OUTPUT_BYTES,
+        output_policy='precreated-exact-files',
+        user_namespace_policy=('isolated-nested-disabled'
+            if backend == 'bwrap' else 'not-applicable'))
+
+
 def _probe_build(run, inputs, termination, stdout, stderr, outputs, after_inputs):
     spec, _, _, dependencies = inputs
     sealed = dataclasses.asdict(spec)
     sealed['environment'] = dict(spec.environment)
     sealed.pop('adapter_path')
     sealed['runner'] = None if spec.runner is None else 'verified-runner'
-    sealed.update(stdout_bytes=MAX_PROBE_STREAM_BYTES,stderr_bytes=MAX_PROBE_STREAM_BYTES,
-        output_bytes=MAX_PROBE_OUTPUT_BYTES,output_files=256,process_limit=64,descriptor_limit=64,
-        file_size_limit=MAX_PROBE_OUTPUT_BYTES,output_policy='precreated-exact-files',
-        user_namespace_policy='isolated-nested-disabled' if spec.isolation_backend == 'bwrap' else 'not-applicable')
+    sealed.update(_sealed_probe_limits(spec.isolation_backend))
     records = []
     after_sources = {(role,path):raw for role,path,_,raw in after_inputs[3]}
     for role,path,_,raw in dependencies:

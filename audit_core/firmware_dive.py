@@ -733,6 +733,7 @@ class CurrentDiveObservation:
     observation_id: str
     question_id: str
     subject_refs: tuple[str, ...]
+    settled_subject_refs: tuple[str, ...]
     outcome: str
     resolution_effect: object
     evidence_rung: str
@@ -1182,8 +1183,17 @@ def _overlay(attempts, prospective=None):
     observations = []
     for identity,item in sorted(accepted.items()):
         observed, question = item['observation'],item['question']
+        target = question.resolution_contract.target_subject
+        settled = {target} if target.kind in ('chain-blocker', 'surface-unknown') else set()
+        family_origins = {attempt['question'].origin for attempt in attempts
+            if attempt['question'].question_id == roots[identity]
+            and attempt['question'].origin != 'conflict'}
+        _require(len(family_origins) == 1, 'Dive family has ambiguous settlement authority')
+        if family_origins == {'chain-blocker'}:
+            settled.update(ref for ref in question.subject_refs if ref.kind == 'chain-blocker')
         observations.append(CurrentDiveObservation(identity,question.question_id,tuple(str(r) for r in question.subject_refs),
-            observed['outcome'],results._effect(json.loads(observed['resolution_effect'])),observed['evidence_rung'],
+            tuple(sorted(map(str, settled))), observed['outcome'],
+            results._effect(json.loads(observed['resolution_effect'])),observed['evidence_rung'],
             tuple(sorted(q._hash(ref) for ref in json.loads(observed['dependency_refs']))),
             tuple(sorted(q._hash(ref) for ref in json.loads(observed['evidence_refs'])))))
     return CurrentDiveOverlay(observations=tuple(observations)),contested
