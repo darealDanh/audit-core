@@ -364,6 +364,48 @@ def test_edge_precondition_uses_frozen_edge_required_state(decision_assignment):
     results._validate_state(corrected, graph, requirements)
 
 
+@pytest.mark.parametrize("subject_kind", ["transition", "precondition"])
+@pytest.mark.parametrize("axis,carried", [
+    ("authentication", "admin"), ("lifecycle", "post-reset"),
+    ("posture", "SoftAP-setup"),
+])
+def test_later_wildcard_bench_subject_uses_carried_incoming_state(
+        decision_assignment, subject_kind, axis, carried):
+    _, _, frozen, body, _ = decision_assignment
+    worklist = copy.deepcopy(frozen)
+    graph = worklist["graph"]
+    chain = graph["chains"][0]
+    edges = sorted(graph["edges"], key=lambda item: item["ordinal"])
+    assert len(edges) == 2
+    edges[0]["result_state"][axis] = carried
+    assert edges[1]["required_state"][axis] == "any"
+    # Input order must not replace the ordinal semantics of the graph.
+    graph["edges"].reverse()
+    if subject_kind == "transition":
+        subject = f"transition:{chain['chain_id']}:1"
+    else:
+        subject = next(item["precondition_id"] for item in worklist["open_preconditions"]
+                       if any(location["chain_id"] == chain["chain_id"]
+                              and location["edge_ordinal"] == 1
+                              for location in item["locations"]))
+    test = body["answer"]["bench_tests"][0]
+    test["subject_refs"] = [subject]
+    initial = test["required_state"][axis]
+    assert carried != initial
+    test["required_state"][axis] = carried
+    test["test_id"] = bench_id(test)
+    preconditions = results._expected_preconditions(worklist)
+    answer = results._parse(canonical_json(body)).answer
+    accepted, _ = results._validate_bench(answer, worklist, preconditions)
+    assert getattr(accepted[0].required_state, axis) == carried
+
+    test["required_state"][axis] = initial
+    test["test_id"] = bench_id(test)
+    answer = results._parse(canonical_json(body)).answer
+    with pytest.raises(results.FirmwareDecideResultError, match="required state"):
+        results._validate_bench(answer, worklist, preconditions)
+
+
 def test_dive_evidence_keeps_blocker_and_unknown_namespaces_distinct(decision_assignment):
     _, _, worklist, _, _ = decision_assignment
     blocker = next(item for item in worklist["open_preconditions"]

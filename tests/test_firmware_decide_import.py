@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import shutil
 import sqlite3
 
 import pytest
@@ -46,6 +47,24 @@ def test_record_identical_is_zero_write_and_preserves_timestamp(decision_assignm
     second = results.record(con, run, path)
     assert second == first
     assert state(con) == before and con.total_changes == changes and not con.in_transaction
+
+
+def test_record_preserves_identical_result_published_during_install(
+        decision_assignment, monkeypatch):
+    case, _, _, _, path = decision_assignment
+    con, run = case[:2]
+    original = results.dive._install
+    winner = {}
+    def install_then_publish(*args, **kwargs):
+        original(*args, **kwargs)
+        monkeypatch.setattr(results.dive, "_install", original)
+        winner["summary"] = results.record(con, run, path)
+        winner["state"], winner["changes"] = state(con), con.total_changes
+    monkeypatch.setattr(results.dive, "_install", install_then_publish)
+    actual = results.record(con, run, path)
+    assert actual == winner["summary"]
+    assert state(con) == winner["state"] and con.total_changes == winner["changes"]
+    assert not con.in_transaction
 
 
 def test_record_refuses_conflicting_result_after_recorded(decision_assignment):
@@ -107,6 +126,24 @@ def test_record_rejects_installed_result_drift(decision_assignment):
     with pytest.raises(results.FirmwareDecideResultError):
         results.record(con, run, path)
     assert state(con) == before
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_record_retry_does_not_recreate_missing_result(decision_assignment, complete):
+    from audit_core import firmware_decide as decide
+
+    case, _, _, _, path = decision_assignment
+    con, run, root = case[:3]
+    summary = results.record(con, run, path)
+    if complete:
+        decide.check(con, run, root, image_id="target")
+    destination = (run / summary.result_path).parent
+    shutil.rmtree(destination)
+    before, changes = state(con), con.total_changes
+    with pytest.raises(results.FirmwareDecideResultError):
+        results.record(con, run, path)
+    assert not destination.exists()
+    assert state(con) == before and con.total_changes == changes
 
 
 def test_record_rejects_symlink_parent_without_writing_outside(decision_assignment, tmp_path):

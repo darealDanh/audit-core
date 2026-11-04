@@ -414,6 +414,37 @@ def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
     }
 
 
+def _existing_preparation(con, run, inputs, policy, policy_sha256,
+                          generation, open_count, destination, contents):
+    active = surface._query(con,
+        "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND status IN ('pending','recorded')",
+        (inputs.graph.image_id,))
+    same = surface._query(con,
+        "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
+        (inputs.graph.image_id, generation))
+    if same:
+        if len(same) != 1:
+            raise FirmwareDecideError("Decision generation ownership is ambiguous")
+        if any(row["decision_generation"] != generation for row in active):
+            raise FirmwareDecideError("Another firmware decision generation is active")
+        existing = same[0]
+        db.TABLE_SPECS["cba_firmware_decide_runs"].validate(existing)
+        firmware_dive._timestamp(existing["prepared_at"])
+        expected = _prepared_row(inputs, policy, policy_sha256,
+                                 generation, len(inputs.graph.chains),
+                                 existing["prepared_at"])
+        for key, value in expected.items():
+            if (existing[key] != value
+                    and key not in ("status", "bench_test_count",
+                                    "script_count", "policy_match_count")):
+                raise FirmwareDecideError("Existing decision generation differs from current authority")
+        firmware_dive._checked_install(destination, contents, run)
+        return _summary(existing, open_count)
+    if active:
+        raise FirmwareDecideError("Another firmware decision generation is active")
+    return None
+
+
 def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         root: str | pathlib.Path, policy_path: str | pathlib.Path, *,
         image_id: str | None = None) -> DecisionPreparationSummary:
@@ -423,6 +454,8 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         if con.in_transaction:
             raise FirmwareDecideError("Decision preparation requires no active caller transaction")
         run = firmware_dive._selector(run_dir)
+        con.execute("BEGIN")
+        started = True
         first_inputs = verified_input(con, run, root, image_id=image_id)
         first_policy = load_policy(policy_path)
         policy_raw = policy_bytes(first_policy)
@@ -431,6 +464,13 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         generation = _digest(worklist_raw)
         destination = run / "files" / "firmware-decide" / generation
         contents = {"policy.json": policy_raw, "worklist.json": worklist_raw}
+        existing = _existing_preparation(
+            con, run, first_inputs, first_policy, policy_sha256, generation,
+            open_count, destination, contents)
+        con.rollback()
+        started = False
+        if existing is not None:
+            return existing
         firmware_dive._install(destination, contents, run)
 
         con.execute("BEGIN IMMEDIATE")
@@ -447,33 +487,13 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             raise FirmwareDecideError("Decision inputs changed before publication")
         firmware_dive._checked_install(destination, contents, run)
 
-        active = surface._query(con,
-            "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND status IN ('pending','recorded')",
-            (first_inputs.graph.image_id,))
-        same = surface._query(con,
-            "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
-            (first_inputs.graph.image_id, generation))
-        if same:
-            if len(same) != 1:
-                raise FirmwareDecideError("Decision generation ownership is ambiguous")
-            if any(row["decision_generation"] != generation for row in active):
-                raise FirmwareDecideError("Another firmware decision generation is active")
-            existing = same[0]
-            db.TABLE_SPECS["cba_firmware_decide_runs"].validate(existing)
-            firmware_dive._timestamp(existing["prepared_at"])
-            expected = _prepared_row(first_inputs, first_policy, policy_sha256,
-                                     generation, len(first_inputs.graph.chains),
-                                     existing["prepared_at"])
-            for key, value in expected.items():
-                if (existing[key] != value
-                        and key not in ("status", "bench_test_count",
-                                        "script_count", "policy_match_count")):
-                    raise FirmwareDecideError("Existing decision generation differs from current authority")
+        existing = _existing_preparation(
+            con, run, current_inputs, current_policy, policy_sha256, generation,
+            open_count, destination, contents)
+        if existing is not None:
             con.rollback()
             started = False
-            return _summary(existing, open_count)
-        if active:
-            raise FirmwareDecideError("Another firmware decision generation is active")
+            return existing
         prepared_at = con.execute("SELECT datetime('now')").fetchone()[0]
         row = _prepared_row(first_inputs, first_policy, policy_sha256,
                             generation, len(first_inputs.graph.chains), prepared_at)
@@ -751,6 +771,12 @@ def _package_projection(row, policy, validated, derived, scripts):
     }
 
 
+def _require_result_assignment(row, result):
+    if (result.image_id, result.decision_generation, result.worklist_sha256) != (
+            row["image_id"], row["decision_generation"], row["worklist_sha256"]):
+        raise FirmwareDecideError("Decision result differs from selected assignment")
+
+
 def _capture_decision(con, run, root, image_id):
     from audit_core import firmware_decide_results as results
     row = _select_decision_row(con, image_id)
@@ -786,9 +812,11 @@ def _capture_decision(con, run, root, image_id):
     result_raw = firmware_dive._read(
         run, row["result_path"], row["result_sha256"], results.MAX_RESULT_BYTES)
     result = results._parse(result_raw)
+    _require_result_assignment(row, result)
     if results.canonical_bytes(result) != result_raw:
         raise FirmwareDecideError("Recorded decision result is not canonical")
     validated = results.validate(con, run, result)
+    _require_result_assignment(row, validated)
     derived = _technical_derivation(policy, validated)
     script_values = tuple(
         VerifiedProposedScript(
@@ -850,10 +878,17 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         con.execute("BEGIN")
         started = True
         captured = _capture_decision(con, run, root, image_id)
-        con.rollback()
-        started = False
         destination = run / pathlib.PurePosixPath(
             _package_path(captured.row, captured.package_sha256)).parent
+        if captured.row["status"] == "complete":
+            _require_complete_row(captured)
+            firmware_dive._checked_install(
+                destination, captured.contents, run, exact_mode=0o600)
+            con.rollback()
+            started = False
+            return _summary_from_capture(captured)
+        con.rollback()
+        started = False
         firmware_dive._install(destination, captured.contents, run)
         con.execute("BEGIN IMMEDIATE")
         started = True
@@ -862,11 +897,6 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             raise FirmwareDecideError("Decision authority changed before publication")
         firmware_dive._checked_install(
             destination, captured.contents, run, exact_mode=0o600)
-        if current.row["status"] == "complete":
-            _require_complete_row(current)
-            con.rollback()
-            started = False
-            return _summary_from_capture(current)
         if current.row["status"] != "recorded":
             raise FirmwareDecideError("Only a recorded decision can complete")
         completed_at = con.execute("SELECT datetime('now')").fetchone()[0]

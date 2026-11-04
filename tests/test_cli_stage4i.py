@@ -53,8 +53,8 @@ def _summary(mode, root):
     common = {"image_id": "image", "decision_generation": "a" * 64}
     if mode == "prepare":
         common.update(graph_sha256="b" * 64, dive_generation="c" * 64,
-            overlay_sha256="d" * 64, policy_id="policy", policy_path=str(root / "PRIVATE_POLICY"),
-            policy_sha256="e" * 64, worklist_path=str(root / "worklist.json"),
+            overlay_sha256="d" * 64, policy_id="policy", policy_path="files/policy.json",
+            policy_sha256="e" * 64, worklist_path="files/worklist.json",
             worklist_sha256="f" * 64, chain_count=2, open_precondition_count=1)
     elif mode == "record":
         common.update(result_path="files/result.json", result_sha256="b" * 64,
@@ -62,7 +62,7 @@ def _summary(mode, root):
     else:
         common.update(decision="acquire", primary_reason="eligible-chain",
             reason_codes=("eligible-chain",), chain_count=2, bench_test_count=1,
-            script_count=1, policy_match_count=1, package_path=str(root / "package.json"),
+            script_count=1, policy_match_count=1, package_path="artifacts/package.json",
             package_sha256="b" * 64, complete=True)
     return SimpleNamespace(**common)
 
@@ -101,6 +101,43 @@ def test_exact_delegation_and_bounded_output(tmp_path, monkeypatch, capsys, mode
         assert out.out.isascii() and "PRIVATE_ROOT" not in out.out
         assert all(len(line) <= 512 for line in out.out.splitlines())
     with pytest.raises(sqlite3.ProgrammingError): con.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("mode", ["prepare", "record", "check"])
+@pytest.mark.parametrize("image_id", ["路由器|r1|target", "image\n\x1b\t\"", "x" * 800])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_public_identity_round_trips_json_and_human_output_stays_bounded(
+        tmp_path, monkeypatch, capsys, mode, image_id, json_output):
+    root = tmp_path / "PRIVATE_ROOT"
+    con = sqlite3.connect(":memory:")
+    monkeypatch.setattr(audit, "_open_db", lambda *a, **k: con)
+    summary = _summary(mode, root)
+    summary.image_id = image_id + str(root)
+    path_field = {"prepare": "worklist_path", "record": "result_path",
+                  "check": "package_path"}[mode]
+    # Valid run-relative paths may share a root prefix and contain Unicode.
+    path = "files/" + str(root).lstrip("/") + "/雪/" + "/".join(["x" * 200] * 3) + ".json"
+    setattr(summary, path_field, path)
+    target = (firmware_decide_results, "record") if mode == "record" else (firmware_decide, mode)
+    monkeypatch.setattr(*target, lambda *a, **k: summary)
+    flags = ["--record", "result.json"] if mode == "record" else ["--" + mode, "--root", str(root)]
+    if mode == "prepare":
+        flags += ["--policy", "policy.json"]
+    if json_output:
+        flags += ["--json"]
+    assert audit.main(["decide", "--run", str(tmp_path / "run"), *flags]) == 0
+    output = capsys.readouterr()
+    assert output.err == ""
+    if json_output:
+        payload = json.loads(output.out)
+        assert set(payload) == FIELDS[mode]
+        assert payload["image_id"] == image_id + str(root)
+        assert payload[path_field] == path
+    else:
+        assert output.out.isascii()
+        assert all(len(line) <= 512 for line in output.out.splitlines())
+        if mode != "record":
+            assert str(root) not in output.out
 
 
 @pytest.mark.parametrize("mode,error_type", [

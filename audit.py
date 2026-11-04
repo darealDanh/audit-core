@@ -1320,13 +1320,13 @@ def cmd_decide(args: argparse.Namespace) -> int:
             return 1
         raise failure
 
-    display = {
-        key: _bounded_cli_text(value, root) if isinstance(value, str) else value
-        for key, value in payload.items()
-    }
     if args.json:
-        print(json.dumps(display, indent=2))
+        print(json.dumps(payload, indent=2))
     else:
+        display = {
+            key: _bounded_cli_text(value, root) if isinstance(value, str) else value
+            for key, value in payload.items()
+        }
         counts = ", ".join(
             f"{display[field]} {field.replace('_', ' ')}"
             for field in fields if field.endswith("_count"))

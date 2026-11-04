@@ -67,6 +67,24 @@ def test_prepare_identical_is_zero_write_and_preserves_timestamp(decision_case, 
     assert state(con) == before and con.total_changes == changes and not con.in_transaction
 
 
+def test_prepare_preserves_identical_generation_published_during_install(
+        decision_case, tmp_path, monkeypatch):
+    con, run, root = decision_case[0][:3]
+    policy = write_policy(tmp_path)
+    original = decide.firmware_dive._install
+    winner = {}
+    def install_then_publish(*args, **kwargs):
+        original(*args, **kwargs)
+        monkeypatch.setattr(decide.firmware_dive, "_install", original)
+        winner["summary"] = decide.prepare(con, run, root, policy, image_id="target")
+        winner["state"], winner["changes"] = state(con), con.total_changes
+    monkeypatch.setattr(decide.firmware_dive, "_install", install_then_publish)
+    actual = decide.prepare(con, run, root, policy, image_id="target")
+    assert actual == winner["summary"]
+    assert state(con) == winner["state"] and con.total_changes == winner["changes"]
+    assert not con.in_transaction
+
+
 def test_prepare_refuses_changed_policy_while_generation_is_active(decision_case, tmp_path):
     case = decision_case[0]
     con, run, root = case[:3]

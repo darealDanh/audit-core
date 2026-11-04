@@ -735,7 +735,20 @@ def _subject_ownership(subject, graph, preconditions):
 
 
 def _validate_state(test, graph, subject_edges):
-    chains = {item["chain_id"]: item for item in graph["chains"]}
+    initial_states = {
+        item["chain_id"]: {
+            "lifecycle": item["initial_lifecycle"],
+            "posture": item["initial_posture"],
+            "authentication": item["initial_authentication"],
+        } for item in graph["chains"]
+    }
+    carried_states = {identity: dict(value) for identity, value in initial_states.items()}
+    incoming_states = {}
+    for edge in sorted(graph["edges"], key=lambda item: (item["chain_id"], item["ordinal"])):
+        carried = carried_states[edge["chain_id"]]
+        incoming_states[edge["chain_id"], edge["ordinal"]] = dict(carried)
+        carried.update({axis: value for axis, value in edge["result_state"].items()
+                        if value != "unchanged"})
     actual = {key: getattr(test.required_state, key)
               for key in ("lifecycle", "posture", "authentication")}
     if (test.required_state.device != graph["image_id"]
@@ -746,16 +759,12 @@ def _validate_state(test, graph, subject_edges):
         for chain_id in owners:
             grouped.setdefault((subject, chain_id), []).append(edge)
     for (_, chain_id), edges in grouped.items():
-        chain = chains[chain_id]
-        initial = {
-            "lifecycle": chain["initial_lifecycle"],
-            "posture": chain["initial_posture"],
-            "authentication": chain["initial_authentication"],
-        }
+        initial = initial_states[chain_id]
         def matches(edge):
             required = edge["required_state"] if edge is not None else initial
+            incoming = incoming_states[chain_id, edge["ordinal"]] if edge is not None else initial
             return all(
-                value == (initial[axis] if required[axis] == "any" else required[axis])
+                value == (incoming[axis] if required[axis] == "any" else required[axis])
                 for axis, value in actual.items())
         if not any(matches(edge) for edge in edges):
             _fail("bench required state differs from frozen subject state")
@@ -839,13 +848,27 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         if con.in_transaction:
             _fail("decision result recording requires no active caller transaction")
         run = dive._selector(run_dir)
+        con.execute("BEGIN")
+        started = True
         first_result = load(result_path)
         first = validate(con, run, first_result)
+        row, _ = _assignment(con, run, first_result)
         destination = (run / "artifacts" / "firmware-decide-results" /
                        first.decision_generation / first.result_sha256)
         contents = {"result.json": first.result_bytes}
-        dive._install(destination, contents, run)
         relative = (destination / "result.json").relative_to(run).as_posix()
+        if row["status"] == "recorded":
+            if (row["result_path"], row["result_sha256"]) != (relative, first.result_sha256):
+                _fail("recorded decision result conflicts with canonical result")
+            dive._checked_install(destination, contents, run)
+            con.rollback()
+            started = False
+            return _record_summary(first, relative, True)
+        if row["status"] != "pending":
+            _fail("only a pending decision assignment can be recorded")
+        con.rollback()
+        started = False
+        dive._install(destination, contents, run)
 
         con.execute("BEGIN IMMEDIATE")
         started = True
