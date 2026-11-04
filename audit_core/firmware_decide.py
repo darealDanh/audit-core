@@ -490,3 +490,460 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
     finally:
         if started:
             con.rollback()
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PolicyMatch:
+    chain_id: str
+    tier_id: str
+    payout_path_id: str
+    path_status: str
+    requires_physical_settlement: bool
+    technical_match: bool
+    eligible_match: bool
+    unknown_path_match: bool
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class PayoutProjection:
+    chain_id: str
+    tier_id: str
+    payout_path_id: str
+    currency: str
+    minimum_minor: int
+    maximum_minor: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedProposedScript:
+    name: str
+    path: str
+    sha256: str
+    content: bytes
+    status: str = "proposed_unreviewed"
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DecisionSummary:
+    image_id: str
+    decision_generation: str
+    decision: str
+    primary_reason: str
+    reason_codes: tuple[str, ...]
+    chain_count: int
+    bench_test_count: int
+    script_count: int
+    policy_match_count: int
+    package_path: str
+    package_sha256: str
+    complete: bool
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareDecisionPackage:
+    image_id: str
+    decision_generation: str
+    decision: str
+    primary_reason: str
+    reason_codes: tuple[str, ...]
+    top_chain_id: str | None
+    bench_plan_complete: bool
+    policy: DecisionPolicy
+    result: object
+    policy_matches: tuple[PolicyMatch, ...]
+    payout_projections: tuple[PayoutProjection, ...]
+    open_preconditions: tuple[object, ...]
+    bench_tests: tuple[object, ...]
+    scripts: tuple[VerifiedProposedScript, ...]
+    package_path: str
+    package_sha256: str
+    package_bytes: bytes
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _DerivedDecision:
+    decision: str
+    primary_reason: str
+    reason_codes: tuple[str, ...]
+    top_chain_id: str | None
+    bench_plan_complete: bool
+    policy_matches: tuple[PolicyMatch, ...]
+    payout_projections: tuple[PayoutProjection, ...]
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _DecisionCapture:
+    row: object
+    policy: DecisionPolicy
+    validated: object
+    derived: _DerivedDecision
+    package_bytes: bytes
+    package_sha256: str
+    contents: object
+
+
+def _technical_derivation(policy: DecisionPolicy, validated) -> _DerivedDecision:
+    assessments = validated.chain_assessments
+    preconditions = validated.open_preconditions
+    by_chain = {item.chain_id: item for item in assessments}
+    paths = {item.path_id: item for item in policy.payout_paths}
+    matches = []
+    for assessment in assessments:
+        physical = any(
+            item.method == "hardware"
+            and any(location.chain_id == assessment.chain_id for location in item.locations)
+            for item in preconditions)
+        for tier in policy.tiers:
+            technical = (
+                assessment.pre_auth in tier.accepted_pre_auth
+                and assessment.confidence >= tier.minimum_confidence
+                and assessment.completeness in tier.accepted_completeness
+                and assessment.evidence_rung in tier.accepted_evidence_rungs
+                and (not physical or tier.physical_access_allowed))
+            if not technical:
+                continue
+            path = paths[tier.payout_path_id]
+            matches.append(PolicyMatch(
+                assessment.chain_id, tier.tier_id, tier.payout_path_id,
+                path.status, physical, True, path.status == "eligible",
+                path.status == "unknown"))
+    matches = tuple(sorted(matches, key=lambda item: (
+        item.chain_id, next(tier.ordinal for tier in policy.tiers
+                            if tier.tier_id == item.tier_id))))
+    eligible = [item for item in matches if item.eligible_match]
+    unknown = [item for item in matches if item.unknown_path_match]
+    projections = []
+    for chain_id in sorted({item.chain_id for item in eligible}):
+        selected = min(
+            (item for item in eligible if item.chain_id == chain_id),
+            key=lambda item: next(tier.ordinal for tier in policy.tiers
+                                  if tier.tier_id == item.tier_id))
+        tier = next(item for item in policy.tiers if item.tier_id == selected.tier_id)
+        projections.append(PayoutProjection(
+            chain_id, tier.tier_id, tier.payout_path_id, policy.currency,
+            tier.minimum_minor, tier.maximum_minor))
+    top_chain_id = None
+    bench_complete = False
+    if eligible:
+        top_chain_id = min(
+            {item.chain_id for item in eligible},
+            key=lambda identity: by_chain[identity].rank)
+        tests = tuple(item for item in validated.bench_tests
+                      if top_chain_id in item.chain_ids)
+        hardware = {
+            item.precondition_id for item in preconditions
+            if item.method == "hardware"
+            and any(location.chain_id == top_chain_id for location in item.locations)
+        }
+        covered = {subject for item in tests for subject in item.subject_refs}
+        script_names = {item.name for item in validated.scripts}
+        bench_complete = bool(tests) and hardware <= covered and all(
+            item.script_name is None or item.script_name in script_names
+            for item in tests)
+
+    no_chain = not assessments
+    no_match = not eligible and not unknown
+    codes = []
+    applicable = {
+        "no-current-chain": no_chain,
+        "support-unsupported": policy.support_status == "unsupported",
+        "support-unknown": policy.support_status == "unknown",
+        "cost-exceeds-policy": (
+            policy.acquisition_cost_minor > policy.max_acquisition_cost_minor),
+        "eligible-policy-match": bool(eligible),
+        "unknown-policy-path-match": bool(unknown),
+        "no-policy-match": no_match,
+        "bench-plan-complete": bool(eligible) and bench_complete,
+        "bench-plan-incomplete": bool(eligible) and not bench_complete,
+    }
+    codes.extend(code for code in db.FIRMWARE_DECIDE_REASON_CODES if applicable[code])
+    if no_chain:
+        decision, primary = "pass", "no-current-chain"
+    elif policy.support_status == "unsupported":
+        decision, primary = "pass", "support-unsupported"
+    elif policy.acquisition_cost_minor > policy.max_acquisition_cost_minor:
+        decision, primary = "pass", "cost-exceeds-policy"
+    elif eligible:
+        if policy.support_status == "unknown":
+            decision, primary = "defer", "support-unknown"
+        elif bench_complete:
+            decision, primary = "acquire", "eligible-chain"
+        else:
+            decision, primary = "defer", "bench-plan-incomplete"
+    elif unknown:
+        decision, primary = "defer", "payout-path-unknown"
+    else:
+        decision, primary = "pass", "no-policy-match"
+    return _DerivedDecision(
+        decision, primary, tuple(codes), top_chain_id, bench_complete,
+        matches, tuple(projections))
+
+
+def _select_decision_row(con, image_id):
+    if image_id is None:
+        images = [row[0] for row in con.execute(
+            "SELECT DISTINCT image_id FROM cba_firmware_decide_runs ORDER BY image_id")]
+        if len(images) != 1:
+            raise FirmwareDecideError("Select exactly one decision image")
+        image_id = images[0]
+    rows = surface._query(
+        con, "SELECT * FROM cba_firmware_decide_runs WHERE image_id=?", (image_id,))
+    if not rows:
+        raise FirmwareDecideError("No prepared firmware decision")
+    active = [row for row in rows if row["status"] in ("pending", "recorded")]
+    if len(active) > 1:
+        raise FirmwareDecideError("Multiple active firmware decisions are ambiguous")
+    if active:
+        if active[0]["status"] != "recorded":
+            raise FirmwareDecideError("Firmware decision result is not recorded")
+        return active[0]
+    complete = [row for row in rows if row["status"] == "complete"]
+    if not complete:
+        raise FirmwareDecideError("No complete firmware decision")
+    stamp = max(row["completed_at"] for row in complete)
+    selected = [row for row in complete if row["completed_at"] == stamp]
+    if len(selected) != 1:
+        raise FirmwareDecideError("Latest completed firmware decision is ambiguous")
+    return selected[0]
+
+
+def _package_projection(row, policy, validated, derived, scripts):
+    from audit_core import firmware_decide_results as results
+    return {
+        "schema_version": 1,
+        "image_id": row["image_id"],
+        "decision_generation": row["decision_generation"],
+        "provenance": {
+            key: row[key] for key in (
+                "manifest_sha256", "surface_snapshot_sha256",
+                "candidate_snapshot_sha256", "chain_worklist_sha256",
+                "graph_path", "graph_sha256", "dive_generation",
+                "journal_path", "journal_sha256", "overlay_sha256",
+                "policy_id", "policy_path", "policy_sha256",
+                "worklist_path", "worklist_sha256",
+                "result_path", "result_sha256")
+        },
+        "policy": _wire(policy),
+        "decision": derived.decision,
+        "primary_reason": derived.primary_reason,
+        "reason_codes": list(derived.reason_codes),
+        "top_chain_id": derived.top_chain_id,
+        "bench_plan_complete": derived.bench_plan_complete,
+        "chain_assessments": [
+            results._assessment_wire(item) for item in validated.chain_assessments],
+        "open_preconditions": [
+            results._precondition_wire(item) for item in validated.open_preconditions],
+        "bench_tests": [
+            results._bench_wire(item) for item in validated.bench_tests],
+        "proposed_scripts": [{
+            "name": item.name,
+            "path": f"bench/{item.name}",
+            "sha256": hashlib.sha256(item.content).hexdigest(),
+            "status": "proposed_unreviewed",
+        } for item in scripts],
+        "policy_matches": [dataclasses.asdict(item) for item in derived.policy_matches],
+        "payout_projections": [
+            dataclasses.asdict(item) for item in derived.payout_projections],
+    }
+
+
+def _capture_decision(con, run, root, image_id):
+    from audit_core import firmware_decide_results as results
+    row = _select_decision_row(con, image_id)
+    db.TABLE_SPECS["cba_firmware_decide_runs"].validate(row)
+    inputs = verified_input(con, run, root, image_id=row["image_id"])
+    graph, dive = inputs.graph, inputs.dive
+    expected = {
+        "manifest_sha256": graph.manifest_sha256,
+        "surface_snapshot_sha256": graph.surface_snapshot_sha256,
+        "candidate_snapshot_sha256": graph.candidate_snapshot_sha256,
+        "chain_worklist_sha256": graph.chain_worklist_sha256,
+        "graph_path": graph.graph_path,
+        "graph_sha256": graph.graph_sha256,
+        "dive_generation": dive.dive_generation,
+        "journal_path": dive.journal_path,
+        "journal_sha256": dive.journal_sha256,
+        "overlay_sha256": dive.overlay_sha256,
+    }
+    if any(row[key] != value for key, value in expected.items()):
+        raise FirmwareDecideError("Decision technical input is not current")
+    policy_raw = firmware_dive._read(
+        run, row["policy_path"], row["policy_sha256"], MAX_POLICY_BYTES)
+    policy = _parse(policy_raw)
+    if policy_bytes(policy) != policy_raw or policy.policy_id != row["policy_id"]:
+        raise FirmwareDecideError("Decision policy snapshot differs")
+    worklist_raw = firmware_dive._read(
+        run, row["worklist_path"], row["worklist_sha256"])
+    rebuilt, _ = _worklist(inputs, policy, row["policy_sha256"])
+    if rebuilt != worklist_raw or _digest(rebuilt) != row["decision_generation"]:
+        raise FirmwareDecideError("Decision worklist is not current")
+    if row["result_path"] is None or row["result_sha256"] is None:
+        raise FirmwareDecideError("Decision result is not recorded")
+    result_raw = firmware_dive._read(
+        run, row["result_path"], row["result_sha256"], results.MAX_RESULT_BYTES)
+    result = results._parse(result_raw)
+    if results.canonical_bytes(result) != result_raw:
+        raise FirmwareDecideError("Recorded decision result is not canonical")
+    validated = results.validate(con, run, result)
+    derived = _technical_derivation(policy, validated)
+    script_values = tuple(
+        VerifiedProposedScript(
+            item.name, f"bench/{item.name}", hashlib.sha256(item.content).hexdigest(),
+            item.content)
+        for item in validated.scripts)
+    projection = _package_projection(
+        row, policy, validated, derived, script_values)
+    package_raw = _canonical(projection)
+    package_sha256 = _digest(package_raw)
+    contents = {"decision.json": package_raw}
+    contents.update({item.path: item.content for item in script_values})
+    return _DecisionCapture(
+        row, policy, validated, derived, package_raw, package_sha256, contents)
+
+
+def _package_path(row, package_sha256):
+    return (
+        f"artifacts/firmware-decide/{row['decision_generation']}/"
+        f"{package_sha256}/decision.json")
+
+
+def _summary_from_capture(capture):
+    row, validated, derived = capture.row, capture.validated, capture.derived
+    return DecisionSummary(
+        row["image_id"], row["decision_generation"], derived.decision,
+        derived.primary_reason, derived.reason_codes,
+        len(validated.chain_assessments), len(validated.bench_tests),
+        len(validated.scripts), len(derived.policy_matches),
+        _package_path(row, capture.package_sha256), capture.package_sha256, True)
+
+
+def _require_complete_row(capture):
+    row, validated, derived = capture.row, capture.validated, capture.derived
+    expected = {
+        "package_path": _package_path(row, capture.package_sha256),
+        "package_sha256": capture.package_sha256,
+        "decision": derived.decision,
+        "primary_reason": derived.primary_reason,
+        "reason_codes": json.dumps(
+            list(derived.reason_codes), separators=(",", ":")),
+        "chain_count": len(validated.chain_assessments),
+        "bench_test_count": len(validated.bench_tests),
+        "script_count": len(validated.scripts),
+        "policy_match_count": len(derived.policy_matches),
+    }
+    if row["status"] != "complete" or any(row[key] != value for key, value in expected.items()):
+        raise FirmwareDecideError("Completed decision row differs from canonical package")
+
+
+def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+          root: str | pathlib.Path, *, image_id: str | None = None) -> DecisionSummary:
+    """Derive, install, and atomically publish one canonical decision package."""
+    started = False
+    try:
+        if con.in_transaction:
+            raise FirmwareDecideError("Decision completion requires no active caller transaction")
+        run = firmware_dive._selector(run_dir)
+        con.execute("BEGIN")
+        started = True
+        captured = _capture_decision(con, run, root, image_id)
+        con.rollback()
+        started = False
+        destination = run / pathlib.PurePosixPath(
+            _package_path(captured.row, captured.package_sha256)).parent
+        firmware_dive._install(destination, captured.contents, run)
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        current = _capture_decision(con, run, root, image_id)
+        if current != captured:
+            raise FirmwareDecideError("Decision authority changed before publication")
+        firmware_dive._checked_install(destination, captured.contents, run)
+        if current.row["status"] == "complete":
+            _require_complete_row(current)
+            con.rollback()
+            started = False
+            return _summary_from_capture(current)
+        if current.row["status"] != "recorded":
+            raise FirmwareDecideError("Only a recorded decision can complete")
+        completed_at = con.execute("SELECT datetime('now')").fetchone()[0]
+        if (not isinstance(current.row["recorded_at"], str)
+                or completed_at < current.row["recorded_at"]):
+            raise FirmwareDecideError("Decision completion timestamp precedes recording")
+        values = (
+            _package_path(current.row, current.package_sha256),
+            current.package_sha256, current.derived.decision,
+            current.derived.primary_reason,
+            json.dumps(list(current.derived.reason_codes), separators=(",", ":")),
+            len(current.validated.chain_assessments),
+            len(current.validated.bench_tests), len(current.validated.scripts),
+            len(current.derived.policy_matches), completed_at,
+            current.row["image_id"], current.row["decision_generation"])
+        cursor = con.execute(
+            "UPDATE cba_firmware_decide_runs SET status='complete',package_path=?,"
+            "package_sha256=?,decision=?,primary_reason=?,reason_codes=?,chain_count=?,"
+            "bench_test_count=?,script_count=?,policy_match_count=?,completed_at=? "
+            "WHERE image_id=? AND decision_generation=? AND status='recorded'", values)
+        if cursor.rowcount != 1:
+            raise FirmwareDecideError("Decision lifecycle changed before completion")
+        con.commit()
+        started = False
+        return _summary_from_capture(current)
+    except FirmwareDecideError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareDecideError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
+            surface.SurfaceError) as exc:
+        raise FirmwareDecideError("Cannot complete firmware decision") from exc
+    finally:
+        if started:
+            con.rollback()
+
+
+def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path, *,
+        image_id: str | None = None) -> VerifiedFirmwareDecisionPackage:
+    """Reconstruct one current completed package without repair or writes."""
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        run = firmware_dive._selector(run_dir)
+        captured = _capture_decision(con, run, root, image_id)
+        _require_complete_row(captured)
+        destination = run / pathlib.PurePosixPath(
+            _package_path(captured.row, captured.package_sha256)).parent
+        firmware_dive._checked_install(destination, captured.contents, run)
+        scripts = tuple(
+            dataclasses.replace(
+                item,
+                path=(pathlib.PurePosixPath(captured.row["package_path"]).parent /
+                      item.path).as_posix())
+            for item in (
+                VerifiedProposedScript(
+                    script.name, f"bench/{script.name}",
+                    hashlib.sha256(script.content).hexdigest(), script.content)
+                for script in captured.validated.scripts))
+        return VerifiedFirmwareDecisionPackage(
+            captured.row["image_id"], captured.row["decision_generation"],
+            captured.derived.decision, captured.derived.primary_reason,
+            captured.derived.reason_codes, captured.derived.top_chain_id,
+            captured.derived.bench_plan_complete, captured.policy,
+            captured.validated, captured.derived.policy_matches,
+            captured.derived.payout_projections,
+            captured.validated.open_preconditions,
+            captured.validated.bench_tests, scripts,
+            captured.row["package_path"], captured.package_sha256,
+            captured.package_bytes)
+    except FirmwareDecideError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareDecideError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
+            surface.SurfaceError) as exc:
+        raise FirmwareDecideError("Cannot verify firmware decision package") from exc
+    finally:
+        if owned:
+            con.rollback()
