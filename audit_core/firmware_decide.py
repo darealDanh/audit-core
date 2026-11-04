@@ -465,7 +465,9 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                                      generation, len(first_inputs.graph.chains),
                                      existing["prepared_at"])
             for key, value in expected.items():
-                if existing[key] != value and key not in ("status",):
+                if (existing[key] != value
+                        and key not in ("status", "bench_test_count",
+                                        "script_count", "policy_match_count")):
                     raise FirmwareDecideError("Existing decision generation differs from current authority")
             con.rollback()
             started = False
@@ -519,6 +521,7 @@ class VerifiedProposedScript:
     name: str
     path: str
     sha256: str
+    size: int
     content: bytes
     status: str = "proposed_unreviewed"
 
@@ -739,6 +742,7 @@ def _package_projection(row, policy, validated, derived, scripts):
             "name": item.name,
             "path": f"bench/{item.name}",
             "sha256": hashlib.sha256(item.content).hexdigest(),
+            "size": item.size,
             "status": "proposed_unreviewed",
         } for item in scripts],
         "policy_matches": [dataclasses.asdict(item) for item in derived.policy_matches],
@@ -789,7 +793,7 @@ def _capture_decision(con, run, root, image_id):
     script_values = tuple(
         VerifiedProposedScript(
             item.name, f"bench/{item.name}", hashlib.sha256(item.content).hexdigest(),
-            item.content)
+            len(item.content), item.content)
         for item in validated.scripts)
     projection = _package_projection(
         row, policy, validated, derived, script_values)
@@ -856,7 +860,8 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         current = _capture_decision(con, run, root, image_id)
         if current != captured:
             raise FirmwareDecideError("Decision authority changed before publication")
-        firmware_dive._checked_install(destination, captured.contents, run)
+        firmware_dive._checked_install(
+            destination, captured.contents, run, exact_mode=0o600)
         if current.row["status"] == "complete":
             _require_complete_row(current)
             con.rollback()
@@ -914,7 +919,8 @@ def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         _require_complete_row(captured)
         destination = run / pathlib.PurePosixPath(
             _package_path(captured.row, captured.package_sha256)).parent
-        firmware_dive._checked_install(destination, captured.contents, run)
+        firmware_dive._checked_install(
+            destination, captured.contents, run, exact_mode=0o600)
         scripts = tuple(
             dataclasses.replace(
                 item,
@@ -923,7 +929,8 @@ def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             for item in (
                 VerifiedProposedScript(
                     script.name, f"bench/{script.name}",
-                    hashlib.sha256(script.content).hexdigest(), script.content)
+                    hashlib.sha256(script.content).hexdigest(),
+                    len(script.content), script.content)
                 for script in captured.validated.scripts))
         return VerifiedFirmwareDecisionPackage(
             captured.row["image_id"], captured.row["decision_generation"],

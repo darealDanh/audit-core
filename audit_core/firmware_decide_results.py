@@ -640,8 +640,8 @@ def _chain_evidence(graph, worklist, chain, preconditions):
         *(f"finding:{identity}" for identity in chain["member_ids"]),
     }
     for item in preconditions:
-        subject_tokens.add(f"chain-blocker:{item.source_id}")
-        subject_tokens.add(f"surface-unknown:{item.source_id}")
+        namespace = "chain-blocker" if item.kind == "blocker" else "surface-unknown"
+        subject_tokens.add(f"{namespace}:{item.source_id}")
     overlay = worklist["dive"]["overlay"]
     if not isinstance(overlay, dict) or set(overlay) != {"schema_version", "observations"}:
         _fail("worklist dive overlay is invalid")
@@ -704,7 +704,24 @@ def _validate_assessments(answer, worklist, expected_preconditions):
 def _subject_ownership(subject, graph, preconditions):
     precondition = {item.precondition_id: item for item in preconditions}.get(subject)
     if precondition is not None:
-        return {item.chain_id for item in precondition.locations}, None
+        owners = {item.chain_id for item in precondition.locations}
+        requirements = []
+        for chain_id in sorted(owners):
+            locations = [item for item in precondition.locations
+                         if item.chain_id == chain_id]
+            edge_locations = [item for item in locations
+                              if item.edge_ordinal is not None]
+            if not edge_locations:
+                requirements.append((subject, {chain_id}, None))
+                continue
+            for location in edge_locations:
+                edge = next((item for item in graph["edges"]
+                    if item["chain_id"] == chain_id
+                    and item["ordinal"] == location.edge_ordinal), None)
+                if edge is None:
+                    _fail("precondition location references a foreign edge")
+                requirements.append((subject, {chain_id}, edge))
+        return owners, tuple(requirements)
     match = re.fullmatch(r"transition:([A-Za-z0-9][A-Za-z0-9._:-]{0,127}):(0|[1-9][0-9]*)", subject)
     if match is None:
         _fail("bench subject is not a current precondition or transition")
@@ -714,7 +731,7 @@ def _subject_ownership(subject, graph, preconditions):
                  if item["chain_id"] == chain_id and item["ordinal"] == ordinal), None)
     if edge is None:
         _fail("bench transition subject is foreign")
-    return {chain_id}, edge
+    return {chain_id}, ((subject, {chain_id}, edge),)
 
 
 def _validate_state(test, graph, subject_edges):
@@ -724,21 +741,24 @@ def _validate_state(test, graph, subject_edges):
     if (test.required_state.device != graph["image_id"]
             or test.required_state.firmware != graph["candidate_snapshot_sha256"]):
         _fail("bench device or firmware state differs from frozen graph")
+    grouped = {}
     for subject, owners, edge in subject_edges:
         for chain_id in owners:
-            chain = chains[chain_id]
-            initial = {
-                "lifecycle": chain["initial_lifecycle"],
-                "posture": chain["initial_posture"],
-                "authentication": chain["initial_authentication"],
-            }
+            grouped.setdefault((subject, chain_id), []).append(edge)
+    for (_, chain_id), edges in grouped.items():
+        chain = chains[chain_id]
+        initial = {
+            "lifecycle": chain["initial_lifecycle"],
+            "posture": chain["initial_posture"],
+            "authentication": chain["initial_authentication"],
+        }
+        def matches(edge):
             required = edge["required_state"] if edge is not None else initial
-            for axis, value in actual.items():
-                expected = required[axis]
-                if expected == "any":
-                    expected = initial[axis]
-                if value != expected:
-                    _fail("bench required state differs from frozen subject state")
+            return all(
+                value == (initial[axis] if required[axis] == "any" else required[axis])
+                for axis, value in actual.items())
+        if not any(matches(edge) for edge in edges):
+            _fail("bench required state differs from frozen subject state")
 
 
 def _validate_bench(answer, worklist, preconditions):
@@ -756,9 +776,9 @@ def _validate_bench(answer, worklist, preconditions):
         owned = set()
         subject_edges = []
         for subject in test.subject_refs:
-            owners, edge = _subject_ownership(subject, graph, preconditions)
+            owners, requirements = _subject_ownership(subject, graph, preconditions)
             owned.update(owners)
-            subject_edges.append((subject, owners, edge))
+            subject_edges.extend(requirements)
         if owned != set(test.chain_ids):
             _fail("bench chain ownership differs from subject ownership")
         _validate_state(test, graph, subject_edges)

@@ -176,3 +176,40 @@ def test_verified_package_refuses_newer_current_graph(completed_pipeline):
     chain_check(case)
     with pytest.raises(decide.FirmwareDecideError):
         decide.verified_package(con, run, root, image_id="target")
+
+
+def test_verified_package_rejects_executable_mode_drift(completed_pipeline):
+    pipeline, _ = completed_pipeline
+    case = pipeline[0]
+    package = decide.verified_package(*case[:3], image_id="target")
+    target = case[1] / package.scripts[0].path
+    target.chmod(0o700)
+    with pytest.raises(decide.FirmwareDecideError):
+        decide.verified_package(*case[:3], image_id="target")
+
+
+def test_completed_identical_prepare_preserves_derived_state(completed_pipeline):
+    pipeline, summary = completed_pipeline
+    case, preparation = pipeline[:2]
+    con, run, root = case[:3]
+    policy_source = pathlib.Path(pipeline[4]).parent / "same-policy.json"
+    policy_source.write_bytes((run / preparation.policy_path).read_bytes())
+    before, changes = state(con), con.total_changes
+    repeated = decide.prepare(
+        con, run, root, policy_source, image_id="target")
+    assert repeated == preparation
+    assert state(con) == before and con.total_changes == changes
+    row = rows(con, "cba_firmware_decide_runs")[0]
+    assert row["status"] == "complete"
+    assert row["bench_test_count"] == summary.bench_test_count
+    assert row["script_count"] == summary.script_count
+    assert row["policy_match_count"] == summary.policy_match_count
+
+
+def test_verified_script_descriptor_declares_exact_size(completed_pipeline):
+    pipeline, _ = completed_pipeline
+    package = decide.verified_package(*pipeline[0][:3], image_id="target")
+    script = package.scripts[0]
+    body = json.loads(package.package_bytes)
+    assert script.size == len(script.content)
+    assert body["proposed_scripts"][0]["size"] == len(script.content)

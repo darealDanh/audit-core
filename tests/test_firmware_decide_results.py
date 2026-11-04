@@ -334,3 +334,55 @@ def test_validate_rejects_assignment_chain_count_drift(decision_assignment):
     con.commit()
     with pytest.raises(results.FirmwareDecideResultError, match="chain count"):
         results.validate(con, run, results.load(path))
+
+
+def test_edge_precondition_uses_frozen_edge_required_state(decision_assignment):
+    case, _, worklist, _, path = decision_assignment
+    validated = results.validate(case[0], case[1], results.load(path))
+    precondition = next(
+        item for item in validated.open_preconditions
+        if any(location.edge_ordinal is not None for location in item.locations))
+    graph = copy.deepcopy(worklist["graph"])
+    location = next(item for item in precondition.locations
+                    if item.edge_ordinal is not None)
+    edge = next(item for item in graph["edges"]
+                if item["chain_id"] == location.chain_id
+                and item["ordinal"] == location.edge_ordinal)
+    edge["required_state"]["authentication"] = "admin"
+    test = validated.bench_tests[0]
+    test = dataclasses.replace(
+        test, chain_ids=(location.chain_id,),
+        subject_refs=(precondition.precondition_id,))
+    owners, requirements = results._subject_ownership(
+        precondition.precondition_id, graph, validated.open_preconditions)
+    assert owners == {location.chain_id}
+    with pytest.raises(results.FirmwareDecideResultError, match="required state"):
+        results._validate_state(test, graph, requirements)
+    corrected = dataclasses.replace(
+        test, required_state=dataclasses.replace(
+            test.required_state, authentication="admin"))
+    results._validate_state(corrected, graph, requirements)
+
+
+def test_dive_evidence_keeps_blocker_and_unknown_namespaces_distinct(decision_assignment):
+    _, _, worklist, _, _ = decision_assignment
+    blocker = next(item for item in worklist["open_preconditions"]
+                   if item["kind"] == "blocker")
+    chain = worklist["graph"]["chains"][0]
+    denominator = (results._precondition(blocker),)
+    observation_id = "d" * 64
+    observation = {
+        "observation_id": observation_id,
+        "subject_refs": [f"surface-unknown:{blocker['source_id']}"],
+        "settled_subject_refs": [],
+        "evidence_refs": [],
+    }
+    changed = copy.deepcopy(worklist)
+    changed["dive"]["overlay"]["observations"] = [observation]
+    allowed = results._chain_evidence(
+        changed["graph"], changed, chain, denominator)
+    assert f"dive:{observation_id}#conclusion" not in allowed
+    observation["subject_refs"] = [f"chain-blocker:{blocker['source_id']}"]
+    allowed = results._chain_evidence(
+        changed["graph"], changed, chain, denominator)
+    assert f"dive:{observation_id}#conclusion" in allowed

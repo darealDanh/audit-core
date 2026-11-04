@@ -149,7 +149,7 @@ def _directory_names(parent, maximum):
     return names
 
 
-def _checked_install(destination, contents, run):
+def _checked_install(destination, contents, run, *, exact_mode=None):
     directories = _tree_directories(contents)
     with contextlib.ExitStack() as stack:
         parent = _directory(destination, stack)
@@ -163,6 +163,10 @@ def _checked_install(destination, contents, run):
             relative = pathlib.PurePosixPath(name)
             owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
             actual, _ = _read_regular(owner, relative.name, max(len(raw), 1))
+            if exact_mode is not None:
+                mode = stat.S_IMODE(os.stat(
+                    relative.name, dir_fd=owner, follow_symlinks=False).st_mode)
+                _require(mode == exact_mode, 'Installed artifact mode differs')
             _require(actual == raw, 'Installed artifact bytes differ')
 
 
@@ -199,6 +203,7 @@ def _install(destination, contents, run):
                 owner = owners[str(relative.parent) if str(relative.parent) != '.' else '']
                 descriptor = os.open(relative.name,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=owner)
+                os.fchmod(descriptor, 0o600)
                 created.append((owner, relative.name))
                 with os.fdopen(descriptor, 'wb') as stream:
                     stream.write(raw)
