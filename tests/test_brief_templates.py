@@ -13,18 +13,22 @@ RETURN_CONTRACT = "rows=<n> artifact="
 FP_RULES = pathlib.Path(__file__).resolve().parent.parent / "references" / "phase5-fp-check.md"
 
 
-def test_ten_templates_exist():
+def test_eleven_templates_exist():
     names = {p.name for p in TEMPLATES}
     assert names == {"recon-brief.md", "audit-brief.md", "fpcheck-brief.md",
                      "triage-brief.md", "diff-brief.md", "surface-brief.md",
                      "hunt-brief.md", "firmware-fpcheck-brief.md",
-                     "firmware-chain-brief.md", "firmware-dive-brief.md"}
+                     "firmware-chain-brief.md", "firmware-dive-brief.md",
+                     "firmware-decide-brief.md"}
 
 
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
 def test_every_template_states_the_return_contract(path):
-    contract = "question=<question-id> artifact=" if path.name == "firmware-dive-brief.md" else RETURN_CONTRACT
-    assert contract in path.read_text(), (
+    contracts = {
+        "firmware-dive-brief.md": "question=<question-id> artifact=",
+        "firmware-decide-brief.md": "chains=<n> artifact=",
+    }
+    assert contracts.get(path.name, RETURN_CONTRACT) in path.read_text(), (
         f"{path.name} must carry its one-line return contract")
 
 

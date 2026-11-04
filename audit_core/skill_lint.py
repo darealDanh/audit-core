@@ -13,6 +13,7 @@ from dataclasses import dataclass
 VERB_MENTION = re.compile(r"audit\.py\s+([a-z][a-z-]*)")
 RETURN_CONTRACT = "rows=<n> artifact="
 DIVE_RETURN_CONTRACT = "question=<question-id> artifact="
+DECIDE_RETURN_CONTRACT = "chains=<n> artifact="
 BLANKET_MANDATE = "strongest model your client offers"
 # The installer sentinel. install.sh / install.ps1 sed-substitute it with the
 # client's own skill dir on copy, so an installed tree must never contain it:
@@ -157,7 +158,10 @@ def lint(root: str | pathlib.Path, known_verbs: set[str]) -> list[Finding]:
     briefs = root / "references" / "briefs"
     if briefs.is_dir():
         for path in sorted(briefs.glob("*-brief.md")):
-            contract = DIVE_RETURN_CONTRACT if path.name == "firmware-dive-brief.md" else RETURN_CONTRACT
+            contract = {
+                "firmware-dive-brief.md": DIVE_RETURN_CONTRACT,
+                "firmware-decide-brief.md": DECIDE_RETURN_CONTRACT,
+            }.get(path.name, RETURN_CONTRACT)
             if contract not in path.read_text():
                 findings.append(Finding(
                     "no-return-contract", str(path.relative_to(root)),

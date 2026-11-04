@@ -50,6 +50,8 @@ from audit_core import firmware_chain_results as firmware_chain_results_mod  # n
 from audit_core import firmware_dive as firmware_dive_mod  # noqa: E402
 from audit_core import firmware_dive_acquisition as firmware_dive_acquisition_mod  # noqa: E402
 from audit_core import firmware_dive_results as firmware_dive_results_mod  # noqa: E402
+from audit_core import firmware_decide as firmware_decide_mod  # noqa: E402
+from audit_core import firmware_decide_results as firmware_decide_results_mod  # noqa: E402
 
 
 
@@ -1236,6 +1238,110 @@ def cmd_dive(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decide(args: argparse.Namespace) -> int:
+    """Run one bounded firmware acquisition decision operation."""
+    mode = "prepare" if args.prepare else "record" if args.record is not None else "check"
+    if mode in {"prepare", "check"} and args.root is None:
+        error = f"--root is required for decide {mode}"
+    elif mode == "prepare" and args.policy is None:
+        error = "--policy is required for decide prepare"
+    elif mode != "prepare" and args.policy is not None:
+        error = f"--policy is not valid with --{mode}"
+    elif mode == "record" and args.root is not None:
+        error = "--root is not valid with --record"
+    elif mode == "record" and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    expected_errors = (firmware_decide_mod.FirmwareDecideError,
+                       firmware_decide_results_mod.FirmwareDecideResultError,
+                       db_mod.DbError, OSError, sqlite3.Error)
+    def diagnostic(exc):
+        return _hunt_error_message(exc, root, verb="decide")
+    try:
+        con = _open_db(str(run_dir / "audit.db"), error_message=diagnostic)
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(diagnostic(exc), file=sys.stderr)
+        return 1
+    if con is None:
+        return 1
+
+    failure = None
+    try:
+        if mode == "prepare":
+            result = firmware_decide_mod.prepare(
+                con, run_dir, root, pathlib.Path(args.policy).expanduser(),
+                image_id=args.image_id)
+            fields = ("image_id", "decision_generation", "graph_sha256",
+                      "dive_generation", "overlay_sha256", "policy_id",
+                      "policy_path", "policy_sha256", "worklist_path",
+                      "worklist_sha256", "chain_count",
+                      "open_precondition_count")
+        elif mode == "record":
+            result = firmware_decide_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser())
+            fields = ("image_id", "decision_generation", "result_path",
+                      "result_sha256", "chain_count", "bench_test_count",
+                      "script_count", "recorded")
+        else:
+            result = firmware_decide_mod.check(
+                con, run_dir, root, image_id=args.image_id)
+            fields = ("image_id", "decision_generation", "decision",
+                      "primary_reason", "reason_codes", "chain_count",
+                      "bench_test_count", "script_count", "policy_match_count",
+                      "package_path", "package_sha256", "complete")
+        payload = {field: getattr(result, field) for field in fields}
+    except Exception as exc:
+        failure = exc
+    finally:
+        try:
+            if failure is not None and con.in_transaction:
+                con.rollback()
+        except Exception as exc:
+            if failure is None or isinstance(failure, expected_errors):
+                exc.__context__ = failure
+                failure = exc
+        finally:
+            try:
+                con.close()
+            except Exception as exc:
+                if failure is None or isinstance(failure, expected_errors):
+                    exc.__context__ = failure
+                    failure = exc
+    if failure is not None:
+        if isinstance(failure, expected_errors):
+            print(diagnostic(failure), file=sys.stderr)
+            return 1
+        raise failure
+
+    display = {
+        key: _bounded_cli_text(value, root) if isinstance(value, str) else value
+        for key, value in payload.items()
+    }
+    if args.json:
+        print(json.dumps(display, indent=2))
+    else:
+        counts = ", ".join(
+            f"{display[field]} {field.replace('_', ' ')}"
+            for field in fields if field.endswith("_count"))
+        status = (f", {display['decision']}, "
+                  f"{'complete' if display['complete'] else 'pending'}"
+                  if mode == "check" else "")
+        print(_bounded_cli_text(
+            f"decide {mode} {display['image_id']}: {counts}{status}", root))
+        print(f"decision generation {display['decision_generation']}")
+        for field in ("worklist_path", "result_path", "package_path"):
+            if field in display:
+                print(display[field])
+    return 0
+
+
 def cmd_chain(args: argparse.Namespace) -> int:
     if args.run is not None:
         return _cmd_firmware_chain(args)
@@ -1581,6 +1687,7 @@ HANDLERS = {
     "hunt": cmd_hunt,
     "fpcheck": cmd_fpcheck,
     "dive": cmd_dive,
+    "decide": cmd_decide,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1828,6 +1935,16 @@ def build_parser() -> argparse.ArgumentParser:
     dv.add_argument("--retry", action="append", default=[], metavar="QUESTION_ID",
                     help="repeat a stale or contested question during prepare")
     dv.add_argument("--json", action="store_true")
+    dc = sub.add_parser("decide", help="prepare, record, or check a firmware acquisition decision")
+    dc.add_argument("--run", required=True, metavar="RUN", help="firmware run directory")
+    decide_mode = dc.add_mutually_exclusive_group(required=True)
+    decide_mode.add_argument("--prepare", action="store_true", help="prepare the immutable global decision assignment")
+    decide_mode.add_argument("--record", metavar="RESULT", help="import one complete global decision result")
+    decide_mode.add_argument("--check", action="store_true", help="derive and publish the acquisition decision")
+    dc.add_argument("--root", metavar="ROOT", help="live firmware root for prepare/check")
+    dc.add_argument("--policy", metavar="POLICY", help="decision policy JSON for prepare")
+    dc.add_argument("--image-id", metavar="ID", help="select the firmware image for prepare/check")
+    dc.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)

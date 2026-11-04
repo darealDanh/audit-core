@@ -367,6 +367,38 @@ and invalidates Stage 4g when the current overlay changes; it cannot regenerate
 worker-reviewed chains itself. After invalidation, repeat the complete Stage 4g
 prepare, one-global-worker brief, root-bound record, and check route above.
 
+### Stage 4i firmware decision
+
+After the current Stage 4g chain and Stage 4h dive gates pass, prepare one
+immutable global decision assignment from the operator policy:
+
+    python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --root ${ROOTFS} \
+      --policy ${DECISION_POLICY} --prepare --json
+
+Read
+[references/briefs/firmware-decide-brief.md](references/briefs/firmware-decide-brief.md).
+Render exactly one global brief with the five frozen variables and dispatch it
+to one fresh strongest worker:
+
+    python3 __SKILL_DIR__/audit.py brief --phase firmware-decide \
+      --unit global --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var image_id=${IMAGE_ID} \
+      --var decision_generation=${DECISION_GENERATION} \
+      --var worklist_path=${WORKLIST_PATH} --var result_path=${RESULT_PATH}
+
+The worker must assess every chain in the complete frozen denominator. Workers
+own result JSON only. Import only DONE; PARTIAL is nonimportable and resumes the
+same immutable assignment:
+
+    python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+Deterministic code owns policy evaluation, recommendation, payout, SQL,
+canonical package installation, and completion. Proposed scripts remain inert:
+never execute them during dispatch, record, or check. The final check publishes
+the verified acquisition decision package; worker output alone has no decision
+authority.
+
 ### Cross-client tool mapping
 
 The workflows name **capabilities**, not one client's tool IDs. Use your client's equivalent:
