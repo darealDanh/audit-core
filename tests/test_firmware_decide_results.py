@@ -61,6 +61,8 @@ def build_result(worklist, generation, *, scripts=True):
             "title": "Observe the first verified transition",
             "purpose": "Confirm the exact required-to-result state transition on the acquired unit.",
             "required_state": {
+                "device": graph["image_id"],
+                "firmware": graph["candidate_snapshot_sha256"],
                 "lifecycle": chain["initial_lifecycle"],
                 "posture": chain["initial_posture"],
                 "authentication": chain["initial_authentication"],
@@ -219,7 +221,8 @@ def test_validate_returns_exact_complete_denominators_and_inert_script_bytes(dec
 
 @pytest.mark.parametrize("damage", [
     "missing-chain", "duplicate-rank", "copied-fact", "missing-precondition",
-    "foreign-evidence", "bad-test-id", "foreign-subject", "bad-state", "missing-script",
+    "foreign-evidence", "bad-test-id", "foreign-subject", "bad-state", "bad-device",
+    "missing-script",
 ])
 def test_validate_rejects_incomplete_or_invented_authority(decision_assignment, damage):
     case, _, _, body, path = decision_assignment
@@ -243,6 +246,9 @@ def test_validate_rejects_incomplete_or_invented_authority(decision_assignment, 
         test["test_id"] = bench_id(test)
     elif damage == "bad-state":
         test["required_state"]["lifecycle"] = "foreign"
+        test["test_id"] = bench_id(test)
+    elif damage == "bad-device":
+        test["required_state"]["device"] = "foreign"
         test["test_id"] = bench_id(test)
     else:
         test["script_name"] = "missing.sh"
@@ -298,3 +304,33 @@ def test_validate_accepts_empty_variant_only_for_empty_graph(graph_case, tmp_pat
     assert validated.chain_assessments == ()
     assert validated.open_preconditions == ()
     assert validated.bench_tests == () and validated.scripts == ()
+
+
+def test_dive_subject_fingerprints_match_stage4h_authority(decision_assignment):
+    from audit_core import firmware_dive_questions as questions
+
+    case, _, worklist, _, _ = decision_assignment
+    snapshot = firmware_chain.verified_graph_snapshot(*case[:3], image_id="target")
+    graph = worklist["graph"]
+    chain_wire = graph["chains"][0]
+    chain = snapshot.chains[0]
+    edges = sorted((item for item in snapshot.edges if item.chain_id == chain.chain_id),
+                   key=lambda item: item.ordinal)
+    edge_wires = sorted(
+        (item for item in graph["edges"] if item["chain_id"] == chain.chain_id),
+        key=lambda item: item["ordinal"])
+    assert results._chain_fingerprint(graph, chain_wire, edge_wires) == \
+        questions.chain_fingerprint(snapshot, chain)
+    assert [results._edge_fingerprint(graph, chain_wire, item) for item in edge_wires] == [
+        questions.edge_fingerprint(snapshot, item) for item in edges]
+
+
+def test_validate_rejects_assignment_chain_count_drift(decision_assignment):
+    case, _, _, _, path = decision_assignment
+    con, run = case[:2]
+    con.execute(
+        "UPDATE cba_firmware_decide_runs SET chain_count=chain_count+1 "
+        "WHERE image_id='target'")
+    con.commit()
+    with pytest.raises(results.FirmwareDecideResultError, match="chain count"):
+        results.validate(con, run, results.load(path))

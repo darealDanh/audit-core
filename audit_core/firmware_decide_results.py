@@ -13,6 +13,7 @@ import re
 import sqlite3
 
 from audit_core import db, firmware_decide as decide, firmware_dive as dive, surface
+from audit_core import firmware_dive_questions as dive_questions
 
 
 RESULT_SCHEMA_VERSION = 1
@@ -71,6 +72,8 @@ class ChainAssessment:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class RequiredState:
+    device: str
+    firmware: str
     lifecycle: str
     posture: str
     authentication: str
@@ -316,9 +319,11 @@ def _assessment(value):
 
 
 def _state(value):
-    row = _object(value, ("lifecycle", "posture", "authentication"), "required state")
+    row = _object(value, (
+        "device", "firmware", "lifecycle", "posture", "authentication"),
+        "required state")
     return RequiredState(*(_text(row[key], f"required state {key}", maximum=4096)
-                           for key in ("lifecycle", "posture", "authentication")))
+                           for key in ("device", "firmware", "lifecycle", "posture", "authentication")))
 
 
 def _bench_wire(value: BenchTest, *, include_id=True):
@@ -570,6 +575,9 @@ def _assignment(con, run: pathlib.Path, result: DecisionResult):
         _fail("worklist graph identity differs from assignment")
     if graph.get("graph_path") != row["graph_path"] or graph.get("graph_sha256") != row["graph_sha256"]:
         _fail("worklist graph ownership differs from assignment")
+    chains = graph.get("chains")
+    if not isinstance(chains, list) or row["chain_count"] != len(chains):
+        _fail("assignment chain count differs from frozen graph")
     return row, worklist
 
 
@@ -579,18 +587,61 @@ def _expected_preconditions(worklist):
                           key=lambda item: item.precondition_id)
 
 
+def _subject_evidence(refs):
+    return [value for value in refs
+            if re.fullmatch(r"dive:[0-9a-f]{64}#(?:conclusion|evidence)", value) is None]
+
+
+def _chain_context(chain):
+    return {
+        key: (_subject_evidence(chain[key]) if key == "initial_evidence_refs" else chain[key])
+        for key in ("member_ids", "initial_attacker_position", "initial_evidence_refs",
+                    "initial_lifecycle", "initial_posture", "initial_authentication")
+    }
+
+
+def _edge_fingerprint(graph, chain, edge):
+    fields = (
+        "producer_finding_id", "consumer_finding_id", "capability_kind", "link_key",
+        "producer_evidence_refs", "consumer_evidence_refs", "supplemental_evidence_refs",
+        "required_state", "result_state", "transition_kind")
+    projection = {
+        key: (_subject_evidence(edge[key]) if key.endswith("_evidence_refs") else edge[key])
+        for key in fields
+    }
+    return dive_questions._hash({
+        "image_id": graph["image_id"],
+        "candidate_snapshot_sha256": graph["candidate_snapshot_sha256"],
+        "context": _chain_context(chain),
+        "edge": projection,
+    })
+
+
+def _chain_fingerprint(graph, chain, edges):
+    return dive_questions._hash({
+        "image_id": graph["image_id"],
+        "candidate_snapshot_sha256": graph["candidate_snapshot_sha256"],
+        "context": _chain_context(chain),
+        "edges": [_edge_fingerprint(graph, chain, edge) for edge in edges],
+    })
+
+
 def _chain_evidence(graph, worklist, chain, preconditions):
     allowed = set(chain.get("initial_evidence_refs", ()))
-    edges = [item for item in graph["edges"] if item["chain_id"] == chain["chain_id"]]
+    edges = sorted(
+        (item for item in graph["edges"] if item["chain_id"] == chain["chain_id"]),
+        key=lambda item: item["ordinal"])
     for edge in edges:
         for key in ("producer_evidence_refs", "consumer_evidence_refs", "supplemental_evidence_refs"):
             allowed.update(edge.get(key, ()))
-    subject_tokens = {f"chain:{chain['chain_id']}"}
-    subject_tokens.update(f"finding:{identity}" for identity in chain["member_ids"])
+    subject_tokens = {
+        f"chain:{_chain_fingerprint(graph, chain, edges)}",
+        *(f"edge:{_edge_fingerprint(graph, chain, edge)}" for edge in edges),
+        *(f"finding:{identity}" for identity in chain["member_ids"]),
+    }
     for item in preconditions:
-        subject_tokens.add(item.precondition_id)
         subject_tokens.add(f"chain-blocker:{item.source_id}")
-        subject_tokens.add(f"unknown:{item.source_id}")
+        subject_tokens.add(f"surface-unknown:{item.source_id}")
     overlay = worklist["dive"]["overlay"]
     if not isinstance(overlay, dict) or set(overlay) != {"schema_version", "observations"}:
         _fail("worklist dive overlay is invalid")
@@ -668,7 +719,11 @@ def _subject_ownership(subject, graph, preconditions):
 
 def _validate_state(test, graph, subject_edges):
     chains = {item["chain_id"]: item for item in graph["chains"]}
-    actual = dataclasses.asdict(test.required_state)
+    actual = {key: getattr(test.required_state, key)
+              for key in ("lifecycle", "posture", "authentication")}
+    if (test.required_state.device != graph["image_id"]
+            or test.required_state.firmware != graph["candidate_snapshot_sha256"]):
+        _fail("bench device or firmware state differs from frozen graph")
     for subject, owners, edge in subject_edges:
         for chain_id in owners:
             chain = chains[chain_id]
