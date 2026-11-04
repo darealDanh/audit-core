@@ -384,12 +384,15 @@ No per-chain, precondition, test, script, or payout table is added.
 
 Preparation installs:
 
-`files/firmware-decide/<decision-generation>/worklist.json`
+- `files/firmware-decide/<decision-generation>/policy.json`
+- `files/firmware-decide/<decision-generation>/worklist.json`
 
-The worklist contains schema version, exact technical provenance, complete
-current graph facts, applicable current dive observations, strict policy, and
-empty placeholders for no private evidence bodies. `decision_generation` is the
-full SHA-256 of canonical worklist bytes.
+`policy.json` is the exact canonical policy snapshot and owns the row's
+run-relative `policy_path`/hash. The worklist contains schema version, exact
+technical provenance, complete current graph facts, applicable current dive
+observations, the same strict policy projection/path/hash, and no private
+evidence bodies. `decision_generation` is the full SHA-256 of canonical
+worklist bytes.
 
 Recording installs canonical worker JSON at:
 
@@ -530,10 +533,12 @@ Stage 4i changes the execution shape:
    fixes are still local.
 6. **One final whole-branch review.** Review the completed branch once; fixes use
    focused tests and scoped re-review.
-7. **One planned `make all`.** Precompute deterministic harness counts with fast
-   collection/selftest/manifest checks, reconcile durable docs, then run one
-   authoritative repository-root `make all`. Rerun only if the measured values
-   differ or code changes afterward.
+7. **One planned `make all`.** Reconcile implementation paths and deterministic
+   metadata first, run one authoritative repository-root `make all`, then record
+   its exact status/metrics with status-only durable-document edits. Re-run only
+   the doc-sensitive lint/EOL/manifest/install gates after those edits; rerun
+   `make all` only when code, tests, routing, manifest paths or executable
+   behavior changed.
 8. **No routine duplicate coverage run.** The final harness owns full coverage.
    A separate coverage probe is used only if that gate reports a real gap.
 9. **No mutation or paid gates.** They remain explicit operator decisions and
