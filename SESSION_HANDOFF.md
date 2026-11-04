@@ -1,18 +1,18 @@
 # Session handoff
 
-**Written:** 2026-11-04 · **Branch:** `stage4h-firmware-dive`; local `main`
-retains Stage 4g at `30ca3ba`, not pushed ·
-**Status:** Stage 4h firmware `dive` is implemented; integration remains pending
-until an explicit merge. Nothing is pushed. Tasks 1–12 implement exact
-graph/question authority, immutable preparation, sealed/fail-closed acquisitions,
-strict imports, exact completion/current overlays, Stage 4g consumption, bounded
-CLI and installed per-question routing. Whole-branch review fixes are in
-`3ba4814`; scoped re-review found no remaining Critical/Important issue. Final
-`make all` passed all eight gates: 8,168 tests, 30 verbs, 44 tables / 43 contracts,
-four migrations, 6 CRLF / 243 LF files, 65 features / 16 stages / 21 open items,
-120 installed markdown files with zero sentinels, 0/11,376 unexecuted statements
-with zero allowed, and benchmark recall 9/19 over 45 findings, precision 39/40,
-$73.15 per match. Stage 4i `decide` is next.
+**Written:** 2026-11-04 · **Branch:** local `main` at `dcfb01e`, not pushed ·
+**Status:** Stage 4h firmware `dive` is merged and verified. Tasks 1–12 implement
+exact graph/question authority, immutable preparation, sealed/fail-closed
+acquisitions, strict imports, exact completion/current overlays, Stage 4g
+consumption, bounded CLI and installed per-question routing. Whole-branch review
+fixes are in `3ba4814`; scoped re-review found no remaining Critical/Important
+issue. Merged-tree `make all` passed all eight gates: 8,168 tests, 30 verbs,
+44 tables / 43 contracts, four migrations, 6 CRLF / 243 LF files, 65 features /
+16 stages / 21 open items, 120 installed markdown files with zero sentinels,
+0/11,376 unexecuted statements with zero allowed, and benchmark recall 9/19 over
+45 findings, precision 39/40, $73.15 per match. Stage 4i `decide` design is
+approved at `docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md`;
+implementation planning is next.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -26,15 +26,17 @@ you can break expensively, the state you are inheriting, and what to do next.
 
 ### Current pickup
 
-Do not continue Stage 4h implementation. Finish the final Task 13 gate/reconciliation
-if it is not recorded below, then present the unmerged branch for the operator's
-integration choice. The independent security review found four Important issues:
-context subjects falsely settled unknowns, uncited refuted reachability was
-optional, probes lacked memory containment, and the documented post-dive Stage 4g
-route falsely claimed regeneration while omitting `--root` on import. The branch
-now carries explicit `settled_subject_refs`, mandatory reachability constraints,
-fail-closed memory containment with Linux address-space/process bounds, and an
-explicit Stage 4g prepare/worker/root-bound-record/check rerun.
+Do not continue Stage 4h implementation. It is merged and verified. Continue
+from the approved Stage 4i `decide` design, whose one-row immutable-package
+architecture preserves the observation/policy boundary and deliberately avoids
+Stage 4h's broad schema and repeated full-harness cost. The Stage 4h independent
+security review found four Important issues: context subjects falsely settled
+unknowns, uncited refuted reachability was optional, probes lacked memory
+containment, and the documented post-dive Stage 4g route falsely claimed
+regeneration while omitting `--root` on import. The merged fixes provide explicit
+`settled_subject_refs`, mandatory reachability constraints, fail-closed memory
+containment with Linux address-space/process bounds, and an explicit Stage 4g
+prepare/worker/root-bound-record/check rerun.
 
 Preserve these open items: Asus golden, paid milestone audit, mutation sweep,
 second indicator snapshot, real corpus/hardware probe, separate firmware skill
@@ -819,9 +821,9 @@ Task 2 verification: `make all` passes all eight gates with 6,908 tests;
 clean skill lint; 6 CRLF / 228 LF files; 116 installed markdown files with zero
 sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
 (zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
-precision 39/40 and $73.15 per match. This is deterministic verification, not a
-new paid semantic audit. Stage 4h remains in progress;
-Historical Task 3 verification: `make all` passed all eight gates with 7,030 tests;
+precision 39/40 and $73.15 per match. This was deterministic verification, not a
+new paid semantic audit. At that historical checkpoint Stage 4h remained in
+progress. Historical Task 3 verification: `make all` passed all eight gates with 7,030 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; 4 unchanged migrations;
 58 features / 16 stages / 21 open items with all paths and verbs resolving;
 clean skill lint; 6 CRLF / 230 LF files; 116 installed markdown files with 0
@@ -929,13 +931,12 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-At the Task 4 boundary, result/journal and retained probe bodies were opaque;
-retained history enforced exact SQL/byte and method/rung checks. Task 8 now
-reconstructs canonical results and referenced sealed acquisition semantics;
-legacy opaque history retains byte-exact checks. Task 9 independently reconstructs
-journals, completion and current overlays. Task 6 preserves descriptor, exact prepared-contract
-and locked publication boundaries for bounded probes. Stage 4h remains in progress,
-integration pending; no generic severity or exploit claim is made.
+At the historical Task 4 boundary, result/journal and retained probe bodies were
+opaque and retained history enforced exact SQL/byte and method/rung checks. Later
+Tasks 8–9 added canonical result, sealed-acquisition, journal, completion and
+current-overlay reconstruction; Task 6 added descriptor, prepared-contract and
+locked publication boundaries for bounded probes. Stage 4h was still in progress
+at that checkpoint and made no generic severity or exploit claim.
 
 Historical Task 4 Fix Round 1 verification: `make all` passed all eight gates with 7,132 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations

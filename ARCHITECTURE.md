@@ -633,13 +633,13 @@ audit, separate firmware skill tree, and monorepo/submodule decision remain open
 
 ### Stage 4h — firmware dive evidence settlement
 
-Stage 4h is implemented on `stage4h-firmware-dive`; integration remains pending
-until an explicit merge. Six additive tables retain dive runs, questions,
-receipts, observations, dependencies and acquisitions. The schema has 44 tables
-and 43 TableSpec contracts; all four existing migrations are unchanged.
-Question/packet authority, preparation, bounded fail-closed acquisition, strict
-result publication, exact completion/journals/current overlays, Stage 4g
-consumption, bounded CLI and installed worker routing are implemented below.
+Stage 4h is merged into local `main` at `dcfb01e`; nothing is pushed. Six
+additive tables retain dive runs, questions, receipts, observations,
+dependencies and acquisitions. The schema has 44 tables and 43 TableSpec
+contracts; all four existing migrations are unchanged. Question/packet
+authority, preparation, bounded fail-closed acquisition, strict result
+publication, exact completion/journals/current overlays, Stage 4g consumption,
+bounded CLI and installed worker routing are implemented below.
 
 `firmware_chain.verified_graph_snapshot` reconstructs only a current completed
 Stage 4g publication, sharing canonical graph derivation with `check()` without
@@ -729,18 +729,15 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-At the Task 4 boundary, result/journal and retained probe bodies were opaque;
-retained history enforced exact SQL/byte and method/rung checks. Task 8 now
-reconstructs canonical results and referenced sealed acquisition semantics;
-legacy opaque history retains byte-exact checks. Task 9 independently reconstructs
-journals, completion and current overlays. Task 6 preserves descriptor, exact prepared-contract
-and locked publication boundaries for bounded probes. Stage 4h remains in progress,
-integration pending; no generic severity or exploit claim is made.
-
-Task 8 result authority/publication and Task 9 completion/overlays are implemented
-below; Stage 4g consumption, CLI and worker routing remain pending. These helpers make
-no runtime, severity or exploit claim and inherit triage's upsert-only snapshots
-and Stage 4d retained-orphan scan scaling.
+During Tasks 4–9, result/journal and retained probe bodies moved from opaque
+history to exact reconstruction. Task 8 reconstructs canonical results and
+referenced sealed acquisition semantics; legacy opaque history retains
+byte-exact checks. Task 9 independently reconstructs journals, completion and
+current overlays. Task 6 preserves descriptor, exact prepared-contract and
+locked publication boundaries for bounded probes. Tasks 10–12 add Stage 4g
+consumption, CLI and worker routing. The merged phase makes no generic severity
+or exploit claim and inherits triage's upsert-only snapshots and Stage 4d
+retained-orphan scan scaling.
 
 Task 6 implements frozen strict `ProbeSpec`/`ProbeTermination`, `load_probe_spec`
 and `run_probe` in the acquisition module. Every probe reconstructs its exact
@@ -957,8 +954,8 @@ nonimportable and resumes the identical assignment. The exact return is
 `firmware-dive <DONE|PARTIAL|FAILED> question=<question-id> artifact=<path>
 [flags=<csv>]`.
 
-Stage 4h implementation is complete on its feature branch; integration remains
-pending. Whole-branch security review found four Important cross-layer failures.
+Stage 4h implementation is complete and merged into local `main` at `dcfb01e`;
+nothing is pushed. Whole-branch security review found four Important cross-layer failures.
 Commit `3ba4814` narrows settlement to explicit targets and automatic blocker
 family roots (including conflict descendants), makes refuted reachability a
 mandatory graph constraint, fails probes closed without memory containment while

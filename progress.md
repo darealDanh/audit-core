@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-04 · **Branch:** `stage4h-firmware-dive`; Stage 4h implemented, integration pending; local `main` retains Stage 4g at `30ca3ba`, not pushed ·
-**Current verification:** final reconciled `make all` passed all eight gates: 8,168 tests; 30 dispatchable verbs; 44 SQLite tables / 43 contracts; four migrations; 6 CRLF / 243 LF files; 65 features / 16 stages / 21 open items; 120 installed markdown files with zero sentinel survivors; 0/11,376 unexecuted statements with zero allowed; benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match. Historical merged Stage 4g results remain intact. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-04 · **Branch:** local `main` at `dcfb01e`; Stage 4h merged and verified, not pushed; Stage 4i design approved ·
+**Current verification:** merged-tree `make all` passed all eight gates: 8,168 tests; 30 dispatchable verbs; 44 SQLite tables / 43 contracts; four migrations; 6 CRLF / 243 LF files; 65 features / 16 stages / 21 open items; 120 installed markdown files with zero sentinel survivors; 0/11,376 unexecuted statements with zero allowed; benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -21,20 +21,18 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a-4g are merged to local `main`.** Stage 4f
-firmware `fpcheck` is merged by fast-forward at `303232e`; nothing has been
-pushed. Stage 4g firmware `chain` is merged by fast-forward at `30ca3ba`, from approved design
-`00edb44` and plan `380b075`. The Stage 4f slice includes
-five-table row contracts, verified completed-hunt snapshots, deterministic review
-batches, strict results, atomic import, canonical reviewed findings, upstream
-invalidation, bounded CLI, worker brief and installed routing. Final review found
-JSON identity/path corruption; `303232e` preserves machine-readable values and
-retains bounded human output. The scoped re-review was clean. Stage 4h firmware
-`dive` is implemented on `stage4h-firmware-dive`, with integration pending and
-no merge or push claimed. Exact graph/question authority, immutable preparation,
-bounded acquisitions, strict import, exact completion/current overlays, Stage 4g
-consumption, bounded CLI and installed per-question worker routing are complete.
-Stage 4i `decide` is next. Stage 5 has not started.
+**Stages 0 through 3c and Stages 4a–4h are merged to local `main`.** Stage 4f
+firmware `fpcheck` is merged by fast-forward at `303232e`; Stage 4g firmware
+`chain` is merged at `30ca3ba`; Stage 4h firmware `dive` is merged at `dcfb01e`.
+Nothing is pushed. Stage 4h provides exact graph/question authority, immutable
+preparation, bounded acquisitions, strict import, exact completion/current
+overlays, Stage 4g consumption, bounded CLI and installed per-question worker
+routing. Its whole-branch review fixes are in `3ba4814`, and scoped re-review was
+clean. Stage 4i `decide` has an approved design at
+`docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md`; its
+one-row immutable decision-package design separates observations from policy
+and deliberately uses focused task tests plus one planned final harness. Stage 5
+has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -51,7 +49,7 @@ Stage 4i `decide` is next. Stage 5 has not started.
 | 4e | `hunt` — evidence-bound independent L-sink/L-dark candidate lanes | through `8119af1` | local `main` | **merged locally** (`8119af1`); `make all` 8/8 gates, 2,925 tests, 0/4,946 uncovered; not pushed |
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
-| 4h | `dive` — runtime evidence settlement | through final review fixes | `stage4h-firmware-dive` | **implemented; integration pending**; not merged or pushed; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; Stage 4i `decide` next |
+| 4h | `dive` — runtime evidence settlement | through `dcfb01e` | local `main` | **merged locally**; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; merged-tree 8/8 gates; Stage 4i `decide` design approved; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -933,9 +931,9 @@ Task 2 verification: `make all` passes all eight gates with 6,908 tests;
 clean skill lint; 6 CRLF / 228 LF files; 116 installed markdown files with zero
 sentinel survivors and the real install untouched; 0/7,737 unexecuted statements
 (zero allowed). The existing read-only benchmark remains recall 9/19, 45 findings,
-precision 39/40 and $73.15 per match. This is deterministic verification, not a
-new paid semantic audit. Stage 4h remains in progress;
-Historical Task 3 verification: `make all` passed all eight gates with 7,030 tests;
+precision 39/40 and $73.15 per match. This was deterministic verification, not a
+new paid semantic audit. At that historical checkpoint Stage 4h remained in
+progress. Historical Task 3 verification: `make all` passed all eight gates with 7,030 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; 4 unchanged migrations;
 58 features / 16 stages / 21 open items with all paths and verbs resolving;
 clean skill lint; 6 CRLF / 230 LF files; 116 installed markdown files with 0
@@ -1008,13 +1006,12 @@ sibling questions and images, and may retain an unreferenced in-run artifact.
 Captures create no observation, finding, evidence rung or denominator change and
 never contact or control a device.
 
-At the Task 4 boundary, result/journal and retained probe bodies were opaque;
-retained history enforced exact SQL/byte and method/rung checks. Task 8 now
-reconstructs canonical results and referenced sealed acquisition semantics;
-legacy opaque history retains byte-exact checks. Task 9 independently reconstructs
-journals, completion and current overlays. Task 6 preserves descriptor, exact prepared-contract
-and locked publication boundaries for bounded probes. Stage 4h remains in progress,
-integration pending; no generic severity or exploit claim is made.
+At the historical Task 4 boundary, result/journal and retained probe bodies were
+opaque and retained history enforced exact SQL/byte and method/rung checks. Later
+Tasks 8–9 added canonical result, sealed-acquisition, journal, completion and
+current-overlay reconstruction; Task 6 added descriptor, prepared-contract and
+locked publication boundaries for bounded probes. Stage 4h was still in progress
+at that checkpoint and made no generic severity or exploit claim.
 
 Historical Task 4 Fix Round 1 verification: `make all` passed all eight gates with 7,132 tests;
 29 dispatchable verbs; 44 SQLite tables / 43 contracts; four unchanged migrations
@@ -1581,7 +1578,8 @@ untouched; **0/11,376 unexecuted statements**, zero allowed; benchmark
 **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**.
 Mutation, paid audit/milestone, Asus golden, second indicator snapshot and real
 corpus/hardware probe did not run. Linux/alternate-interpreter execution remains
-unverified. The branch is unmerged and unpushed; Stage 4i `decide` is next.
+unverified. Stage 4h is merged locally at `dcfb01e` and not pushed; Stage 4i
+`decide` design is approved.
 
 ## 8. Next steps, in the order they make sense
 
@@ -1589,13 +1587,14 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Design Stage 4i firmware `decide`.**
-   Stage 4h `dive` is implemented on `stage4h-firmware-dive`; integration is
-   pending until an explicit merge and no push is claimed. `decide` must consume
-   only current, non-contested dive observations and preserve exact provenance,
-   dependency currentness and the distinction between observation and policy.
+1. **Plan and implement Stage 4i firmware `decide`.**
+   Stage 4h `dive` is merged and verified. The approved Stage 4i design consumes
+   only a current graph and its exact non-contested dive overlay, hashes operator
+   policy separately, and publishes one immutable acquisition decision package.
    It must not turn static or bounded dynamic evidence into severity, exploit
-   reliability or disclosure authority.
+   reliability or disclosure authority. The implementation plan must preserve
+   the design's six-task ceiling, focused RED/GREEN loops, early authority review,
+   and one planned final `make all`.
 
    Triage's upsert-only snapshots and Stage 4d retained-orphan scan scaling
    persist. The Asus golden, paid milestone audit, mutation sweep, second
