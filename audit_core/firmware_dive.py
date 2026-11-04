@@ -747,6 +747,16 @@ class CurrentDiveOverlay:
     observations: tuple[CurrentDiveObservation, ...] = ()
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedDiveDecisionInput:
+    image_id: str
+    dive_generation: str
+    journal_path: str
+    journal_sha256: str
+    overlay_sha256: str
+    overlay: CurrentDiveOverlay
+
+
 _PROVENANCE = ('manifest_sha256','surface_snapshot_sha256','candidate_snapshot_sha256',
     'chain_graph_path','chain_graph_sha256','analyst_manifest_path','analyst_manifest_sha256',
     'journal_input_path','journal_input_sha256','question_index_path','question_index_sha256')
@@ -1300,3 +1310,58 @@ def current_overlay(con: sqlite3.Connection, run_dir: str | pathlib.Path, root: 
         raise
     finally:
         if owned: con.rollback()
+
+
+def verified_decision_input(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path,
+        graph_snapshot: firmware_chain.VerifiedFirmwareGraphSnapshot) -> VerifiedDiveDecisionInput:
+    """Verify the exact current graph and its latest completed dive denominator."""
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        run = _selector(run_dir)
+        _require(isinstance(graph_snapshot, firmware_chain.VerifiedFirmwareGraphSnapshot),
+                 "Invalid graph snapshot")
+        current_graph = firmware_chain.verified_graph_snapshot(
+            con, run, root, image_id=graph_snapshot.image_id)
+        _require(current_graph == graph_snapshot,
+                 "Supplied graph snapshot differs from current authority")
+        owners = surface._query(
+            con, "SELECT * FROM cba_firmware_dive_runs WHERE image_id=?",
+            (graph_snapshot.image_id,))
+        _require(owners, "A completed dive denominator is required")
+        _require(not any(row["status"] == "pending" for row in owners),
+                 "A completed dive denominator is required; pending work remains")
+        captured = _completion(con, run, root, graph_snapshot.image_id)
+        generation, owner, owned_rows, counts, overlay = (
+            captured[2], captured[3], captured[4], captured[5], captured[7])
+        _require(not captured[9],
+                 "A non-contested dive denominator is required")
+        _require(owner["status"] == "complete",
+                 "A completed dive denominator is required")
+        _require(
+            owner["candidate_snapshot_sha256"] == graph_snapshot.candidate_snapshot_sha256
+            and owner["chain_graph_path"] == graph_snapshot.graph_path
+            and owner["chain_graph_sha256"] == graph_snapshot.graph_sha256,
+            "Completed dive denominator belongs to a different graph")
+        journal = _read(run, owner["journal_path"], owner["journal_sha256"])
+        expected = _journal(owner, owned_rows, owner["completed_at"], counts)
+        _require(journal == expected, "Completed dive journal differs from reconstructed authority")
+        overlay_sha256 = _digest(q._bytes(overlay))
+        return VerifiedDiveDecisionInput(
+            graph_snapshot.image_id, generation, owner["journal_path"],
+            owner["journal_sha256"], overlay_sha256, overlay)
+    except Exception as exc:
+        from audit_core import firmware_dive_acquisition as acquisition
+        if isinstance(exc, (sqlite3.Error, db.DbError)):
+            raise FirmwareDiveError("database operation failed") from exc
+        if isinstance(exc, (OSError, ValueError, TypeError, KeyError, RecursionError,
+                firmware_chain.FirmwareChainError, firmware_fpcheck.FpcheckError,
+                surface.SurfaceError, acquisition.AcquisitionError)):
+            raise FirmwareDiveError("Cannot verify dive decision input") from exc
+        raise
+    finally:
+        if owned:
+            con.rollback()

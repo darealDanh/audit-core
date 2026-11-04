@@ -7,11 +7,13 @@ preparation, deterministic completion, and the verified package boundary.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import pathlib
 import re
+import sqlite3
 
-from audit_core import db
+from audit_core import db, firmware_chain, firmware_dive, surface
 
 
 class FirmwareDecideError(Exception):
@@ -61,6 +63,28 @@ class DecisionPolicy:
     tiers: tuple[PolicyTier, ...]
     notes: tuple[str, ...]
 
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareDecisionInput:
+    graph: firmware_chain.VerifiedFirmwareGraphSnapshot
+    dive: firmware_dive.VerifiedDiveDecisionInput
+
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DecisionPreparationSummary:
+    image_id: str
+    decision_generation: str
+    graph_sha256: str
+    dive_generation: str
+    overlay_sha256: str
+    policy_id: str
+    policy_path: str
+    policy_sha256: str
+    worklist_path: str
+    worklist_sha256: str
+    chain_count: int
+    open_precondition_count: int
 
 def _fail(message: str) -> None:
     raise FirmwareDecideError(message)
@@ -231,3 +255,238 @@ def load_policy(path: str | pathlib.Path) -> DecisionPolicy:
     if raw != policy_bytes(policy):
         _fail("policy requires canonical UTF-8 JSON")
     return policy
+
+
+def verified_input(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path, *,
+        image_id: str | None = None) -> VerifiedFirmwareDecisionInput:
+    """Read one transactionally coherent current graph and completed dive."""
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        graph = firmware_chain.verified_graph_snapshot(
+            con, run_dir, root, image_id=image_id)
+        dive = firmware_dive.verified_decision_input(
+            con, run_dir, root, graph)
+        return VerifiedFirmwareDecisionInput(graph, dive)
+    except (sqlite3.Error, db.DbError, firmware_chain.FirmwareChainError,
+            firmware_dive.FirmwareDiveError, OSError, ValueError,
+            TypeError, KeyError, RecursionError) as exc:
+        raise FirmwareDecideError("Cannot verify firmware decision input") from exc
+    finally:
+        if owned:
+            con.rollback()
+
+
+def _digest(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _canonical(value) -> bytes:
+    try:
+        return (json.dumps(value, ensure_ascii=False, allow_nan=False,
+                           sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise FirmwareDecideError("decision worklist cannot be canonicalized") from exc
+
+
+def _open_preconditions(graph: firmware_chain.VerifiedFirmwareGraphSnapshot) -> tuple[dict, ...]:
+    locations: dict[tuple[str, str], set[tuple[str, int | None]]] = {}
+    axes: dict[tuple[str, str], set[str]] = {}
+    for chain in graph.chains:
+        for blocker_id in chain.blocker_ids:
+            locations.setdefault(("blocker", blocker_id), set()).add((chain.chain_id, None))
+        for unknown_id in chain.existing_unknown_ids:
+            locations.setdefault(("unknown", unknown_id), set()).add((chain.chain_id, None))
+    for edge in graph.edges:
+        for blocker_id in edge.blocker_ids:
+            locations.setdefault(("blocker", blocker_id), set()).add((edge.chain_id, edge.ordinal))
+        for unknown in edge.existing_unknowns:
+            key = ("unknown", unknown.unknown_id)
+            locations.setdefault(key, set()).add((edge.chain_id, edge.ordinal))
+            axes.setdefault(key, set()).update(unknown.axes)
+    blockers = {item.blocker_id: item for item in graph.blockers}
+    unknowns = {item.id: item for item in graph.unknowns}
+    projected = []
+    for key in sorted(locations):
+        kind, identity = key
+        if kind == "blocker":
+            item = blockers.get(identity)
+            if item is None or item.status != "open":
+                raise FirmwareDecideError("graph blocker denominator is not exact and open")
+            question, settling, method, item_axes = (
+                item.question, item.settling_observation, item.method, item.axes)
+        else:
+            item = unknowns.get(identity)
+            if item is None or item.status != "open":
+                raise FirmwareDecideError("graph unknown denominator is not exact and open")
+            question, settling, method = (
+                item.question, item.settling_observation, item.method)
+            item_axes = tuple(sorted(axes.get(key, ())))
+        projected.append({
+            "kind": kind,
+            "precondition_id": f"{kind}:{identity}",
+            "source_id": identity,
+            "question": question,
+            "settling_observation": settling,
+            "method": method,
+            "axes": list(item_axes),
+            "locations": [
+                {"chain_id": chain_id, "edge_ordinal": ordinal}
+                for chain_id, ordinal in sorted(
+                    locations[key], key=lambda value: (value[0], -1 if value[1] is None else value[1]))
+            ],
+        })
+    return tuple(projected)
+
+
+def _worklist(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
+        policy_sha256: str) -> tuple[bytes, int]:
+    graph = inputs.graph
+    preconditions = _open_preconditions(graph)
+    value = {
+        "schema_version": 1,
+        "image_id": graph.image_id,
+        "technical_provenance": {
+            key: getattr(graph, key) for key in (
+                "manifest_sha256", "surface_snapshot_sha256",
+                "candidate_snapshot_sha256", "chain_worklist_sha256",
+                "graph_path", "graph_sha256")
+        },
+        "graph": dataclasses.asdict(graph),
+        "dive": {
+            "dive_generation": inputs.dive.dive_generation,
+            "journal_path": inputs.dive.journal_path,
+            "journal_sha256": inputs.dive.journal_sha256,
+            "overlay_sha256": inputs.dive.overlay_sha256,
+            "overlay": dataclasses.asdict(inputs.dive.overlay),
+        },
+        "open_preconditions": list(preconditions),
+        "policy": {
+            "policy_id": policy.policy_id,
+            "path": "policy.json",
+            "sha256": policy_sha256,
+            "projection": _wire(policy),
+        },
+    }
+    return _canonical(value), len(preconditions)
+
+
+def _summary(row, open_precondition_count: int) -> DecisionPreparationSummary:
+    return DecisionPreparationSummary(
+        row["image_id"], row["decision_generation"], row["graph_sha256"],
+        row["dive_generation"], row["overlay_sha256"], row["policy_id"],
+        row["policy_path"], row["policy_sha256"], row["worklist_path"],
+        row["worklist_sha256"], row["chain_count"], open_precondition_count)
+
+
+def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
+        policy_sha256: str, generation: str, chain_count: int,
+        prepared_at: str) -> dict:
+    graph, dive = inputs.graph, inputs.dive
+    base = f"files/firmware-decide/{generation}"
+    return {
+        "image_id": graph.image_id,
+        "decision_generation": generation,
+        "manifest_sha256": graph.manifest_sha256,
+        "surface_snapshot_sha256": graph.surface_snapshot_sha256,
+        "candidate_snapshot_sha256": graph.candidate_snapshot_sha256,
+        "chain_worklist_sha256": graph.chain_worklist_sha256,
+        "graph_path": graph.graph_path,
+        "graph_sha256": graph.graph_sha256,
+        "dive_generation": dive.dive_generation,
+        "journal_path": dive.journal_path,
+        "journal_sha256": dive.journal_sha256,
+        "overlay_sha256": dive.overlay_sha256,
+        "policy_id": policy.policy_id,
+        "policy_path": f"{base}/policy.json",
+        "policy_sha256": policy_sha256,
+        "worklist_path": f"{base}/worklist.json",
+        "worklist_sha256": generation,
+        "status": "pending",
+        "chain_count": chain_count,
+        "bench_test_count": 0,
+        "script_count": 0,
+        "policy_match_count": 0,
+        "prepared_at": prepared_at,
+    }
+
+
+def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path, policy_path: str | pathlib.Path, *,
+        image_id: str | None = None) -> DecisionPreparationSummary:
+    """Install and publish one exact current graph/dive/policy assignment."""
+    started = False
+    try:
+        if con.in_transaction:
+            raise FirmwareDecideError("Decision preparation requires no active caller transaction")
+        run = firmware_dive._selector(run_dir)
+        first_inputs = verified_input(con, run, root, image_id=image_id)
+        first_policy = load_policy(policy_path)
+        policy_raw = policy_bytes(first_policy)
+        policy_sha256 = _digest(policy_raw)
+        worklist_raw, open_count = _worklist(first_inputs, first_policy, policy_sha256)
+        generation = _digest(worklist_raw)
+        destination = run / "files" / "firmware-decide" / generation
+        contents = {"policy.json": policy_raw, "worklist.json": worklist_raw}
+        firmware_dive._install(destination, contents, run)
+
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        current_inputs = verified_input(con, run, root, image_id=image_id)
+        current_policy = load_policy(policy_path)
+        current_policy_raw = policy_bytes(current_policy)
+        current_policy_sha256 = _digest(current_policy_raw)
+        current_worklist, current_open_count = _worklist(
+            current_inputs, current_policy, current_policy_sha256)
+        if (current_inputs != first_inputs or current_policy_raw != policy_raw or
+                current_policy_sha256 != policy_sha256 or
+                current_worklist != worklist_raw or current_open_count != open_count):
+            raise FirmwareDecideError("Decision inputs changed before publication")
+        firmware_dive._checked_install(destination, contents, run)
+
+        active = surface._query(con,
+            "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND status IN ('pending','recorded')",
+            (first_inputs.graph.image_id,))
+        same = surface._query(con,
+            "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
+            (first_inputs.graph.image_id, generation))
+        if same:
+            if len(same) != 1:
+                raise FirmwareDecideError("Decision generation ownership is ambiguous")
+            if any(row["decision_generation"] != generation for row in active):
+                raise FirmwareDecideError("Another firmware decision generation is active")
+            existing = same[0]
+            db.TABLE_SPECS["cba_firmware_decide_runs"].validate(existing)
+            firmware_dive._timestamp(existing["prepared_at"])
+            expected = _prepared_row(first_inputs, first_policy, policy_sha256,
+                                     generation, len(first_inputs.graph.chains),
+                                     existing["prepared_at"])
+            for key, value in expected.items():
+                if existing[key] != value and key not in ("status",):
+                    raise FirmwareDecideError("Existing decision generation differs from current authority")
+            con.rollback()
+            started = False
+            return _summary(existing, open_count)
+        if active:
+            raise FirmwareDecideError("Another firmware decision generation is active")
+        prepared_at = con.execute("SELECT datetime('now')").fetchone()[0]
+        row = _prepared_row(first_inputs, first_policy, policy_sha256,
+                            generation, len(first_inputs.graph.chains), prepared_at)
+        db.put(con, "cba_firmware_decide_runs", row, commit=False)
+        con.commit()
+        started = False
+        return _summary(row, open_count)
+    except FirmwareDecideError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareDecideError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
+            surface.SurfaceError) as exc:
+        raise FirmwareDecideError("Cannot prepare firmware decision") from exc
+    finally:
+        if started:
+            con.rollback()
