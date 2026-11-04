@@ -65,8 +65,8 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                    for table in old_rows}
     con.close()
     result = workspace.apply_schema(path)
-    assert len(result.tables) == 44
-    assert len(db.TABLE_SPECS) == 43
+    assert len(result.tables) == 45
+    assert len(db.TABLE_SPECS) == 44
     assert len(db.MIGRATIONS) == 4
     con = db.connect(path)
     try:
