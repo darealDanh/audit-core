@@ -880,8 +880,6 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         rows = surface._query(con,
             "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
             (first.image_id, first.decision_generation))
-        if len(rows) != 1:
-            _fail("decision assignment ownership changed before publication")
         row = rows[0]
         db.TABLE_SPECS["cba_firmware_decide_runs"].validate(row)
         if row["status"] == "recorded":

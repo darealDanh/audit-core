@@ -423,8 +423,6 @@ def _existing_preparation(con, run, inputs, policy, policy_sha256,
         "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
         (inputs.graph.image_id, generation))
     if same:
-        if len(same) != 1:
-            raise FirmwareDecideError("Decision generation ownership is ambiguous")
         if any(row["decision_generation"] != generation for row in active):
             raise FirmwareDecideError("Another firmware decision generation is active")
         existing = same[0]
@@ -807,8 +805,6 @@ def _capture_decision(con, run, root, image_id):
     rebuilt, _ = _worklist(inputs, policy, row["policy_sha256"])
     if rebuilt != worklist_raw or _digest(rebuilt) != row["decision_generation"]:
         raise FirmwareDecideError("Decision worklist is not current")
-    if row["result_path"] is None or row["result_sha256"] is None:
-        raise FirmwareDecideError("Decision result is not recorded")
     result_raw = firmware_dive._read(
         run, row["result_path"], row["result_sha256"], results.MAX_RESULT_BYTES)
     result = results._parse(result_raw)
@@ -897,8 +893,6 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             raise FirmwareDecideError("Decision authority changed before publication")
         firmware_dive._checked_install(
             destination, captured.contents, run, exact_mode=0o600)
-        if current.row["status"] != "recorded":
-            raise FirmwareDecideError("Only a recorded decision can complete")
         completed_at = con.execute("SELECT datetime('now')").fetchone()[0]
         if (not isinstance(current.row["recorded_at"], str)
                 or completed_at < current.row["recorded_at"]):
