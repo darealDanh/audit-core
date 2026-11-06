@@ -150,7 +150,7 @@ def test_selftest_reports_every_verb_the_parser_declares():
         [sys.executable, str(ROOT / "audit.py"), "selftest"],
         capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr
-    assert "30 declared, all dispatchable" in proc.stdout
+    assert "31 declared, all dispatchable" in proc.stdout
     assert "45 in schema.sql, 44 under contract" in proc.stdout
 
 
