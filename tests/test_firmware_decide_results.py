@@ -428,3 +428,35 @@ def test_dive_evidence_keeps_blocker_and_unknown_namespaces_distinct(decision_as
     allowed = results._chain_evidence(
         changed["graph"], changed, chain, denominator)
     assert f"dive:{observation_id}#conclusion" in allowed
+
+
+def test_worklist_precondition_parser_preserves_upstream_valid_copied_text(graph_case):
+    from tests.test_firmware_chain_gate import check as chain_check
+    from tests.test_firmware_chain_import import blocked, record as chain_record
+
+    value = graph_case[3]
+    question = "Does the script persist?\r\nObserve persistent startup bytes."
+    settling = "S" * (results.MAX_TEXT_BYTES + 1)
+    blocked(graph_case)
+    value["blockers"][0]["question"] = question
+    value["blockers"][0]["settling_observation"] = settling
+    chain_record(graph_case)
+    chain_check(graph_case)
+    graph = firmware_chain.verified_graph_snapshot(*graph_case[:3], image_id="target")
+    projected = [item for item in decide._open_preconditions(graph)
+                 if item["kind"] == "blocker"]
+
+    blocker, = results._expected_preconditions({"open_preconditions": projected})
+    assert (blocker.question, blocker.settling_observation) == (question, settling)
+
+    hostile = copy.deepcopy(projected)
+    hostile[0]["question"] = "frozen copy\0"
+    with pytest.raises(results.FirmwareDecideResultError, match="without NUL"):
+        results._expected_preconditions({"open_preconditions": hostile})
+
+
+def test_worker_authored_prose_remains_strict(decision_assignment):
+    _, _, _, body, path = decision_assignment
+    body["answer"]["chain_assessments"][0]["rationale"] = "reason\r\ncontinued"
+    with pytest.raises(results.FirmwareDecideResultError, match="rationale exceeds text bounds"):
+        results.load(save(path.with_name("strict.json"), body))

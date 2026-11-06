@@ -252,3 +252,75 @@ def test_empty_graph_has_explicit_no_current_chain_decision(graph_case, tmp_path
     assert (summary.decision, summary.primary_reason) == ("pass", "no-current-chain")
     assert summary.chain_count == 0
     assert summary.reason_codes == ("no-current-chain", "no-policy-match")
+
+
+def rewire_chain_path(value, members):
+    """Rewrite one valid Stage 4g path and its matching adjacent edges."""
+    chain = value["chains"][0]
+    for edge, (producer, consumer) in zip(chain["edges"], zip(members, members[1:])):
+        edge["producer_finding_id"] = producer
+        edge["consumer_finding_id"] = consumer
+        edge["producer_evidence_refs"] = [f"finding:{producer}#data_flow"]
+        edge["consumer_evidence_refs"] = [f"finding:{consumer}#root_cause"]
+        edge["existing_unknowns"] = []
+        edge["blocker_keys"] = []
+    chain["member_ids"] = list(members)
+    chain["initial_evidence_refs"] = [f"finding:{members[0]}#attacker_position"]
+
+
+def completed_case(graph_case, tmp_path):
+    from tests.test_firmware_dive_gate import complete, populate, check as dive_check
+    from tests.test_firmware_dive_prepare import prepare as dive_prepare
+
+    complete(graph_case)
+    prepared = dive_prepare(graph_case)
+    populate(graph_case, tmp_path, "inconclusive")
+    summary = dive_check(graph_case)
+    graph = firmware_chain.verified_graph_snapshot(*graph_case[:3], image_id="target")
+    return prepared, summary, graph
+
+
+def record_decision(case, tmp_path, policy_body):
+    con, run, root = case[:3]
+    preparation = decide.prepare(
+        con, run, root, write_policy(tmp_path, policy_body), image_id="target")
+    worklist = json.loads((run / preparation.worklist_path).read_bytes())
+    body = build_result(worklist, preparation.decision_generation)
+    result_path = save(tmp_path / "decision.json", body)
+    results.record(con, run, result_path)
+    return preparation, worklist, body, result_path
+
+
+def test_nonlexicographic_member_path_round_trips_through_package(graph_case, tmp_path):
+    value = graph_case[3]
+    members = sorted(value["chains"][0]["member_ids"], reverse=True)
+    rewire_chain_path(value, members)
+    assert list(value["chains"][0]["member_ids"]) != sorted(members)
+
+    _, _, graph = completed_case(graph_case, tmp_path)
+    assert tuple(graph.chains[0].member_ids) != tuple(sorted(graph.chains[0].member_ids))
+
+    record_decision(graph_case, tmp_path, matching_policy(graph))
+    summary = decide.check(*graph_case[:3], image_id="target")
+    assert summary.chain_count == 1
+    package = decide.verified_package(*graph_case[:3], image_id="target")
+    assessment, = package.result.chain_assessments
+    assert tuple(assessment.member_ids) == tuple(members)
+
+
+@pytest.mark.parametrize("position", [
+    "LAN attacker\r\nsecond line",
+    "A" * (16 * 1024 + 1),
+])
+def test_copied_initial_attacker_position_round_trips_exact_bytes(
+        graph_case, tmp_path, position):
+    graph_case[3]["chains"][0]["initial_attacker_position"] = position
+
+    _, _, graph = completed_case(graph_case, tmp_path)
+    assert graph.chains[0].initial_attacker_position == position
+
+    record_decision(graph_case, tmp_path, matching_policy(graph))
+    decide.check(*graph_case[:3], image_id="target")
+    package = decide.verified_package(*graph_case[:3], image_id="target")
+    assessment, = package.result.chain_assessments
+    assert assessment.initial_attacker_position == position

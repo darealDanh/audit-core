@@ -921,7 +921,7 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 Stages 0 through 3c and Stages 4a–4h are merged to local `main`; Stage 4h is
 included at `dcfb01e`. Stage 4i is implemented and reviewed through `a28e06e` on
-its unmerged feature branch. Finish verification/integration, then plan Stage
+its unmerged feature branch. Complete integration, then plan Stage
 4j `report` using only verified current decision packages. Nothing is pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.

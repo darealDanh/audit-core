@@ -215,6 +215,33 @@ def _integer(value, label, *, minimum=0, maximum=2**63 - 1):
     return value
 
 
+def _copied_text(value, label):
+    """Preserve frozen upstream text exactly, bounded by the artifact read cap.
+
+    Stage 4g and Stage 4d accept these copied facts without Stage 4i's stricter
+    worker-prose rules, so CR/LF and text beyond MAX_TEXT_BYTES must stay
+    recordable byte-for-byte while NUL and non-UTF-8 remain invalid. The
+    enclosing 8 MiB result/worklist read cap bounds the bytes.
+    """
+    if not isinstance(value, str) or not value.strip() or "\0" in value:
+        _fail(f"{label} requires nonempty copied text without NUL")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as exc:
+        raise FirmwareDecideResultError(f"{label} requires UTF-8") from exc
+    return value
+
+
+def _ordered_unique(values, label, parser, *, maximum=MAX_ARRAY_ITEMS, nonempty=False):
+    """Validate an order-preserving copied sequence; graph order stays authority."""
+    if not isinstance(values, list) or len(values) > maximum or (nonempty and not values):
+        _fail(f"{label} requires a bounded ordered array")
+    parsed = tuple(parser(value) for value in values)
+    if len(set(parsed)) != len(parsed):
+        _fail(f"{label} requires unique entries")
+    return parsed
+
+
 def _sorted_unique(values, label, parser, *, maximum=MAX_ARRAY_ITEMS, nonempty=False, key=None):
     if not isinstance(values, list) or len(values) > maximum or (nonempty and not values):
         _fail(f"{label} requires a bounded array")
@@ -276,8 +303,8 @@ def _precondition(value):
         row["locations"], "precondition locations", _location, nonempty=True,
         key=lambda item: (item.chain_id, -1 if item.edge_ordinal is None else item.edge_ordinal))
     return OpenPrecondition(kind, row["precondition_id"], source,
-        _text(row["question"], "precondition question"),
-        _text(row["settling_observation"], "settling observation"),
+        _copied_text(row["question"], "precondition question"),
+        _copied_text(row["settling_observation"], "settling observation"),
         method, axes, locations)
 
 
@@ -302,11 +329,11 @@ def _assessment(value):
     return ChainAssessment(
         _identifier(row["chain_id"], "chain_id"),
         _integer(row["rank"], "rank", minimum=1),
-        _text(row["initial_attacker_position"], "initial_attacker_position"),
+        _copied_text(row["initial_attacker_position"], "initial_attacker_position"),
         pre_auth, _integer(row["confidence"], "confidence", maximum=10),
         completeness, rung,
-        _sorted_unique(row["member_ids"], "member_ids",
-                       lambda item: _identifier(item, "member_id"), nonempty=True),
+        _ordered_unique(row["member_ids"], "member_ids",
+                        lambda item: _identifier(item, "member_id"), nonempty=True),
         _sorted_unique(row["edge_ordinals"], "edge_ordinals",
                        lambda item: _integer(item, "edge ordinal")),
         _sorted_unique(row["open_preconditions"], "open_preconditions",

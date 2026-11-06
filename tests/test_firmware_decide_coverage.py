@@ -135,6 +135,10 @@ def test_uncompleted_contract_cannot_claim_derived_counts(schema_con, status, fi
     ("large-image", "byte bound"), ("surrogate-text", "requires UTF-8"),
     ("large-text", "text bounds"), ("empty-steps", "bounded ordered array"),
     ("duplicate-steps", "unique steps"), ("kind", "kind is invalid"),
+    ("empty-members", "bounded ordered array"),
+    ("duplicate-members", "unique entries"),
+    ("empty-question", "nonempty copied text"),
+    ("nul-question", "without NUL"), ("surrogate-question", "requires UTF-8"),
     ("precondition-id", "identity differs"), ("method", "method is invalid"),
     ("pre_auth", "pre_auth is invalid"), ("completeness", "completeness is invalid"),
     ("evidence_rung", "evidence_rung is invalid"), ("test-id", "test_id is invalid"),
@@ -164,6 +168,16 @@ def test_worker_parser_rejects_invalid_authority_before_use(tmp_path, worker_bod
         test["setup_steps"] = []
     elif damage == "duplicate-steps":
         test["action_steps"] *= 2
+    elif damage == "empty-members":
+        assessment["member_ids"] = []
+    elif damage == "duplicate-members":
+        assessment["member_ids"] *= 2
+    elif damage == "empty-question":
+        precondition["question"] = ""
+    elif damage == "nul-question":
+        precondition["settling_observation"] = "state\0"
+    elif damage == "surrogate-question":
+        precondition["question"] = "\ud800"
     elif damage == "kind":
         precondition["kind"] = "finding"
     elif damage == "precondition-id":
