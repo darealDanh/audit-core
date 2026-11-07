@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-07 · **Branch:** `stage4i-firmware-decide`; reviewed implementation `8a0b2a3`; Stage 4i implemented, integration into local `main` pending, not pushed ·
-**Current verification:** the final whole-branch review and scoped fixes are complete with 0 Critical/Important issues through `8a0b2a3`. Full `make all`: **8/8 gates**, **8,599 tests passed**; 31 verbs; 45 tables / 44 contracts; four migrations; 6 CRLF / 259 LF; 66 features / 17 stages / 21 open items; 124 installed markdown files, zero sentinels, real install untouched. Coverage: **0/13,103 unexecuted statements**, zero allowed. Read-only benchmark: recall 9/19 over 45 findings, precision 39/40, $73.15 per match; prior Stage 4h measurements below remain historical. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-08 · **Branch:** `stage4i-review-fixes` (base `02cb6c0`, the Stage 4i merge); Stage 4i review fixes through `92562c4`; final post-documentation `make all` pending; merge pending; not pushed ·
+**Current verification:** re-review of the Stage 4i review fixes found 0 Critical/Important issues; follow-ups closed in `2e450b7`/`92562c4`. Full `make all` on code-final head `92562c4`: **8/8 gates**, **8,682 tests passed**; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF; 66 features / 17 stages / 21 open items; 124 installed markdown files, zero sentinels, real install untouched. Coverage: **0/13,174 unexecuted statements**, zero allowed. Read-only benchmark: recall 9/19 over 45 findings, precision 39/40, $73.15 per match. The final post-documentation `make all` is pending; earlier Stage 4i/4h measurements below remain historical. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -21,9 +21,10 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
-**Stages 0 through 3c and Stages 4a–4h are merged to local `main`.** Stage 4i
-firmware `decide` is implemented on `stage4i-firmware-decide` through `8a0b2a3`;
-integration is pending and nothing is pushed. It adds one lifecycle row per
+**Stages 0 through 3c and Stages 4a–4i are merged to local `main`** (Stage 4i
+at `02cb6c0`, from `stage4i-firmware-decide` through `8a0b2a3`). Stage 4i review
+fixes are on `stage4i-review-fixes` through `92562c4`; the final
+post-documentation `make all` and merge are pending, and nothing is pushed. It adds one lifecycle row per
 image and decision generation, separately hashed policy, exact current
 graph/dive authority, immutable
 global prepare/import/package publication, the bounded three-mode CLI, and one
@@ -37,8 +38,8 @@ Important ordered-member-path defect and two Minor copied-text/handoff issues;
 `8a0b2a3` preserves Stage 4g member order and exact upstream-valid copied bytes.
 Scoped re-review found 0 Critical and 0 Important issues. Full `make all` passed
 all eight gates with 8,599 tests and 0/13,103 unexecuted statements, zero
-allowed. Stage 4j `report` is next after explicit integration; Stage 5 has not
-started.
+allowed. An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` and the merge into local `main` are pending; nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical. Stage 4j `report` is next after the review-fix merge;
+Stage 5 has not started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -56,7 +57,7 @@ started.
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
 | 4h | `dive` — runtime evidence settlement | through `dcfb01e` | local `main` | **merged locally**; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; merged-tree 8/8 gates; not pushed |
-| 4i | `decide` — immutable firmware acquisition decisions | through `8a0b2a3` | feature branch | **implemented, integration pending**; focused authority/CLI/brief suites pass; final whole-branch review/fixes complete; `make all` 8/8 gates, 8,599 tests, 0/13,103 unexecuted; not pushed |
+| 4i | `decide` — immutable firmware acquisition decisions | through `8a0b2a3` | feature branch | **merged** (`02cb6c0`); review fixes through `92562c4` on `stage4i-review-fixes`: `make all` 8/8 gates, 8,682 tests, 0/13,174 unexecuted; final post-doc `make all` and merge pending; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -77,7 +78,7 @@ Against the tplink DL110 v2 1.0.11 golden set (`make bench`):
 | Precision | **39 / 40** (97.5%) |
 | Cost per matched finding | **$73.15** |
 
-Stage 4i full-harness read-only scoring reproduces these measurements;
+The Stage 4i review-fix full-harness read-only scoring reproduces these measurements;
 the prior merged-main scoring remains the historical comparison.
 This does not measure the effect of new behavior: the Stage 2/3 audit reruns
 remain deferred, so no recall, precision, or audit-cost improvement is claimed.
@@ -448,7 +449,7 @@ in `SESSION_HANDOFF.md` under Historical Stage 4e merged-state verification.
 No new indicator snapshot or mutation sweep ran. Triage remains upsert-only
 and Stage 4d retains its orphan-candidate scan scaling limitation. Stage 4f is
 merged into local `main` at `303232e` after clean scoped final re-review. The
-next implementation stage is Stage 4j `report`, after Stage 4i integration.
+next implementation stage is Stage 4j `report`, after the Stage 4i review-fix merge.
 Stage 4g `chain` and Stage 4h `dive` are merged locally. The Asus golden and monorepo/submodule decision remain milestone/restructure
 prerequisites.
 
@@ -911,8 +912,8 @@ precision 39/40, and $73.15 per match.
 No mutation sweep, paid semantic audit/milestone rerun, Asus golden, or indicator
 snapshot ran. Triage remains upsert-only and Stage 4d retains its orphan-result
 scan scaling limit. The separate firmware skill tree and monorepo/submodule
-decision remain open. Stage 4h `dive` is merged locally and Stage 4i `decide`
-is implemented/reviewed on its feature branch; Stage 4j `report` is next.
+decision remain open. Stage 4h `dive` and Stage 4i `decide` are merged locally;
+Stage 4i review fixes await merge; Stage 4j `report` is next.
 
 ---
 
@@ -1592,7 +1593,9 @@ handoff, the Stage 4i `decide` design was approved; its implementation follows.
 
 ### Stage 4i — immutable firmware acquisition decisions
 
-Implemented through `8a0b2a3` on `stage4i-firmware-decide`, not merged or pushed.
+Implemented through `8a0b2a3` on `stage4i-firmware-decide` and merged into local
+`main` at `02cb6c0`; review fixes through `92562c4` on `stage4i-review-fixes`
+await the final post-documentation `make all` and merge. Nothing is pushed.
 One `cba_firmware_decide_runs` row per image and decision generation binds the
 exact current completed graph/dive input, separately hashed policy, complete
 global result and canonical package. `firmware_decide.py` owns preparation,
@@ -1660,7 +1663,12 @@ read-only benchmark **recall 9/19 over 45 findings,
 precision 39/40, $73.15 per match**. Mutation, paid audit/milestone, Asus golden, second indicator
 snapshot, real corpus/hardware and Linux/alternate-interpreter gates remain
 unrun. Triage upsert-only behavior, retained-orphan scan scaling, separate
-firmware skill tree and monorepo/submodule decision remain open.
+firmware skill tree and monorepo/submodule decision remain open. These
+`8a0b2a3` measurements are historical.
+
+#### Stage 4i review fixes
+
+An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` and the merge into local `main` are pending; nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
 
 ## 8. Next steps, in the order they make sense
 
@@ -1669,9 +1677,9 @@ Everything below is zero-audit-cost. The five items that used to head this list
 parked defects) shipped as Stage 3b and are recorded in §2.
 
 1. **Plan and implement Stage 4j firmware `report`.**
-   Stage 4i `decide` is implemented and independently reviewed on its feature
-   branch with all eight full-harness gates passing; explicit integration
-   remains pending. Stage 4j must
+   Stage 4i `decide` is merged locally at `02cb6c0`; its review fixes on
+   `stage4i-review-fixes` passed all eight full-harness gates at `92562c4`, and
+   the final post-documentation `make all` and merge remain pending. Stage 4j must
    consume only verified current decision packages; preserve the distinction
    between observed technical facts, operator policy, recommendation, payout,
    severity, exploitability, and disclosure authority; and keep proposed

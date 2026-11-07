@@ -414,17 +414,17 @@ success exits 0. Stage 4e records candidates for later firmware `fpcheck`; it
 does not adjudicate false positives, set final severity, execute or emulate
 firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
-scan scaling. Firmware `fpcheck`, `chain`, and `dive` are merged locally;
-`decide` is implemented and reviewed on its feature branch. Stage 4j `report`
-is next after Stage 4i integration. The Asus golden and the
+scan scaling. Firmware `fpcheck`, `chain`, `dive` and `decide` are merged
+locally; Stage 4i review fixes await merge. Stage 4j `report`
+is next after that merge. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
 
 ## Firmware static review (Stage 4f)
 
 Stage 4f is merged into local `main` at `303232e` after clean scoped re-review;
-`chain` and `dive` are also merged. Stage 4i `decide` is implemented and reviewed
-on its unmerged feature branch; Stage 4j `report` is next. Firmware review uses
+`chain`, `dive` and Stage 4i `decide` are also merged; Stage 4i review fixes
+await merge; Stage 4j `report` is next. Firmware review uses
 the shared CLI; the
 separate `firmware-audit` skill tree remains planned. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
@@ -538,9 +538,10 @@ paid semantic quality, recall and audit-cost improvement remain unmeasured.
 
 ## Firmware acquisition decisions (Stage 4i)
 
-Stage 4i is implemented and reviewed through `8a0b2a3` on
-`stage4i-firmware-decide`; integration into local `main` is pending and nothing
-is pushed. Stage 4j `report` is the
+Stage 4i is merged into local `main` at `02cb6c0`. Review fixes through
+`92562c4` on `stage4i-review-fixes` passed all eight `make all` gates (8,682
+tests; six migrations; 0/13,174 unexecuted statements); the final
+post-documentation `make all` and merge are pending, and nothing is pushed. Stage 4j `report` is the
 next implementation stage and must consume only a verified current package.
 
 Stage 4i adds `audit.py decide` after the current firmware chain and dive gates.
