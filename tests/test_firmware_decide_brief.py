@@ -5,6 +5,8 @@ import json
 import pathlib
 import re
 
+import pytest
+
 from audit_core import briefs
 from audit_core import firmware_decide_results as results
 
@@ -191,4 +193,40 @@ def test_skill_route_takes_paths_from_prepare_and_never_inlines():
             "firmware-decide <DONE|PARTIAL|FAILED> chains=<n> artifact=<path> [flags=<csv>]",
             "The latest preparation is current", "`superseded`",
             "never fall back to an older completed generation"):
+        assert required in body, required
+
+
+def test_brief_states_parser_text_array_and_reference_bounds():
+    """Catches a brief silent on whitespace-only text, byte/array caps, or the reference wire."""
+    artifact = flat("Result artifact")
+    for required in ("at least one non-whitespace character",
+                     "whitespace-only text is rejected",
+                     f"every array holds at most {results.MAX_ARRAY_ITEMS} items",
+                     "each ordered step array holds at most 256 steps"):
+        assert required in artifact, required
+    with pytest.raises(results.FirmwareDecideResultError):
+        results._text(" \n\t", "probe")
+    with pytest.raises(results.FirmwareDecideResultError):
+        results._ordered_text(["step"] * 257, "probe")
+    assert results._ordered_text([f"step {n}" for n in range(256)], "probe")
+    bench = flat("Bench tests")
+    assert "nonempty sorted subjects, each at most 4096 UTF-8 bytes" in bench
+    assert "`authentication`, each text of at most 4096 UTF-8 bytes" in bench
+    chains = flat("Chain assessments")
+    for required in ("`<scheme>:<locator>#<anchor>`",
+                     "the scheme is an ASCII letter followed by ASCII letters, digits, or `-`",
+                     "the locator is 1-4096 characters without NUL, CR, LF, or `#`",
+                     "the anchor is 1-128 ASCII letters, digits, `.`, `_`, `:`, or `-`"):
+        assert required in chains, required
+    assert results._REFERENCE.pattern == (
+        r"[A-Za-z][A-Za-z0-9-]*:[^\x00\r\n#]{1,4096}#[A-Za-z0-9._:-]{1,128}")
+
+
+def test_skill_route_states_superseded_reprepare_and_upgrade_ranking():
+    """Catches a route that implies a superseded generation can be revived or upgrades reorder."""
+    body = " ".join(route().split())
+    for required in ("A superseded generation can never be prepared again",
+                     "change the policy bytes to create a new generation",
+                     "Upgrading a run ranks its existing decision rows so the generation "
+                     "selected before the upgrade stays current"):
         assert required in body, required

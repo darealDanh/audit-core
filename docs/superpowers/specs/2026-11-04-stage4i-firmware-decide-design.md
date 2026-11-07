@@ -611,3 +611,61 @@ verification.
     issue.
 11. Final reconciled `make all` passes all eight gates; mutation and paid/hardware
     gates remain separately reported.
+
+## Amendment 2026-11-08 — supersede and latest-preparation selection
+
+The Stage 4i fix-branch review found that an active generation frozen on
+technical input that is no longer current could block every later prepare
+forever, and that selecting the current decision by `completed_at` let a
+same-second completion or an identical re-prepare of an older policy pick the
+wrong package. This amendment supersedes the conflicting statements above; the
+original text is kept as the reviewed baseline.
+
+Durable model:
+
+- `status` is `pending|recorded|complete|superseded`. `superseded` is terminal:
+  the row and its artifacts are kept, it can never be recorded, completed or
+  selected, and it never becomes current again.
+- Two columns are appended: `superseded_at` (required exactly when superseded)
+  and `preparation_ordinal` (non-negative integer, `NOT NULL DEFAULT 0`).
+- A superseded row has two variants: superseded while pending (no result
+  fields) and superseded while recorded (result path/hash and `recorded_at`
+  kept). It never carries completion fields.
+- Lifecycle timestamps are real `YYYY-MM-DD HH:MM:SS` values ordered
+  `prepared_at <= recorded_at <= completed_at` and `<= superseded_at`.
+- Rows are append-only in content: an identical re-prepare rewrites only
+  `preparation_ordinal`, including on a complete row; no frozen provenance,
+  result or package field ever changes.
+- `db.MIGRATIONS` now holds six entries: the four earlier ones unchanged, then
+  `cba_firmware_decide_runs.superseded_at` and
+  `cba_firmware_decide_runs.preparation_ordinal`.
+
+Prepare rules, decided under the same `BEGIN IMMEDIATE` publication lock:
+
+1. An active (pending/recorded) row on another generation whose technical
+   provenance differs from current verified input is stale; prepare marks it
+   `superseded` with `superseded_at` and publishes the new generation in one
+   transaction. A `superseded_at` earlier than the stale row's `recorded_at` or
+   `prepared_at` (a backwards clock) is refused with a named error.
+2. An active row on another generation with the same current technical input
+   is a policy change and is refused while that generation is active.
+3. Re-preparing a generation that is already `superseded` is refused; the
+   operator changes the policy bytes to create a new generation.
+4. An identical re-prepare of an existing generation that is not already the
+   unique highest ordinal becomes latest by taking `max(preparation_ordinal) +
+   1`; if it is already the unique highest, prepare is a read-only no-op.
+   Every new generation also takes `max + 1`.
+
+Selection (`check`, `verified_package`): among the image's
+pending/recorded/complete rows, the row with the highest `preparation_ordinal`
+alone is current. If it is pending, the decision is refused as not recorded;
+there is no fallback to an older complete generation. A tie at the highest
+ordinal is ambiguous and refused. More than one active row is refused.
+
+Migration ranking: when `preparation_ordinal` is added to a shipped table,
+`db.migrate` ranks each image's existing rows from 1 so selection keeps its
+pre-upgrade choice. The single active (pending/recorded) row, which was current
+before the upgrade, ranks highest; complete rows rank by `completed_at`, then
+`recorded_at`, then `prepared_at`, then `decision_generation`. Shipped rows were
+never superseded, so that status needs no rank rule. Former `completed_at`
+ties, which used to be refused as ambiguous, now resolve deterministically.

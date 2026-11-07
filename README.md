@@ -559,6 +559,20 @@ generation; completed historical generations survive. The authority modules are
 `audit_core/firmware_decide.py` and `audit_core/firmware_decide_results.py`, with
 current graph/dive reconstruction supplied by `audit_core/firmware_dive.py`.
 
+The latest preparation is current. Each prepare that publishes or re-selects a
+generation, including an identical re-prepare of an older one, records a higher
+`preparation_ordinal`; `--check` and `verified_package` select only the highest
+pending, recorded or complete generation, refuse when it is not yet complete,
+and never fall back to an older package. When the graph or dive input changes,
+prepare marks the stale active generation `superseded` (row and artifacts kept,
+never recordable or current) and creates a new one; a changed policy over
+unchanged input is refused while a generation is active. A superseded
+generation cannot be prepared again; change the policy bytes to create a new
+generation. Upgrading an existing run adds `superseded_at` and
+`preparation_ordinal` and ranks stored rows per image (the active row highest,
+then completed rows by completion, recording and preparation time) so the
+generation selected before the upgrade stays current.
+
 ```bash
 python3 audit.py decide --run RUN --root ROOT --prepare --policy POLICY [--image-id ID]
 python3 audit.py decide --run RUN --record RESULT

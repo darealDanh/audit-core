@@ -412,7 +412,10 @@ changes, prepare again: it marks the stale active generation `superseded`,
 which can never be recorded or become current, and creates a new one. A changed
 policy over unchanged input is refused while a generation is active. An
 identical re-prepare makes its generation current again; `--check` and the
-verified package never fall back to an older completed generation.
+verified package never fall back to an older completed generation. A superseded
+generation can never be prepared again; change the policy bytes to create a new
+generation. Upgrading a run ranks its existing decision rows so the generation
+selected before the upgrade stays current.
 
 ### Cross-client tool mapping
 

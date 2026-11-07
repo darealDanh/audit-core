@@ -994,6 +994,16 @@ is pushed. `cba_firmware_decide_runs` has one lifecycle row per image and decisi
 generation, keyed by `(image_id, decision_generation)`, with at most one active
 pending/recorded generation per image. Completed historical rows and packages
 survive changed evidence or policy; they are never current-authority fallbacks.
+The latest preparation is current: every publishing prepare, including an
+identical re-prepare of an older generation, takes the next
+`preparation_ordinal`, and `check`/`verified_package` select only the highest
+pending/recorded/complete row, refusing a pending latest or a tie with no
+fallback. Prepare marks an active generation frozen on non-current graph or dive
+input terminally `superseded` (row and artifacts kept, `superseded_at` never
+earlier than its own lifecycle), refuses a policy change over unchanged active
+input, and refuses re-preparing a superseded generation. `db.migrate` adds
+`superseded_at` and `preparation_ordinal` to shipped tables and ranks existing
+rows per image so the pre-upgrade selection stays current.
 
 `audit_core/firmware_decide.py` owns strict operator policy, exact current
 completed Stage 4g graph/Stage 4h dive reconstruction, immutable preparation,

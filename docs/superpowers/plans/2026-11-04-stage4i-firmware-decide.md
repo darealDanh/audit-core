@@ -212,3 +212,16 @@
 - Generic source-code behavior and existing firmware phases remain compatible.
 - Fresh whole-branch review reports no Critical/Important issue.
 - One authoritative `make all` passes all eight gates with zero unexecuted statements on the reviewed implementation and fully enumerated docs; subsequent status/metric-only documentation edits pass all doc-sensitive harness gates. Mutation and paid/hardware gates remain separate.
+
+## Amendment note 2026-11-08 — supersede and latest-preparation selection
+
+The fix branch `stage4i-review-fixes` changes the lifecycle this plan
+implemented: `cba_firmware_decide_runs` gains the terminal status `superseded`
+and the columns `superseded_at` and `preparation_ordinal`, added to shipped
+databases as `db.MIGRATIONS` entries five and six with per-image ranking of
+existing rows. Prepare supersedes stale active generations, refuses a policy
+change over unchanged input while a generation is active, refuses re-preparing
+a superseded generation, and makes an identical re-prepare latest; selection
+uses the highest preparation ordinal with no fallback. The authoritative
+statement is the spec's "Amendment 2026-11-08 — supersede and
+latest-preparation selection" section.

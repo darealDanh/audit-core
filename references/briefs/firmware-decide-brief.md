@@ -42,8 +42,11 @@ Write one result-only strict JSON regular UTF-8 file to `{result_path}`, at most
 extra keys, non-finite numbers, malformed identities, absolute evidence paths,
 foreign evidence, omitted chains, and invented policy matches. Keep analysis in
 the artifact, never stdout. "Sorted" below means ascending Python string or integer
-order with no duplicates; "text" means a nonempty string without NUL or control
-characters other than newline and tab, at most 16 KiB UTF-8.
+order with no duplicates; "text" means a string with at least one
+non-whitespace character, without NUL or control characters other than newline
+and tab, at most 16 KiB UTF-8; whitespace-only text is rejected. Unless a
+smaller limit is stated, every array holds at most 4096 items; each ordered step
+array holds at most 256 steps.
 
 The top level has exactly these keys:
 
@@ -77,7 +80,11 @@ graph's chains. Each assessment has exactly:
   `initial_evidence_refs` or its edges' producer, consumer, or supplemental
   evidence refs, or `dive:<observation_id>#conclusion` or `#evidence` for a
   frozen overlay observation whose subject or settled-subject refs name this
-  chain, its edges, its member findings, or its open preconditions.
+  chain, its edges, its member findings, or its open preconditions. Every
+  reference has the form `<scheme>:<locator>#<anchor>`: the scheme is an ASCII
+  letter followed by ASCII letters, digits, or `-`; the locator is 1-4096
+  characters without NUL, CR, LF, or `#`; the anchor is 1-128 ASCII letters,
+  digits, `.`, `_`, `:`, or `-`. Copy frozen references exactly.
 
 ## Bench tests
 
@@ -87,13 +94,14 @@ graph's chains. Each assessment has exactly:
   test object without `test_id`, serialized as UTF-8 JSON with sorted keys,
   `(",", ":")` separators, and non-ASCII characters left unescaped.
 - `chain_ids`: nonempty sorted frozen chain IDs this test exercises.
-- `subject_refs`: nonempty sorted subjects. A subject is either a worklist
-  `precondition_id` (`blocker:<source_id>` or `unknown:<source_id>`) or
-  `transition:<chain_id>:<edge_ordinal>` naming one frozen edge.
+- `subject_refs`: nonempty sorted subjects, each at most 4096 UTF-8 bytes. A
+  subject is either a worklist `precondition_id` (`blocker:<source_id>` or
+  `unknown:<source_id>`) or `transition:<chain_id>:<edge_ordinal>` naming one
+  frozen edge.
 - `title`, `purpose`, `expected_signal`, `control_observation`: text.
 - `required_state`: exactly `device`, `firmware`, `lifecycle`, `posture`, and
-  `authentication`. `device` equals the image ID and `firmware` equals the
-  graph's `candidate_snapshot_sha256`.
+  `authentication`, each text of at most 4096 UTF-8 bytes. `device` equals the
+  image ID and `firmware` equals the graph's `candidate_snapshot_sha256`.
 - `setup_steps`, `action_steps`, `stop_conditions`: nonempty ordered arrays of
   unique text steps.
 - `limitations`: sorted text entries; may be empty.
