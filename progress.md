@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-05 · **Branch:** `stage4i-firmware-decide`; reviewed implementation `a28e06e`; Stage 4i implemented, integration into local `main` pending, not pushed ·
-**Current verification:** independent whole-branch review and scoped fixes are complete with 0 Critical/Important issues through `a28e06e`. Full `make all`: **8/8 gates**, **8,589 tests passed**; 31 verbs; 45 tables / 44 contracts; four migrations; 6 CRLF / 259 LF; 66 features / 17 stages / 21 open items; 124 installed markdown files, zero sentinels, real install untouched. Coverage: **0/13,088 unexecuted statements**, zero allowed. Read-only benchmark: recall 9/19 over 45 findings, precision 39/40, $73.15 per match; prior Stage 4h measurements below remain historical. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-07 · **Branch:** `stage4i-firmware-decide`; reviewed implementation `8a0b2a3`; Stage 4i implemented, integration into local `main` pending, not pushed ·
+**Current verification:** the final whole-branch review and scoped fixes are complete with 0 Critical/Important issues through `8a0b2a3`. Full `make all`: **8/8 gates**, **8,599 tests passed**; 31 verbs; 45 tables / 44 contracts; four migrations; 6 CRLF / 259 LF; 66 features / 17 stages / 21 open items; 124 installed markdown files, zero sentinels, real install untouched. Coverage: **0/13,103 unexecuted statements**, zero allowed. Read-only benchmark: recall 9/19 over 45 findings, precision 39/40, $73.15 per match; prior Stage 4h measurements below remain historical. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -22,19 +22,23 @@ every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
 **Stages 0 through 3c and Stages 4a–4h are merged to local `main`.** Stage 4i
-firmware `decide` is implemented on `stage4i-firmware-decide` through `a28e06e`;
+firmware `decide` is implemented on `stage4i-firmware-decide` through `8a0b2a3`;
 integration is pending and nothing is pushed. It adds one lifecycle row per
 image and decision generation, separately hashed policy, exact current
 graph/dive authority, immutable
 global prepare/import/package publication, the bounded three-mode CLI, and one
 global worker brief. Policy projections remain distinct from observed technical
 facts; proposed scripts remain inert and mode `0600`. Focused Task 4 authority
-verification passed 647 tests. The independent whole-branch review found four
+verification passed 647 tests. The first whole-branch review found four
 Important issues; `4287d15` fixes assignment binding, terminal no-repair behavior,
-carried bench state and exact JSON scalars. Scoped re-review found 0 Critical
-and 0 Important issues. Full `make all` passed all eight gates with 8,589
-tests and 0/13,088 unexecuted statements, zero allowed. Stage 4j `report` is
-next after explicit integration; Stage 5 has not started.
+carried bench state and exact JSON scalars. Coverage fix `a28e06e` then closed
+the completed harness's coverage failure. The final whole-branch review found one
+Important ordered-member-path defect and two Minor copied-text/handoff issues;
+`8a0b2a3` preserves Stage 4g member order and exact upstream-valid copied bytes.
+Scoped re-review found 0 Critical and 0 Important issues. Full `make all` passed
+all eight gates with 8,599 tests and 0/13,103 unexecuted statements, zero
+allowed. Stage 4j `report` is next after explicit integration; Stage 5 has not
+started.
 
 | Stage | Name | Commits | Diff | Status |
 |---|---|---:|---|---|
@@ -52,7 +56,7 @@ next after explicit integration; Stage 5 has not started.
 | 4f | `fpcheck` — dedicated static firmware review | through `303232e` | local `main` | **merged locally** (`303232e`); scoped final re-review clean; 8/8 gates, no audit run; not pushed |
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
 | 4h | `dive` — runtime evidence settlement | through `dcfb01e` | local `main` | **merged locally**; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; merged-tree 8/8 gates; not pushed |
-| 4i | `decide` — immutable firmware acquisition decisions | through `a28e06e` | feature branch | **implemented, integration pending**; focused authority/CLI/brief suites pass; whole-branch review/fixes complete; `make all` 8/8 gates, 8,589 tests, 0/13,088 unexecuted; not pushed |
+| 4i | `decide` — immutable firmware acquisition decisions | through `8a0b2a3` | feature branch | **implemented, integration pending**; focused authority/CLI/brief suites pass; final whole-branch review/fixes complete; `make all` 8/8 gates, 8,599 tests, 0/13,103 unexecuted; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -1588,7 +1592,7 @@ handoff, the Stage 4i `decide` design was approved; its implementation follows.
 
 ### Stage 4i — immutable firmware acquisition decisions
 
-Implemented through `a28e06e` on `stage4i-firmware-decide`, not merged or pushed.
+Implemented through `8a0b2a3` on `stage4i-firmware-decide`, not merged or pushed.
 One `cba_firmware_decide_runs` row per image and decision generation binds the
 exact current completed graph/dive input, separately hashed policy, complete
 global result and canonical package. `firmware_decide.py` owns preparation,
@@ -1625,16 +1629,34 @@ four proven-unreachable guards and adds 92 behavior cases in
 inventory to ten files. Its scoped re-review found 0 Critical, Important or
 Minor issues. The cold Stage 4i selection passed 418 tests and executed all
 824 decision-authority and 762 decision-result statements; this scoped result
-does not establish whole-repository coverage. Static inventory now contains
-13,088 executable statements. The full-harness result after this fix is
-recorded below.
+does not establish whole-repository coverage.
 
-Deterministic pre-harness checks: 8,589 tests collected; 31 dispatchable verbs;
-45 SQLite tables / 44 contracts; four migrations and both frozen baselines;
-clean skill lint; 6 CRLF / 259 LF files; 66 features / 17 stages / 21 open items;
-124 installed markdown files with zero sentinels and the real install untouched.
-Full `make all` passed all eight gates: **8,589 tests**; **0/13,088 unexecuted
-statements**, zero allowed; read-only benchmark **recall 9/19 over 45 findings,
+The final whole-branch review of the reconciled tree found one Important and two
+Minor issues. `8a0b2a3` parses copied `member_ids` with order-preserving
+uniqueness so a valid non-lexicographic Stage 4g exploit path records exactly;
+it validates copied `question`, `settling_observation` and
+`initial_attacker_position` with `_copied_text`, preserving upstream-valid CRLF
+and text beyond 16 KiB while retaining NUL/UTF-8 rejection; and it corrects the
+handoff instruction to integration only. Worker-authored prose stays strict.
+RED/GREEN regressions cover a descending member path through prepare → record →
+check → package, CRLF and 16 KiB + 1 byte copied positions end-to-end, and
+Stage 4g-accepted CRLF/large precondition text at the worklist parser. The
+affected Stage 4g/4i selection passed 1,978 tests. Scoped re-review found all
+three findings addressed with 0 Critical/Important breakage. Two non-blocking
+observations remain recorded in the Task 6 report: the `_copied_text` docstring
+names an 8 MiB worklist cap although the worklist read helper defaults to
+64 MiB, and pre-existing `MAX_ARRAY_ITEMS=4096` can reject a Stage 4g chain with
+more than 4,096 members.
+
+Static inventory now contains 13,103 executable statements; this is not an
+execution measurement. The full-harness result after this fix is recorded below.
+
+Deterministic checks: 31 dispatchable verbs; 45 SQLite tables / 44 contracts;
+four migrations and both frozen baselines; clean skill lint; 6 CRLF / 259 LF
+files; 66 features / 17 stages / 21 open items; 124 installed markdown files
+with zero sentinels and the real install untouched. Full `make all` passed all
+eight gates: **8,599 tests**; **0/13,103 unexecuted statements**, zero allowed;
+read-only benchmark **recall 9/19 over 45 findings,
 precision 39/40, $73.15 per match**. Mutation, paid audit/milestone, Asus golden, second indicator
 snapshot, real corpus/hardware and Linux/alternate-interpreter gates remain
 unrun. Triage upsert-only behavior, retained-orphan scan scaling, separate

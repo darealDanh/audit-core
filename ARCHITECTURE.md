@@ -988,7 +988,7 @@ persist. `make mutate` remains separate.
 
 ### Stage 4i — firmware acquisition decisions
 
-Stage 4i is implemented and independently reviewed through `a28e06e` on
+Stage 4i is implemented and independently reviewed through `8a0b2a3` on
 `stage4i-firmware-decide`; integration into local `main` is pending and nothing
 is pushed. `cba_firmware_decide_runs` has one lifecycle row per image and decision
 generation, keyed by `(image_id, decision_generation)`, with at most one active
@@ -1043,14 +1043,30 @@ The first completed full harness failed coverage at 109/13,096 unexecuted
 statements after 8,497 passing tests. Coverage fix `a28e06e` removes four
 proven-unreachable guards and adds 92 behavior cases in the tenth dedicated
 Stage 4i test module, `tests/test_firmware_decide_coverage.py`; its scoped
-re-review found 0 Critical, Important or Minor issues. Static inventory now
-contains 13,088 executable statements; this is not an execution measurement.
-Full `make all` passed all eight gates: 8,589 tests; 31 verbs; 45 tables / 44 contracts;
+re-review found 0 Critical, Important or Minor issues. The final whole-branch
+review of the reconciled tree found one Important and two Minor issues.
+`8a0b2a3` parses copied `member_ids` with order-preserving uniqueness so a valid
+non-lexicographic Stage 4g exploit path records exactly; validates copied
+`question`, `settling_observation` and `initial_attacker_position` with
+`_copied_text`, preserving upstream-valid CRLF and text beyond 16 KiB while
+retaining NUL/UTF-8 rejection; and states integration only in the handoff.
+Worker-authored prose stays strict. RED/GREEN regressions cover a descending
+member path through prepare → record → check → package, CRLF and 16 KiB + 1
+byte copied positions end-to-end, and Stage 4g-accepted CRLF/large precondition
+text at the worklist parser; the affected Stage 4g/4i selection passed 1,978
+tests. Scoped re-review found all three findings addressed with 0
+Critical/Important breakage. Static inventory now contains 13,103 executable
+statements; this is not an execution measurement.
+Full `make all` passed all eight gates: 8,599 tests; 31 verbs; 45 tables / 44 contracts;
 four migrations; 6 CRLF / 259 LF files; 66 features / 17 stages / 21 open items;
 124 installed markdown files with zero sentinels and the real install untouched.
-Coverage: 0/13,088 unexecuted statements, zero allowed. Read-only benchmark:
+Coverage: 0/13,103 unexecuted statements, zero allowed. Read-only benchmark:
 recall 9/19 over 45 findings, precision 39/40, $73.15 per match. These are
 mechanical measurements; no new audit or semantic-quality improvement is claimed.
+Two non-blocking observations remain recorded in the Task 6 report: the
+`_copied_text` docstring names an 8 MiB worklist cap although the worklist read
+helper defaults to 64 MiB, and pre-existing `MAX_ARRAY_ITEMS=4096` can reject a
+Stage 4g chain with more than 4,096 members.
 
 Stage 4j `report` is next after explicit Stage 4i integration. Mutation, paid
 audit/milestone, Asus golden, second indicator snapshot, real hardware/corpus,

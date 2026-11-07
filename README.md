@@ -538,7 +538,7 @@ paid semantic quality, recall and audit-cost improvement remain unmeasured.
 
 ## Firmware acquisition decisions (Stage 4i)
 
-Stage 4i is implemented and reviewed through `a28e06e` on
+Stage 4i is implemented and reviewed through `8a0b2a3` on
 `stage4i-firmware-decide`; integration into local `main` is pending and nothing
 is pushed. Stage 4j `report` is the
 next implementation stage and must consume only a verified current package.
