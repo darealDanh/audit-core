@@ -93,6 +93,11 @@ def test_policy_matching_and_payout_projection_are_core_derived(decision_case, t
     ("supported", "eligible", 100, 1000, False, "defer", "bench-plan-incomplete"),
     ("supported", "unknown", 100, 1000, True, "defer", "payout-path-unknown"),
     ("supported", "ineligible", 100, 1000, True, "pass", "no-policy-match"),
+    # Combined facts pin the fixed precedence, not just each reason alone.
+    ("supported", "eligible", 1000, 1000, True, "acquire", "eligible-chain"),
+    ("unsupported", "eligible", 1001, 1000, True, "pass", "support-unsupported"),
+    ("unknown", "eligible", 1001, 1000, True, "pass", "cost-exceeds-policy"),
+    ("unknown", "eligible", 100, 1000, False, "defer", "support-unknown"),
 ])
 def test_recommendation_precedence(decision_case, tmp_path, support, path_status,
                                    cost, maximum, tests, decision, reason):
@@ -109,13 +114,19 @@ def test_recommendation_precedence(decision_case, tmp_path, support, path_status
     assert (summary.decision, summary.primary_reason) == (decision, reason)
     order = {code: index for index, code in enumerate(decide.db.FIRMWARE_DECIDE_REASON_CODES)}
     assert list(summary.reason_codes) == sorted(set(summary.reason_codes), key=order.__getitem__)
+    codes = set(summary.reason_codes)
+    assert ("support-unsupported" in codes) is (support == "unsupported")
+    assert ("support-unknown" in codes) is (support == "unknown")
+    # Cost equal to the maximum is within policy; only strictly greater exceeds.
+    assert ("cost-exceeds-policy" in codes) is (cost > maximum)
     if path_status == "eligible":
-        assert "eligible-policy-match" in summary.reason_codes
-        assert ("bench-plan-complete" if tests else "bench-plan-incomplete") in summary.reason_codes
+        assert "eligible-policy-match" in codes
+        assert ("bench-plan-complete" if tests else "bench-plan-incomplete") in codes
+        assert ("bench-plan-incomplete" if tests else "bench-plan-complete") not in codes
     elif path_status == "unknown":
-        assert "unknown-policy-path-match" in summary.reason_codes
+        assert "unknown-policy-path-match" in codes
     else:
-        assert "no-policy-match" in summary.reason_codes
+        assert "no-policy-match" in codes
 
 
 def test_no_technical_policy_match_is_pass(decision_case, tmp_path):
@@ -212,7 +223,13 @@ def test_hardware_settlement_matching_and_exact_bench_coverage(
         assert match == ()
 
 
-def test_empty_graph_has_explicit_no_current_chain_decision(graph_case, tmp_path):
+@pytest.mark.parametrize("support,cost,codes", [
+    ("supported", POLICY["acquisition_cost_minor"], ("no-current-chain", "no-policy-match")),
+    # An empty graph outranks every policy-side pass reason.
+    ("unsupported", POLICY["max_acquisition_cost_minor"] + 1,
+     ("no-current-chain", "support-unsupported", "cost-exceeds-policy", "no-policy-match")),
+])
+def test_empty_graph_has_explicit_no_current_chain_decision(graph_case, tmp_path, support, cost, codes):
     from tests.test_firmware_chain_prepare import empty_review
     from tests.test_firmware_chain_import import record as chain_record
     from tests.test_firmware_chain_gate import check as chain_check
@@ -238,8 +255,9 @@ def test_empty_graph_has_explicit_no_current_chain_decision(graph_case, tmp_path
     }))
     firmware_dive_results.record(con, run, dive_path)
     dive.check(con, run, root, image_id="empty")
+    policy = dict(POLICY, support_status=support, acquisition_cost_minor=cost)
     preparation = decide.prepare(
-        con, run, root, write_policy(tmp_path, POLICY, "empty-policy.json"),
+        con, run, root, write_policy(tmp_path, policy, "empty-policy.json"),
         image_id="empty")
     result_path = save(tmp_path / "empty-decision.json", {
         "schema_version": 1, "image_id": "empty",
@@ -251,7 +269,7 @@ def test_empty_graph_has_explicit_no_current_chain_decision(graph_case, tmp_path
     summary = decide.check(con, run, root, image_id="empty")
     assert (summary.decision, summary.primary_reason) == ("pass", "no-current-chain")
     assert summary.chain_count == 0
-    assert summary.reason_codes == ("no-current-chain", "no-policy-match")
+    assert summary.reason_codes == codes
 
 
 def rewire_chain_path(value, members):
