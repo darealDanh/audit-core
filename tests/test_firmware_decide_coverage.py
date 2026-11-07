@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 
 import pytest
 
@@ -620,8 +621,21 @@ def test_policy_loader_refuses_non_regular_file_without_blocking(tmp_path, kind)
         os.mkfifo(hostile)
     else:
         hostile.symlink_to(target)
-    with pytest.raises(decide.FirmwareDecideError, match="cannot read policy"):
-        decide.load_policy(hostile)
+    outcome = []
+    def load():
+        try:
+            decide.load_policy(hostile)
+        except BaseException as exc:  # handed to the test thread below
+            outcome.append(exc)
+    worker = threading.Thread(target=load, daemon=True)
+    worker.start()
+    worker.join(timeout=10)
+    if worker.is_alive():
+        # A writer releases a reader blocked in open(); then fail loudly.
+        os.close(os.open(hostile, os.O_WRONLY | os.O_NONBLOCK))
+        pytest.fail("load_policy blocked on a non-regular policy file")
+    assert len(outcome) == 1 and isinstance(outcome[0], decide.FirmwareDecideError)
+    assert "cannot read policy" in str(outcome[0])
 
 
 def test_stable_file_reader_refuses_identity_drift_during_read(tmp_path, monkeypatch):

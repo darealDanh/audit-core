@@ -1420,6 +1420,32 @@ def _rebuild_firmware_table(con: sqlite3.Connection, table: str) -> None:
     con.execute(f"DROP TABLE {private}")
 
 
+def _rank_firmware_decisions(con: sqlite3.Connection) -> None:
+    """Give shipped Stage 4i rows the preparation order selection used to infer.
+
+    Before preparation_ordinal existed, an image had at most one active
+    (pending/recorded) row and it was the current decision; otherwise the
+    latest completed_at won. Ranking per image with the active row highest and
+    complete rows by completed_at, recorded_at, prepared_at and generation
+    keeps selection on the row it chose before the upgrade, and breaks the old
+    completed_at ties deterministically instead of leaving every row at 0.
+    """
+    rows = con.execute(
+        "SELECT image_id, decision_generation, status, completed_at, recorded_at, "
+        "prepared_at FROM cba_firmware_decide_runs").fetchall()
+    ranked = sorted(rows, key=lambda row: (
+        row[0], row[2] in ("pending", "recorded"),
+        row[3] or "", row[4] or "", row[5] or "", row[1]))
+    ordinal, image = 0, None
+    for row in ranked:
+        ordinal = ordinal + 1 if row[0] == image else 1
+        image = row[0]
+        con.execute(
+            "UPDATE cba_firmware_decide_runs SET preparation_ordinal=? "
+            "WHERE image_id=? AND decision_generation=?", (ordinal, row[0], row[1]))
+
+
+
 def migrate(con: sqlite3.Connection) -> list[str]:
     """Add missing columns and rebuild Stage 4b firmware keys atomically.
 
@@ -1445,6 +1471,8 @@ def migrate(con: sqlite3.Connection) -> list[str]:
         for table, column, decl in additions:
             con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             applied.append(f"{table}.{column}")
+        if "cba_firmware_decide_runs.preparation_ordinal" in applied:
+            _rank_firmware_decisions(con)
         for table in rebuilds:
             _rebuild_firmware_table(con, table)
             applied.append(f"{table}.primary_key")

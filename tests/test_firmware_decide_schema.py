@@ -74,25 +74,35 @@ def test_decide_adds_one_table_and_two_lifecycle_migrations(tmp_path):
         (TABLE, "preparation_ordinal", "INTEGER NOT NULL DEFAULT 0"))
 
 
-def test_shipped_decide_table_gains_lifecycle_columns_by_migration(tmp_path):
-    """Catches adding Stage 4i lifecycle columns inline only, bricking shipped run dirs."""
+def _legacy_decide_db(tmp_path, shipped_rows):
+    """A run whose decide table has the shipped (pre-lifecycle) shape and rows."""
     run = workspace.init_run(tmp_path)
     path = run / "audit.db"
     raw = sqlite3.connect(path)
+    ddl = raw.execute("SELECT sql FROM sqlite_master WHERE name=?", (TABLE,)).fetchone()[0]
+    legacy = ddl.replace("    superseded_at TEXT,\n", "").replace(
+        "    preparation_ordinal INTEGER NOT NULL DEFAULT 0,\n", "")
+    assert "superseded_at" not in legacy and "preparation_ordinal" not in legacy
+    raw.execute(f"DROP TABLE {TABLE}")
+    raw.execute(legacy)
+    for row in shipped_rows:
+        row = {key: value for key, value in row.items() if key != "preparation_ordinal"}
+        raw.execute(f"INSERT INTO {TABLE} ({','.join(row)}) VALUES "
+                    f"({','.join('?' for _ in row)})", tuple(row.values()))
+    raw.commit()
+    return path, raw
+
+
+def _shipped(row, generation, **changes):
+    return row | {"decision_generation": generation, "worklist_sha256": generation,
+                  "prepared_at": "2026-11-04 00:00:00"} | changes
+
+
+def test_shipped_decide_table_gains_lifecycle_columns_by_migration(tmp_path):
+    """Catches adding Stage 4i lifecycle columns inline only, bricking shipped run dirs."""
+    path, raw = _legacy_decide_db(tmp_path, [
+        _shipped(COMPLETE, "a" * 64), _shipped(COMPLETE, "b" * 64)])
     try:
-        ddl = raw.execute("SELECT sql FROM sqlite_master WHERE name=?", (TABLE,)).fetchone()[0]
-        legacy = ddl.replace("    superseded_at TEXT,\n", "").replace(
-            "    preparation_ordinal INTEGER NOT NULL DEFAULT 0,\n", "")
-        assert "superseded_at" not in legacy and "preparation_ordinal" not in legacy
-        raw.execute(f"DROP TABLE {TABLE}")
-        raw.execute(legacy)
-        shipped = {key: value for key, value in COMPLETE.items() if key != "preparation_ordinal"}
-        shipped["prepared_at"] = "2026-11-04 00:00:00"
-        for generation in ("a" * 64, "b" * 64):
-            row = shipped | {"decision_generation": generation, "worklist_sha256": generation}
-            raw.execute(f"INSERT INTO {TABLE} ({','.join(row)}) VALUES "
-                        f"({','.join('?' for _ in row)})", tuple(row.values()))
-        raw.commit()
         with pytest.raises(db.DbError, match="preparation_ordinal"):
             db.connect(path).close()
         assert db.migrate(raw) == [f"{TABLE}.superseded_at", f"{TABLE}.preparation_ordinal"]
@@ -102,17 +112,52 @@ def test_shipped_decide_table_gains_lifecycle_columns_by_migration(tmp_path):
     con = db.connect(path)
     try:
         stored = db.rows(con, TABLE)
-        assert [(row["preparation_ordinal"], row["superseded_at"]) for row in stored] == [
-            (0, None), (0, None)]
+        # Identical shipped timestamps tie-break by generation, never all-zero.
+        assert sorted((row["decision_generation"][0], row["preparation_ordinal"],
+                       row["superseded_at"]) for row in stored) == [
+            ("a", 1, None), ("b", 2, None)]
         for row in stored:
             db.TABLE_SPECS[TABLE].validate(dict(row))
-        # Shipped history has no preparation order, so selection refuses to guess.
-        with pytest.raises(decide.FirmwareDecideError, match="Latest prepared"):
-            decide._select_decision_row(con, COMPLETE["image_id"])
-        con.execute(f"DELETE FROM {TABLE} WHERE decision_generation=?", ("b" * 64,))
-        con.commit()
         assert decide._select_decision_row(con, COMPLETE["image_id"])[
-            "decision_generation"] == "a" * 64
+            "decision_generation"] == "b" * 64
+    finally:
+        con.close()
+
+
+def test_decide_migration_ranks_shipped_rows_as_pre_upgrade_selection_did(tmp_path):
+    """Catches migrating multi-row images to ordinal 0 (ambiguous) or reordering history."""
+    sibling = "sibling-image"
+    path, raw = _legacy_decide_db(tmp_path, [
+        # Latest completed_at won before the upgrade, whatever its generation.
+        _shipped(COMPLETE, "a" * 64, completed_at="2026-11-05 00:00:00"),
+        _shipped(COMPLETE, "b" * 64, completed_at="2026-11-04 03:00:00"),
+        # Equal completed_at falls back to recorded_at, then prepared_at, and
+        # only then to the generation.
+        _shipped(COMPLETE, "c" * 64, recorded_at="2026-11-04 01:30:00"),
+        _shipped(COMPLETE, "d" * 64, prepared_at="2026-11-04 00:30:00"),
+        _shipped(COMPLETE, "e" * 64, prepared_at="2026-11-04 00:10:00"),
+        # The one active row was the current decision on its image.
+        _shipped(COMPLETE, "a" * 64, image_id=sibling, completed_at="2026-11-09 00:00:00"),
+        _shipped(RECORDED, "e" * 64, image_id=sibling),
+        _shipped(BASE, "f" * 64, image_id="pending-image"),
+    ])
+    try:
+        db.migrate(raw)
+    finally:
+        raw.close()
+    con = db.connect(path)
+    try:
+        ordinals = {(row["image_id"], row["decision_generation"][0]): row["preparation_ordinal"]
+                    for row in db.rows(con, TABLE)}
+        image = COMPLETE["image_id"]
+        assert ordinals == {
+            (image, "e"): 1, (image, "d"): 2, (image, "c"): 3, (image, "b"): 4,
+            (image, "a"): 5, (sibling, "a"): 1, (sibling, "e"): 2,
+            ("pending-image", "f"): 1}
+        assert decide._select_decision_row(con, image)["decision_generation"] == "a" * 64
+        assert decide._select_decision_row(con, sibling)["decision_generation"] == "e" * 64
+        with pytest.raises(decide.FirmwareDecideError, match="not recorded"):
+            decide._select_decision_row(con, "pending-image")
     finally:
         con.close()
 

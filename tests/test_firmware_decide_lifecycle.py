@@ -176,3 +176,72 @@ def test_complete_rechecks_refuse_invalid_or_unordered_timestamps(
         with pytest.raises(decide.FirmwareDecideError, match="database operation failed"):
             operation(con, run, root, image_id="target")
     assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize("stage,column", [("pending", "prepared_at"), ("recorded", "recorded_at")])
+def test_supersede_refuses_backwards_clock(decision_case, tmp_path, stage, column):
+    """Catches superseding with a superseded_at earlier than the stale row's own lifecycle."""
+    case, _, _, graph = decision_case
+    con, run, root = case[:3]
+    first = decide.prepare(con, run, root, write_policy(tmp_path, matching_policy(graph)),
+                           image_id="target")
+    if stage == "recorded":
+        record_generation(con, run, tmp_path, first, "old-result.json")
+    new_graph = regenerate_upstream(case, tmp_path)
+    con.execute(f"UPDATE cba_firmware_decide_runs SET {column}='9999-12-31 23:59:59'")
+    con.commit()
+    before = state(con)
+    with pytest.raises(decide.FirmwareDecideError, match="supersede timestamp precedes"):
+        decide.prepare(con, run, root, write_policy(
+            tmp_path, matching_policy(new_graph), "new.json"), image_id="target")
+    assert state(con) == before and not con.in_transaction
+    assert by_generation(con)[first.decision_generation]["status"] == stage
+
+
+def test_prepare_supersedes_active_generation_on_dive_only_change(decision_case, tmp_path):
+    """Catches comparing only graph provenance, so a new dive leaves stale work active forever."""
+    from tests.test_firmware_dive_gate import check as dive_check, populate
+    from tests.test_firmware_dive_prepare import manifest, prepare as dive_prepare
+    from tests.test_firmware_dive_questions import entry
+    from tests.test_firmware_dive_snapshot import snapshot
+    case, _, _, graph = decision_case
+    con, run, root = case[:3]
+    policy = write_policy(tmp_path, matching_policy(graph))
+    first = decide.prepare(con, run, root, policy, image_id="target")
+    dive_tmp = tmp_path / "dive-only"
+    dive_tmp.mkdir()
+    newer = dive_prepare(case, questions_path=manifest(dive_tmp, [entry(snapshot(case))]))
+    populate(case, dive_tmp, "inconclusive", newer.dive_generation)
+    dive_check(case)
+    assert firmware_chain.verified_graph_snapshot(
+        con, run, root, image_id="target").graph_sha256 == graph.graph_sha256
+
+    second = decide.prepare(con, run, root, policy, image_id="target")
+    history = by_generation(con)
+    old, new = history[first.decision_generation], history[second.decision_generation]
+    assert old["graph_sha256"] == new["graph_sha256"]
+    assert old["dive_generation"] != new["dive_generation"] == newer.dive_generation
+    assert old["status"] == "superseded" and new["status"] == "pending"
+    assert new["preparation_ordinal"] > old["preparation_ordinal"]
+
+
+def test_identical_reprepare_reranks_a_tied_top_generation(decision_case, tmp_path):
+    """Catches treating a generation tied at the top ordinal as already latest."""
+    case, _, _, graph = decision_case
+    con, run, root = case[:3]
+    policy_a = write_policy(tmp_path, matching_policy(graph, policy_id="policy-a"), "a.json")
+    policy_b = write_policy(tmp_path, matching_policy(
+        graph, policy_id="policy-b", support="unknown"), "b.json")
+    first, _ = complete_generation(con, run, root, tmp_path, policy_a, "a")
+    second, _ = complete_generation(con, run, root, tmp_path, policy_b, "b")
+    top = by_generation(con)[second.decision_generation]["preparation_ordinal"]
+    con.execute("UPDATE cba_firmware_decide_runs SET preparation_ordinal=? "
+                "WHERE decision_generation=?", (top, first.decision_generation))
+    con.commit()
+    with pytest.raises(decide.FirmwareDecideError, match="Latest prepared"):
+        decide.verified_package(con, run, root, image_id="target")
+
+    assert decide.prepare(con, run, root, policy_a, image_id="target") == first
+    assert by_generation(con)[first.decision_generation]["preparation_ordinal"] == top + 1
+    assert decide.verified_package(
+        con, run, root, image_id="target").decision_generation == first.decision_generation

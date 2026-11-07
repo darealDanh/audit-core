@@ -164,7 +164,7 @@ def _parse(raw: bytes) -> DecisionPolicy:
                            parse_constant=lambda token: _fail(f"non-finite value: {token}"))
     except FirmwareDecideError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise FirmwareDecideError("policy requires canonical UTF-8 JSON") from exc
     top = _object(value, (
         "schema_version", "policy_id", "currency", "acquisition_cost_minor",
@@ -501,6 +501,11 @@ def _publish_preparation(con, prepared, inputs, policy, policy_sha256,
     now = con.execute("SELECT datetime('now')").fetchone()[0]
     table = db.TABLE_SPECS["cba_firmware_decide_runs"]
     for row in prepared.stale:
+        # The check-side guard, for supersede: a clock that moved backwards
+        # never writes a supersede earlier than the row's own lifecycle.
+        if now < (row["recorded_at"] or row["prepared_at"]):
+            raise FirmwareDecideError(
+                "Decision supersede timestamp precedes preparation or recording")
         table.validate(dict(row, status="superseded", superseded_at=now))
         con.execute(
             "UPDATE cba_firmware_decide_runs SET status='superseded',superseded_at=? "

@@ -117,3 +117,13 @@ def test_policy_rejects_unknown_and_missing_keys(tmp_path):
 def test_policy_rejects_oversize_input_before_json(tmp_path):
     with pytest.raises(decide.FirmwareDecideError, match="size"):
         decide.load_policy(write_policy(tmp_path, b"{" + b" " * (1024 * 1024) + b"}"))
+
+
+def test_policy_rejects_integer_beyond_conversion_limit_as_policy_error(tmp_path):
+    """Catches a >4300-digit integer escaping load_policy as a raw ValueError."""
+    raw = RAW.replace(b'"acquisition_cost_minor":12999', b'"acquisition_cost_minor":' + b"9" * 5000)
+    assert b"9" * 5000 in raw
+    with pytest.raises(decide.FirmwareDecideError, match="canonical UTF-8 JSON") as caught:
+        decide.load_policy(write_policy(tmp_path, raw))
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert not isinstance(caught.value.__cause__, json.JSONDecodeError)
