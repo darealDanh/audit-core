@@ -8,6 +8,7 @@ import copy
 import dataclasses
 import hashlib
 import json
+import os
 import sqlite3
 
 import pytest
@@ -232,12 +233,12 @@ def test_graph_denominator_cannot_silently_drop_missing_subjects(decision_case, 
 
 @pytest.mark.parametrize("damage,match", [
     ("missing", "No prepared"), ("pending", "not recorded"),
-    ("multi-active", "Multiple active"), ("no-complete", "No complete"),
-    ("tie", "Latest completed"), ("implicit-empty", "exactly one"),
-    ("implicit-multiple", "exactly one"),
+    ("multi-active", "Multiple active"), ("no-complete", "No current"),
+    ("superseded", "No current"), ("tie", "Latest prepared"),
+    ("implicit-empty", "exactly one"), ("implicit-multiple", "exactly one"),
 ])
 def test_row_selection_refuses_missing_ambiguous_or_unrecorded_authority(schema_con, damage, match):
-    """Catches silently selecting missing, unfinished, ambiguous or invalid SQL state."""
+    """Catches silently selecting missing, unfinished, superseded, ambiguous or invalid SQL state."""
     image = "target"
     if damage not in ("missing", "implicit-empty"):
         base = COMPLETE if damage == "tie" else BASE
@@ -250,10 +251,27 @@ def test_row_selection_refuses_missing_ambiguous_or_unrecorded_authority(schema_
     elif damage == "no-complete":
         schema_con.execute("UPDATE cba_firmware_decide_runs SET status='invalid'")
         schema_con.commit()
+    elif damage == "superseded":
+        schema_con.execute("UPDATE cba_firmware_decide_runs SET status='superseded',"
+                           "superseded_at=prepared_at")
+        schema_con.commit()
     before = state(schema_con)
     with pytest.raises(decide.FirmwareDecideError, match=match):
         decide._select_decision_row(schema_con, None if damage.startswith("implicit") else image)
     assert state(schema_con) == before
+
+
+def test_row_selection_prefers_latest_preparation_over_completion_time(schema_con):
+    """Catches selecting by completed_at instead of the most recent prepare."""
+    db.put(schema_con, "cba_firmware_decide_runs", COMPLETE | {"preparation_ordinal": 2})
+    db.put(schema_con, "cba_firmware_decide_runs", COMPLETE | {
+        "decision_generation": "b" * 64, "preparation_ordinal": 1,
+        "completed_at": "2026-12-31 00:00:00"})
+    db.put(schema_con, "cba_firmware_decide_runs", BASE | {
+        "decision_generation": "c" * 64, "preparation_ordinal": 3,
+        "status": "superseded", "superseded_at": "2026-12-31 00:00:00"})
+    row = decide._select_decision_row(schema_con, BASE["image_id"])
+    assert row["decision_generation"] == COMPLETE["decision_generation"]
 
 
 def test_implicit_single_image_selection_preserves_exact_identity(schema_con):
@@ -584,10 +602,40 @@ def test_completion_refuses_authority_change_during_install(decision_assignment,
     published = {}
     def install_then_change(*args, **kwargs):
         original(*args, **kwargs)
-        con.execute("UPDATE cba_firmware_decide_runs SET recorded_at='2020-01-01 00:00:00'")
+        con.execute("UPDATE cba_firmware_decide_runs SET recorded_at='2999-01-01 00:00:00'")
         con.commit()
         published["state"] = state(con)
     monkeypatch.setattr(dive, "_install", install_then_change)
     with pytest.raises(decide.FirmwareDecideError, match="authority changed"):
         decide.check(con, run, root, image_id="target")
     assert state(con) == published["state"] and not con.in_transaction
+
+
+@pytest.mark.parametrize("kind", ["fifo", "symlink"])
+def test_policy_loader_refuses_non_regular_file_without_blocking(tmp_path, kind):
+    """Catches opening a FIFO policy (blocking forever) or following a symlinked policy."""
+    target = write_policy(tmp_path)
+    hostile = tmp_path / f"hostile-{kind}.json"
+    if kind == "fifo":
+        os.mkfifo(hostile)
+    else:
+        hostile.symlink_to(target)
+    with pytest.raises(decide.FirmwareDecideError, match="cannot read policy"):
+        decide.load_policy(hostile)
+
+
+def test_stable_file_reader_refuses_identity_drift_during_read(tmp_path, monkeypatch):
+    """Catches accepting bytes from a policy/result file replaced while it was read."""
+    path = write_policy(tmp_path)
+    assert decide.load_policy(path) == decide._parse(RAW)
+    original = dive._file_identity
+    calls = []
+    def drifting(value):
+        calls.append(value)
+        return original(value) + ((len(calls),) if len(calls) == 4 else ())
+    monkeypatch.setattr(dive, "_file_identity", drifting)
+    with pytest.raises(decide.FirmwareDecideError, match="cannot read policy"):
+        decide.load_policy(path)
+    with pytest.raises(OSError, match="changed while it was read"):
+        calls.clear()
+        decide._read_stable_file(path, decide.MAX_POLICY_BYTES)

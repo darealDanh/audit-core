@@ -67,7 +67,7 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
     result = workspace.apply_schema(path)
     assert len(result.tables) == 45
     assert len(db.TABLE_SPECS) == 44
-    assert len(db.MIGRATIONS) == 4
+    assert len(db.MIGRATIONS) == 6
     con = db.connect(path)
     try:
         for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",

@@ -9,9 +9,11 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sqlite3
+import stat
 
 from audit_core import db, firmware_chain, firmware_dive, surface
 
@@ -243,10 +245,31 @@ def _parse(raw: bytes) -> DecisionPolicy:
         support_basis, tuple(paths), tuple(tiers), notes)
 
 
+def _read_stable_file(path: str | pathlib.Path, maximum: int) -> bytes:
+    """Read at most maximum + 1 bytes of one stable operator-named regular file.
+
+    The Stage 4h result-loader pattern: refuse a final symlink, FIFO or device
+    before opening, never block on open, and refuse pathname/descriptor
+    identity drift across the read. Callers own the size bound and wrap OSError.
+    """
+    before = os.lstat(path)
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError(f"{os.fspath(path)!r} is not a regular file")
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    with os.fdopen(os.open(path, flags), "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        raw = stream.read(maximum + 1)
+        after = os.fstat(stream.fileno())
+    identity = firmware_dive._file_identity
+    if not (identity(before) == identity(opened) == identity(after)
+            == identity(os.lstat(path))):
+        raise OSError(f"{os.fspath(path)!r} changed while it was read")
+    return raw
+
+
 def load_policy(path: str | pathlib.Path) -> DecisionPolicy:
     try:
-        with pathlib.Path(path).open("rb") as stream:
-            raw = stream.read(MAX_POLICY_BYTES + 1)
+        raw = _read_stable_file(path, MAX_POLICY_BYTES)
     except OSError as exc:
         raise FirmwareDecideError("cannot read policy") from exc
     if len(raw) > MAX_POLICY_BYTES:
@@ -382,14 +405,10 @@ def _summary(row, open_precondition_count: int) -> DecisionPreparationSummary:
         row["worklist_sha256"], row["chain_count"], open_precondition_count)
 
 
-def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
-        policy_sha256: str, generation: str, chain_count: int,
-        prepared_at: str) -> dict:
+def _technical_provenance(inputs: VerifiedFirmwareDecisionInput) -> dict:
+    """The frozen graph/dive columns that must equal current verified input."""
     graph, dive = inputs.graph, inputs.dive
-    base = f"files/firmware-decide/{generation}"
     return {
-        "image_id": graph.image_id,
-        "decision_generation": generation,
         "manifest_sha256": graph.manifest_sha256,
         "surface_snapshot_sha256": graph.surface_snapshot_sha256,
         "candidate_snapshot_sha256": graph.candidate_snapshot_sha256,
@@ -400,6 +419,17 @@ def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
         "journal_path": dive.journal_path,
         "journal_sha256": dive.journal_sha256,
         "overlay_sha256": dive.overlay_sha256,
+    }
+
+
+def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
+        policy_sha256: str, generation: str, chain_count: int,
+        prepared_at: str, preparation_ordinal: int) -> dict:
+    base = f"files/firmware-decide/{generation}"
+    return {
+        "image_id": inputs.graph.image_id,
+        "decision_generation": generation,
+        **_technical_provenance(inputs),
         "policy_id": policy.policy_id,
         "policy_path": f"{base}/policy.json",
         "policy_sha256": policy_sha256,
@@ -411,36 +441,81 @@ def _prepared_row(inputs: VerifiedFirmwareDecisionInput, policy: DecisionPolicy,
         "script_count": 0,
         "policy_match_count": 0,
         "prepared_at": prepared_at,
+        "preparation_ordinal": preparation_ordinal,
     }
 
 
-def _existing_preparation(con, run, inputs, policy, policy_sha256,
-                          generation, open_count, destination, contents):
-    active = surface._query(con,
-        "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND status IN ('pending','recorded')",
+@dataclasses.dataclass(frozen=True, slots=True)
+class _PreparationState:
+    same: dict | None
+    stale: tuple[dict, ...]
+    latest: bool
+    next_ordinal: int
+
+
+def _preparation_state(con, inputs, policy, policy_sha256, generation):
+    """Classify an image's decision rows against one exact current assignment.
+
+    An active row frozen on technical input that is no longer current can
+    never complete, so it is returned as stale for the caller to supersede.
+    An active sibling on current technical input is a policy change the
+    operator must finish first. `latest` means the same generation is already
+    the unique highest preparation, so an identical prepare has nothing to do.
+    """
+    rows = surface._query(con,
+        "SELECT * FROM cba_firmware_decide_runs WHERE image_id=?",
         (inputs.graph.image_id,))
-    same = surface._query(con,
-        "SELECT * FROM cba_firmware_decide_runs WHERE image_id=? AND decision_generation=?",
-        (inputs.graph.image_id, generation))
-    if same:
-        if any(row["decision_generation"] != generation for row in active):
-            raise FirmwareDecideError("Another firmware decision generation is active")
-        existing = same[0]
-        db.TABLE_SPECS["cba_firmware_decide_runs"].validate(existing)
-        firmware_dive._timestamp(existing["prepared_at"])
+    current = _technical_provenance(inputs)
+    same, stale = None, []
+    for row in rows:
+        if row["decision_generation"] == generation:
+            same = row
+        elif row["status"] in ("pending", "recorded"):
+            db.TABLE_SPECS["cba_firmware_decide_runs"].validate(row)
+            if all(row[key] == value for key, value in current.items()):
+                raise FirmwareDecideError("Another firmware decision generation is active")
+            stale.append(row)
+    top = max((row["preparation_ordinal"] for row in rows), default=0)
+    latest = False
+    if same is not None:
+        db.TABLE_SPECS["cba_firmware_decide_runs"].validate(same)
+        if same["status"] == "superseded":
+            raise FirmwareDecideError(
+                "Decision generation was superseded; prepare a changed policy instead")
         expected = _prepared_row(inputs, policy, policy_sha256,
                                  generation, len(inputs.graph.chains),
-                                 existing["prepared_at"])
+                                 same["prepared_at"], same["preparation_ordinal"])
         for key, value in expected.items():
-            if (existing[key] != value
+            if (same[key] != value
                     and key not in ("status", "bench_test_count",
                                     "script_count", "policy_match_count")):
                 raise FirmwareDecideError("Existing decision generation differs from current authority")
-        firmware_dive._checked_install(destination, contents, run)
-        return _summary(existing, open_count)
-    if active:
-        raise FirmwareDecideError("Another firmware decision generation is active")
-    return None
+        latest = not stale and [row["preparation_ordinal"] for row in rows].count(
+            top) == 1 and same["preparation_ordinal"] == top
+    return _PreparationState(same, tuple(stale), latest, top + 1)
+
+
+def _publish_preparation(con, prepared, inputs, policy, policy_sha256,
+                         generation, open_count):
+    """Supersede stale active rows, then publish or re-rank this generation."""
+    now = con.execute("SELECT datetime('now')").fetchone()[0]
+    table = db.TABLE_SPECS["cba_firmware_decide_runs"]
+    for row in prepared.stale:
+        table.validate(dict(row, status="superseded", superseded_at=now))
+        con.execute(
+            "UPDATE cba_firmware_decide_runs SET status='superseded',superseded_at=? "
+            "WHERE image_id=? AND decision_generation=? AND status=?",
+            (now, row["image_id"], row["decision_generation"], row["status"]))
+    if prepared.same is not None:
+        con.execute(
+            "UPDATE cba_firmware_decide_runs SET preparation_ordinal=? "
+            "WHERE image_id=? AND decision_generation=?",
+            (prepared.next_ordinal, prepared.same["image_id"], generation))
+        return _summary(prepared.same, open_count)
+    row = _prepared_row(inputs, policy, policy_sha256, generation,
+                        len(inputs.graph.chains), now, prepared.next_ordinal)
+    db.put(con, "cba_firmware_decide_runs", row, commit=False)
+    return _summary(row, open_count)
 
 
 def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
@@ -462,13 +537,15 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         generation = _digest(worklist_raw)
         destination = run / "files" / "firmware-decide" / generation
         contents = {"policy.json": policy_raw, "worklist.json": worklist_raw}
-        existing = _existing_preparation(
-            con, run, first_inputs, first_policy, policy_sha256, generation,
-            open_count, destination, contents)
+        prepared = _preparation_state(
+            con, first_inputs, first_policy, policy_sha256, generation)
+        if prepared.latest:
+            firmware_dive._checked_install(destination, contents, run)
+            con.rollback()
+            started = False
+            return _summary(prepared.same, open_count)
         con.rollback()
         started = False
-        if existing is not None:
-            return existing
         firmware_dive._install(destination, contents, run)
 
         con.execute("BEGIN IMMEDIATE")
@@ -485,20 +562,18 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             raise FirmwareDecideError("Decision inputs changed before publication")
         firmware_dive._checked_install(destination, contents, run)
 
-        existing = _existing_preparation(
-            con, run, current_inputs, current_policy, policy_sha256, generation,
-            open_count, destination, contents)
-        if existing is not None:
+        prepared = _preparation_state(
+            con, current_inputs, current_policy, policy_sha256, generation)
+        if prepared.latest:
             con.rollback()
             started = False
-            return existing
-        prepared_at = con.execute("SELECT datetime('now')").fetchone()[0]
-        row = _prepared_row(first_inputs, first_policy, policy_sha256,
-                            generation, len(first_inputs.graph.chains), prepared_at)
-        db.put(con, "cba_firmware_decide_runs", row, commit=False)
+            return _summary(prepared.same, open_count)
+        summary = _publish_preparation(
+            con, prepared, first_inputs, first_policy, policy_sha256,
+            generation, open_count)
         con.commit()
         started = False
-        return _summary(row, open_count)
+        return summary
     except FirmwareDecideError:
         raise
     except (sqlite3.Error, db.DbError) as exc:
@@ -714,17 +789,18 @@ def _select_decision_row(con, image_id):
     active = [row for row in rows if row["status"] in ("pending", "recorded")]
     if len(active) > 1:
         raise FirmwareDecideError("Multiple active firmware decisions are ambiguous")
-    if active:
-        if active[0]["status"] != "recorded":
-            raise FirmwareDecideError("Firmware decision result is not recorded")
-        return active[0]
-    complete = [row for row in rows if row["status"] == "complete"]
-    if not complete:
-        raise FirmwareDecideError("No complete firmware decision")
-    stamp = max(row["completed_at"] for row in complete)
-    selected = [row for row in complete if row["completed_at"] == stamp]
+    # Superseded rows are history and never current. The most recent prepare,
+    # including an identical re-prepare, alone decides; an unfinished latest
+    # generation never falls back to an older completed package.
+    current = [row for row in rows if row["status"] in ("pending", "recorded", "complete")]
+    if not current:
+        raise FirmwareDecideError("No current firmware decision")
+    ordinal = max(row["preparation_ordinal"] for row in current)
+    selected = [row for row in current if row["preparation_ordinal"] == ordinal]
     if len(selected) != 1:
-        raise FirmwareDecideError("Latest completed firmware decision is ambiguous")
+        raise FirmwareDecideError("Latest prepared firmware decision is ambiguous")
+    if selected[0]["status"] == "pending":
+        raise FirmwareDecideError("Firmware decision result is not recorded")
     return selected[0]
 
 
@@ -780,20 +856,7 @@ def _capture_decision(con, run, root, image_id):
     row = _select_decision_row(con, image_id)
     db.TABLE_SPECS["cba_firmware_decide_runs"].validate(row)
     inputs = verified_input(con, run, root, image_id=row["image_id"])
-    graph, dive = inputs.graph, inputs.dive
-    expected = {
-        "manifest_sha256": graph.manifest_sha256,
-        "surface_snapshot_sha256": graph.surface_snapshot_sha256,
-        "candidate_snapshot_sha256": graph.candidate_snapshot_sha256,
-        "chain_worklist_sha256": graph.chain_worklist_sha256,
-        "graph_path": graph.graph_path,
-        "graph_sha256": graph.graph_sha256,
-        "dive_generation": dive.dive_generation,
-        "journal_path": dive.journal_path,
-        "journal_sha256": dive.journal_sha256,
-        "overlay_sha256": dive.overlay_sha256,
-    }
-    if any(row[key] != value for key, value in expected.items()):
+    if any(row[key] != value for key, value in _technical_provenance(inputs).items()):
         raise FirmwareDecideError("Decision technical input is not current")
     policy_raw = firmware_dive._read(
         run, row["policy_path"], row["policy_sha256"], MAX_POLICY_BYTES)

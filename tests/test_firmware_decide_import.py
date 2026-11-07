@@ -193,7 +193,8 @@ def test_record_preserves_sibling_row(decision_assignment):
         "graph_path,graph_sha256,dive_generation,journal_path,journal_sha256,overlay_sha256,"
         "policy_id,policy_path,policy_sha256,worklist_path,?,status,result_path,result_sha256,"
         "package_path,package_sha256,decision,primary_reason,reason_codes,chain_count,"
-        "bench_test_count,script_count,policy_match_count,prepared_at,recorded_at,completed_at "
+        "bench_test_count,script_count,policy_match_count,prepared_at,recorded_at,completed_at,"
+        "superseded_at,preparation_ordinal "
         "FROM cba_firmware_decide_runs WHERE image_id='target'",
         ("c" * 64, "c" * 64))
     con.commit()

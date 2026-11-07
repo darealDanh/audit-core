@@ -646,6 +646,8 @@ CREATE TABLE IF NOT EXISTS cba_firmware_dive_acquisitions (
     PRIMARY KEY (image_id, dive_generation, question_id, acquisition_id));
 
 -- Stage 4i: one immutable acquisition-decision lifecycle row per generation.
+-- superseded_at and preparation_ordinal were appended after Stage 4i shipped;
+-- db.MIGRATIONS adds them to existing databases in this same order.
 
 CREATE TABLE IF NOT EXISTS cba_firmware_decide_runs (
     image_id TEXT NOT NULL,
@@ -680,4 +682,6 @@ CREATE TABLE IF NOT EXISTS cba_firmware_decide_runs (
     prepared_at TEXT DEFAULT (datetime('now')),
     recorded_at TEXT,
     completed_at TEXT,
+    superseded_at TEXT,
+    preparation_ordinal INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (image_id, decision_generation));

@@ -106,7 +106,8 @@ def test_chain_inventory_and_no_new_column_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
     assert len(workspace.apply_schema(run / "audit.db").tables) == 45
     assert len(db.TABLE_SPECS) == 44
-    assert db.MIGRATIONS == (("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
+    # Stage 4g added no column migrations; later entries belong to later stages.
+    assert db.MIGRATIONS[:4] == (("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
         ("cba_fp_verdicts", "enabled_observation", "TEXT"), ("cba_patterns", "swept_at", "TEXT"),
         ("cba_patterns", "hit_count", "INTEGER"))
 

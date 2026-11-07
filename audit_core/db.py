@@ -9,6 +9,7 @@ typo fails loudly instead of writing a row nothing reads.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import pathlib
 import re
@@ -72,7 +73,7 @@ FIRMWARE_DIVE_EVIDENCE_RUNGS = ("static-resolved", "emulated-observed", "hardwar
 FIRMWARE_DIVE_DEPENDENCY_KINDS = ("finding-artifact", "surface-artifact", "chain-artifact",
                                   "extract-record", "probe-manifest", "hardware-capture")
 FIRMWARE_DIVE_ACQUISITION_KINDS = ("probe", "capture")
-FIRMWARE_DECIDE_STATES = ("pending", "recorded", "complete")
+FIRMWARE_DECIDE_STATES = ("pending", "recorded", "complete", "superseded")
 FIRMWARE_DECISIONS = ("acquire", "defer", "pass")
 FIRMWARE_DECIDE_SUPPORT = ("supported", "unsupported", "unknown")
 FIRMWARE_DECIDE_PAYOUT_STATUS = ("eligible", "ineligible", "unknown")
@@ -127,6 +128,8 @@ MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("cba_fp_verdicts", "enabled_observation", "TEXT"),
     ("cba_patterns", "swept_at", "TEXT"),
     ("cba_patterns", "hit_count", "INTEGER"),
+    ("cba_firmware_decide_runs", "superseded_at", "TEXT"),
+    ("cba_firmware_decide_runs", "preparation_ordinal", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -959,9 +962,23 @@ def _validate_firmware_dive_acquisition(row: dict[str, str]) -> None:
         raise DbError("details kind must agree with acquisition kind")
 
 
+def _decide_timestamp(value: object, column: str) -> str:
+    """The Stage 4h dive timestamp shape: SQLite datetime('now') seconds."""
+    if not isinstance(value, str) or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}", value) is None:
+        raise DbError(f"{column} requires a YYYY-MM-DD HH:MM:SS timestamp")
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise DbError(f"{column} requires a real calendar timestamp") from exc
+    return value
+
+
 def _validate_firmware_decide_run(row: dict[str, str]) -> None:
     table = "cba_firmware_decide_runs"
-    counts = ("chain_count", "bench_test_count", "script_count", "policy_match_count")
+    counts = ("chain_count", "bench_test_count", "script_count",
+              "policy_match_count", "preparation_ordinal")
+    stamps = ("prepared_at", "recorded_at", "completed_at", "superseded_at")
     _validate_surface_text(row, table, counts=counts)
     _validate_nonnegative_integers(row, counts)
     for column, value in row.items():
@@ -974,6 +991,8 @@ def _validate_firmware_decide_run(row: dict[str, str]) -> None:
             _validate_sha256(row, column)
         elif column.endswith("_path"):
             _firmware_fp_path(value, column)
+        elif column in stamps:
+            _decide_timestamp(value, column)
         elif column not in ("reason_codes",):
             _firmware_fp_text(value, column)
     one_of("status", FIRMWARE_DECIDE_STATES)(row)
@@ -981,25 +1000,29 @@ def _validate_firmware_decide_run(row: dict[str, str]) -> None:
         one_of("decision", FIRMWARE_DECISIONS)(row)
     if row.get("primary_reason") is not None:
         one_of("primary_reason", FIRMWARE_DECIDE_PRIMARY_REASONS)(row)
-    result_fields = ("result_path", "result_sha256", "recorded_at")
-    complete_fields = ("package_path", "package_sha256", "decision",
-                       "primary_reason", "reason_codes", "completed_at")
-    if row["status"] == "pending":
-        for column in result_fields + complete_fields:
-            if row.get(column) is not None:
-                raise DbError(f"{column} must be NULL for a pending decision")
-    elif row["status"] == "recorded":
-        for column in result_fields:
-            if row.get(column) is None:
-                raise DbError(f"{column} is required for a recorded decision")
-        for column in complete_fields:
-            if row.get(column) is not None:
-                raise DbError(f"{column} must be NULL for a recorded decision")
-    else:
-        for column in result_fields + complete_fields:
-            if row.get(column) is None:
-                raise DbError(f"{column} is required for a complete decision")
-    if row["status"] != "complete":
+    status = row["status"]
+    # A superseded row keeps whichever result fields it had: none when it
+    # was pending, all of them when it was recorded. It never completes.
+    recorded = status in ("recorded", "complete") or (
+        status == "superseded" and row.get("recorded_at") is not None)
+    for fields, present in (
+            (("result_path", "result_sha256", "recorded_at"), recorded),
+            (("package_path", "package_sha256", "decision", "primary_reason",
+              "reason_codes", "completed_at"), status == "complete"),
+            (("superseded_at",), status == "superseded")):
+        for column in fields:
+            if present and row.get(column) is None:
+                raise DbError(f"{column} is required for a {status} decision")
+            if not present and row.get(column) is not None:
+                raise DbError(f"{column} must be NULL for a {status} decision")
+    # An omitted prepared_at takes the SQL default; a stored NULL never does.
+    if "prepared_at" in row and row["prepared_at"] is None:
+        raise DbError("prepared_at is required for every decision")
+    ordered = [(column, row[column]) for column in stamps if row.get(column) is not None]
+    for (earlier, before), (later, after) in zip(ordered, ordered[1:]):
+        if after < before:
+            raise DbError(f"{later} precedes {earlier}")
+    if status != "complete":
         for column in ("bench_test_count", "script_count", "policy_match_count"):
             if int(row[column]) != 0:
                 raise DbError(f"{column} must be zero before decision completion")
@@ -1347,14 +1370,16 @@ TABLE_SPECS: dict[str, TableSpec] = {
                  "result_sha256", "package_path", "package_sha256", "decision",
                  "primary_reason", "reason_codes", "chain_count",
                  "bench_test_count", "script_count", "policy_match_count",
-                 "prepared_at", "recorded_at", "completed_at"),
+                 "prepared_at", "recorded_at", "completed_at", "superseded_at",
+                 "preparation_ordinal"),
         required=("image_id", "decision_generation", "manifest_sha256",
                   "surface_snapshot_sha256", "candidate_snapshot_sha256",
                   "chain_worklist_sha256", "graph_path", "graph_sha256",
                   "dive_generation", "journal_path", "journal_sha256",
                   "overlay_sha256", "policy_id", "policy_path", "policy_sha256",
                   "worklist_path", "worklist_sha256", "status", "chain_count",
-                  "bench_test_count", "script_count", "policy_match_count"),
+                  "bench_test_count", "script_count", "policy_match_count",
+                  "preparation_ordinal"),
         primary_key=("image_id", "decision_generation"),
         validate=_validate_firmware_decide_run),
 

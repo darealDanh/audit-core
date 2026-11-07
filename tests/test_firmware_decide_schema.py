@@ -1,9 +1,10 @@
 """Stage 4i one-row lifecycle contract, exercised through SQLite writes."""
 import json
+import sqlite3
 
 import pytest
 
-from audit_core import db, workspace
+from audit_core import db, firmware_decide as decide, workspace
 
 
 TABLE = "cba_firmware_decide_runs"
@@ -14,10 +15,12 @@ COLUMNS = (
     "policy_path", "policy_sha256", "worklist_path", "worklist_sha256", "status",
     "result_path", "result_sha256", "package_path", "package_sha256", "decision",
     "primary_reason", "reason_codes", "chain_count", "bench_test_count", "script_count",
-    "policy_match_count", "prepared_at", "recorded_at", "completed_at")
+    "policy_match_count", "prepared_at", "recorded_at", "completed_at", "superseded_at",
+    "preparation_ordinal")
 OPTIONAL = (
     "result_path", "result_sha256", "package_path", "package_sha256", "decision",
-    "primary_reason", "reason_codes", "prepared_at", "recorded_at", "completed_at")
+    "primary_reason", "reason_codes", "prepared_at", "recorded_at", "completed_at",
+    "superseded_at")
 BASE = {
     "image_id": "路由器|r1|target", "decision_generation": "a" * 64,
     "manifest_sha256": "b" * 64, "surface_snapshot_sha256": "c" * 64,
@@ -28,7 +31,8 @@ BASE = {
     "policy_id": "operator-2026-11", "policy_path": "files/firmware-decide/policy.json",
     "policy_sha256": "4" * 64, "worklist_path": "files/firmware-decide/worklist.json",
     "worklist_sha256": "a" * 64, "status": "pending", "chain_count": 2,
-    "bench_test_count": 0, "script_count": 0, "policy_match_count": 0}
+    "bench_test_count": 0, "script_count": 0, "policy_match_count": 0,
+    "preparation_ordinal": 1}
 RECORDED = BASE | {"status": "recorded", "result_path": "artifacts/firmware-decide-results/result.json",
     "result_sha256": "5" * 64, "recorded_at": "2026-11-04 01:02:03"}
 COMPLETE = RECORDED | {"status": "complete", "package_path": "artifacts/firmware-decide/decision.json",
@@ -36,6 +40,8 @@ COMPLETE = RECORDED | {"status": "complete", "package_path": "artifacts/firmware
     "reason_codes": '["eligible-policy-match","bench-plan-complete"]',
     "bench_test_count": 1, "script_count": 1, "policy_match_count": 1,
     "completed_at": "2026-11-04 02:03:04"}
+SUPERSEDED = BASE | {"status": "superseded", "superseded_at": "2026-11-04 03:04:05"}
+SUPERSEDED_RECORDED = RECORDED | {"status": "superseded", "superseded_at": "2026-11-04 03:04:05"}
 
 
 @pytest.fixture
@@ -58,14 +64,60 @@ def test_decide_exact_sql_and_tablespec_contract(con):
         COLUMNS, required, ("image_id", "decision_generation"))
 
 
-def test_decide_adds_one_table_without_column_migrations(tmp_path):
+def test_decide_adds_one_table_and_two_lifecycle_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
     assert len(workspace.apply_schema(run / "audit.db").tables) == 45
     assert len(db.TABLE_SPECS) == 44
-    assert len(db.MIGRATIONS) == 4
+    assert len(db.MIGRATIONS) == 6
+    assert db.MIGRATIONS[-2:] == (
+        (TABLE, "superseded_at", "TEXT"),
+        (TABLE, "preparation_ordinal", "INTEGER NOT NULL DEFAULT 0"))
 
 
-@pytest.mark.parametrize("row", [BASE, RECORDED, COMPLETE])
+def test_shipped_decide_table_gains_lifecycle_columns_by_migration(tmp_path):
+    """Catches adding Stage 4i lifecycle columns inline only, bricking shipped run dirs."""
+    run = workspace.init_run(tmp_path)
+    path = run / "audit.db"
+    raw = sqlite3.connect(path)
+    try:
+        ddl = raw.execute("SELECT sql FROM sqlite_master WHERE name=?", (TABLE,)).fetchone()[0]
+        legacy = ddl.replace("    superseded_at TEXT,\n", "").replace(
+            "    preparation_ordinal INTEGER NOT NULL DEFAULT 0,\n", "")
+        assert "superseded_at" not in legacy and "preparation_ordinal" not in legacy
+        raw.execute(f"DROP TABLE {TABLE}")
+        raw.execute(legacy)
+        shipped = {key: value for key, value in COMPLETE.items() if key != "preparation_ordinal"}
+        shipped["prepared_at"] = "2026-11-04 00:00:00"
+        for generation in ("a" * 64, "b" * 64):
+            row = shipped | {"decision_generation": generation, "worklist_sha256": generation}
+            raw.execute(f"INSERT INTO {TABLE} ({','.join(row)}) VALUES "
+                        f"({','.join('?' for _ in row)})", tuple(row.values()))
+        raw.commit()
+        with pytest.raises(db.DbError, match="preparation_ordinal"):
+            db.connect(path).close()
+        assert db.migrate(raw) == [f"{TABLE}.superseded_at", f"{TABLE}.preparation_ordinal"]
+        assert db.migrate(raw) == []
+    finally:
+        raw.close()
+    con = db.connect(path)
+    try:
+        stored = db.rows(con, TABLE)
+        assert [(row["preparation_ordinal"], row["superseded_at"]) for row in stored] == [
+            (0, None), (0, None)]
+        for row in stored:
+            db.TABLE_SPECS[TABLE].validate(dict(row))
+        # Shipped history has no preparation order, so selection refuses to guess.
+        with pytest.raises(decide.FirmwareDecideError, match="Latest prepared"):
+            decide._select_decision_row(con, COMPLETE["image_id"])
+        con.execute(f"DELETE FROM {TABLE} WHERE decision_generation=?", ("b" * 64,))
+        con.commit()
+        assert decide._select_decision_row(con, COMPLETE["image_id"])[
+            "decision_generation"] == "a" * 64
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("row", [BASE, RECORDED, COMPLETE, SUPERSEDED, SUPERSEDED_RECORDED])
 def test_decide_lifecycle_variants_roundtrip(con, row):
     db.put(con, TABLE, row)
     stored = dict(db.rows(con, TABLE)[0])
@@ -111,10 +163,32 @@ def test_decide_reason_codes_require_canonical_ordered_known_values(con, value):
     (RECORDED | {"decision": "defer"}, "decision"),
     (COMPLETE | {"recorded_at": None}, "recorded_at"),
     (COMPLETE | {"package_path": None}, "package_path"),
+    (SUPERSEDED | {"superseded_at": None}, "superseded_at"),
+    (RECORDED | {"superseded_at": "2026-11-04 03:04:05"}, "superseded_at"),
+    (COMPLETE | {"superseded_at": "2026-11-04 03:04:05"}, "superseded_at"),
+    (SUPERSEDED_RECORDED | {"result_path": None}, "result_path"),
+    (SUPERSEDED | {"completed_at": "2026-11-04 03:04:05"}, "completed_at"),
 ])
 def test_decide_lifecycle_rejects_cross_variant_fields(con, row, column):
     with pytest.raises(db.DbError, match=column):
         db.put(con, TABLE, row)
+
+
+@pytest.mark.parametrize("row,match", [
+    (COMPLETE | {"completed_at": "2026-11-04T02:03:04"}, "completed_at requires a YYYY"),
+    (COMPLETE | {"completed_at": "2026-02-30 02:03:04"}, "completed_at requires a real"),
+    (COMPLETE | {"recorded_at": "2026-11-05 00:00:00"}, "completed_at precedes recorded_at"),
+    (COMPLETE | {"prepared_at": "2026-11-04 01:02:04"}, "recorded_at precedes prepared_at"),
+    (SUPERSEDED_RECORDED | {"superseded_at": "2026-11-04 01:02:02"},
+     "superseded_at precedes recorded_at"),
+    (BASE | {"prepared_at": None}, "prepared_at is required"),
+    (BASE | {"preparation_ordinal": -1}, "preparation_ordinal"),
+])
+def test_decide_lifecycle_timestamps_are_real_and_ordered(con, row, match):
+    """Catches malformed, impossible, NULL or out-of-order lifecycle timestamps."""
+    with pytest.raises(db.DbError, match=match):
+        db.put(con, TABLE, row)
+    assert not db.rows(con, TABLE) and not con.in_transaction
 
 
 def test_decide_sibling_image_primary_keys_are_isolated(con):
