@@ -375,10 +375,16 @@ immutable global decision assignment from the operator policy:
     python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --root ${ROOTFS} \
       --policy ${DECISION_POLICY} --prepare --json
 
-Read
-[references/briefs/firmware-decide-brief.md](references/briefs/firmware-decide-brief.md).
-Render exactly one global brief with the five frozen variables and dispatch it
-to one fresh strongest worker:
+Use the returned `image_id` and `decision_generation`, and set WORKLIST_PATH to
+`${AUDIT_DIR}/` plus the returned run-relative `worklist_path`. Assign
+RESULT_PATH to the worker's writable result file. Read
+[references/briefs/firmware-decide-brief.md](references/briefs/firmware-decide-brief.md)
+for the exact result schema, bench-test identity and subject rules, and inert
+proposed-script limits. Render exactly one global brief with the five frozen
+variables, then dispatch only its path plus context the template cannot know
+to one fresh strongest worker with high reasoning. Do not inline the worklist,
+policy, or evidence in the dispatch. The worker reads the worklist
+incrementally; never partition by chain or cap chain coverage.
 
     python3 __SKILL_DIR__/audit.py brief --phase firmware-decide \
       --unit global --run ${AUDIT_DIR} \
@@ -386,9 +392,11 @@ to one fresh strongest worker:
       --var decision_generation=${DECISION_GENERATION} \
       --var worklist_path=${WORKLIST_PATH} --var result_path=${RESULT_PATH}
 
-The worker must assess every chain in the complete frozen denominator. Workers
-own result JSON only. Import only DONE; PARTIAL is nonimportable and resumes the
-same immutable assignment:
+The worker must assess every chain in the complete frozen denominator and
+returns exactly
+`firmware-decide <DONE|PARTIAL|FAILED> chains=<n> artifact=<path> [flags=<csv>]`.
+Workers own result JSON only. Import only DONE; PARTIAL is nonimportable and
+resumes the same immutable assignment:
 
     python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --record ${RESULT_PATH}
     python3 __SKILL_DIR__/audit.py decide --run ${AUDIT_DIR} --root ${ROOTFS} --check
@@ -398,6 +406,13 @@ canonical package installation, and completion. Proposed scripts remain inert:
 never execute them during dispatch, record, or check. The final check publishes
 the verified acquisition decision package; worker output alone has no decision
 authority.
+
+The latest preparation is current. When the verified graph or dive input
+changes, prepare again: it marks the stale active generation `superseded`,
+which can never be recorded or become current, and creates a new one. A changed
+policy over unchanged input is refused while a generation is active. An
+identical re-prepare makes its generation current again; `--check` and the
+verified package never fall back to an older completed generation.
 
 ### Cross-client tool mapping
 
