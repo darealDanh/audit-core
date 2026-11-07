@@ -402,7 +402,7 @@ Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below and merged into local `main` at `303232e` after
 clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
 `30ca3ba`; `dive` is merged locally at `dcfb01e`. Stage 4i `decide` is merged
-locally at `02cb6c0`; its review fixes await merge; Stage 4j `report` is next.
+locally at `02cb6c0`; its review fixes are merged at `9e4632c`; Stage 4j `report` is next.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -639,7 +639,7 @@ nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
 the complete fix wave passed scoped re-review. Stage 4g is merged locally but
 unpushed. Stage 4h `dive` and Stage 4i `decide` are merged locally; Stage 4i
-review fixes await merge. Stage 4j `report` is next.
+review fixes are merged at `9e4632c`. Stage 4j `report` is next.
 Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
@@ -992,8 +992,8 @@ persist. `make mutate` remains separate.
 
 Stage 4i was implemented and independently reviewed through `8a0b2a3` on
 `stage4i-firmware-decide` and merged into local `main` at `02cb6c0`. Review
-fixes through `92562c4` on `stage4i-review-fixes` await the final
-post-documentation `make all` and merge; nothing is pushed. `cba_firmware_decide_runs` has one lifecycle row per image and decision
+fixes through `92562c4` passed the final post-documentation `make all`
+and are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. `cba_firmware_decide_runs` has one lifecycle row per image and decision
 generation, keyed by `(image_id, decision_generation)`, with at most one active
 pending/recorded generation per image. Completed historical rows and packages
 survive changed evidence or policy; they are never current-authority fallbacks.
@@ -1082,9 +1082,9 @@ helper defaults to 64 MiB, and pre-existing `MAX_ARRAY_ITEMS=4096` can reject a
 Stage 4g chain with more than 4,096 members. These `8a0b2a3` measurements are
 historical.
 
-An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` and the merge into local `main` are pending; nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
+An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
 
-Stage 4j `report` is next after the Stage 4i review-fix merge. Mutation, paid
+Stage 4j `report` is next; the Stage 4i review fixes are merged. Mutation, paid
 audit/milestone, Asus golden, second indicator snapshot, real hardware/corpus,
 Linux/alternate-interpreter execution, separate firmware skill tree and
 monorepo/submodule decision remain open. Triage stays upsert-only; Stage 4d

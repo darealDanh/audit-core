@@ -415,8 +415,8 @@ does not adjudicate false positives, set final severity, execute or emulate
 firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
 scan scaling. Firmware `fpcheck`, `chain`, `dive` and `decide` are merged
-locally; Stage 4i review fixes await merge. Stage 4j `report`
-is next after that merge. The Asus golden and the
+locally; Stage 4i review fixes are merged at `9e4632c`. Stage 4j `report`
+is next. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
 
@@ -424,7 +424,7 @@ milestone and restructure.
 
 Stage 4f is merged into local `main` at `303232e` after clean scoped re-review;
 `chain`, `dive` and Stage 4i `decide` are also merged; Stage 4i review fixes
-await merge; Stage 4j `report` is next. Firmware review uses
+are merged at `9e4632c`; Stage 4j `report` is next. Firmware review uses
 the shared CLI; the
 separate `firmware-audit` skill tree remains planned. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
@@ -539,9 +539,9 @@ paid semantic quality, recall and audit-cost improvement remain unmeasured.
 ## Firmware acquisition decisions (Stage 4i)
 
 Stage 4i is merged into local `main` at `02cb6c0`. Review fixes through
-`92562c4` on `stage4i-review-fixes` passed all eight `make all` gates (8,682
+`92562c4` passed all eight `make all` gates (8,682
 tests; six migrations; 0/13,174 unexecuted statements); the final
-post-documentation `make all` and merge are pending, and nothing is pushed. Stage 4j `report` is the
+post-documentation `make all` also passed, the fixes are merged into local `main` at `9e4632c` (fast-forward), and nothing is pushed. Stage 4j `report` is the
 next implementation stage and must consume only a verified current package.
 
 Stage 4i adds `audit.py decide` after the current firmware chain and dive gates.

@@ -1,10 +1,10 @@
 # Session handoff
 
-**Written:** 2026-11-08 · **Branch:** `stage4i-review-fixes` (base `02cb6c0`), code-final at `92562c4`; final post-documentation `make all` pending; merge pending; not pushed ·
+**Written:** 2026-11-08 · **Branch:** `main` at `9e4632c` (review fixes through `92562c4` fast-forwarded); final post-documentation `make all` passed 8/8 gates; worktrees retired; not pushed ·
 **Status:** Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
-Stage 4i review fixes are on `stage4i-review-fixes`; the final
-post-documentation `make all` and the merge into local `main` are pending. An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` and the merge into local `main` are pending; nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
-Stage 4j `report` is next after the review-fix merge.
+Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
+identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
+Stage 4j `report` is next; no Stage 4i review-fix prerequisite remains.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -18,10 +18,9 @@ you can break expensively, the state you are inheriting, and what to do next.
 
 ### Current pickup
 
-Stage 4i is merged locally at `02cb6c0`. Its review fixes on
-`stage4i-review-fixes` passed all eight gates at code-final head `92562c4`; run
-the final post-documentation `make all`, merge into local `main` (retiring
-`.worktrees/stage4i-firmware-decide`), then continue with Stage 4j `report`. Preserve the
+Stage 4i is merged locally at `02cb6c0`. Its review fixes passed all eight
+gates, including the final post-documentation `make all`, and are merged into local `main` at `9e4632c` (fast-forward);
+the Stage 4i worktrees are retired. Continue with Stage 4j `report`. Preserve the
 one-row-per-image-and-generation lifecycle, exact current graph/dive ownership, separate policy hash,
 complete chain/precondition denominator, mechanical ranks and recommendation
 precedence, atomic immutable package publication, and inert proposed scripts.
@@ -80,8 +79,8 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** `stage4i-review-fixes` (base `02cb6c0`), fixes through `92562c4`;
-  final post-documentation `make all` and merge pending. Stages 4d–4i are
+- **Branch:** `main` at `9e4632c`; Stage 4i review fixes through `92562c4`
+  fast-forwarded after the final post-documentation `make all`. Stages 4d–4i are
   already merged locally at `6eba6d6`, `8119af1`, `303232e`, `30ca3ba`,
   `dcfb01e` and `02cb6c0`, respectively. Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
@@ -195,8 +194,8 @@ These are not style preferences. Each one has a specific, known cost.
   routing are complete. Ordinary source-code `chain` proposal/human composition
   behavior remains compatible. Static chains do not prove runtime reachability,
   severity, exploitability or semantic causality beyond retained evidence.
-  Stages 4g–4i are merged locally and unpushed; Stage 4i review fixes await
-  merge; Stage 4j `report` is next.
+  Stages 4g–4i are merged locally and unpushed; Stage 4i review fixes are
+  merged at `9e4632c`; Stage 4j `report` is next.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
@@ -222,8 +221,8 @@ These are not style preferences. Each one has a specific, known cost.
 ### Current Stage 4i implementation and verification
 
 Implemented through `8a0b2a3` on `stage4i-firmware-decide` and merged into local
-`main` at `02cb6c0`; review fixes (below) await the final post-documentation
-`make all` and merge. Nothing is pushed.
+`main` at `02cb6c0`; review fixes (below) passed the final post-documentation
+`make all` and are merged into local `main` at `9e4632c` (fast-forward). Nothing is pushed.
 One `cba_firmware_decide_runs` row per image and decision generation binds the
 exact current completed graph/dive input, separately hashed policy, complete
 global result and canonical package. `firmware_decide.py` owns preparation,
@@ -296,7 +295,7 @@ firmware skill tree and monorepo/submodule decision remain open. These
 
 #### Stage 4i review fixes
 
-An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` and the merge into local `main` are pending; nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
+An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
 
 ### Verify the state yourself
 
@@ -1432,8 +1431,8 @@ Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shippe
 local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
 `fpcheck` at `303232e`; Stage 4g merged firmware `chain` at `30ca3ba`.
 Stage 4h `dive` is merged locally at `dcfb01e`; Stage 4i `decide` is merged at
-`02cb6c0`, with review fixes pending merge from `stage4i-review-fixes`. These
-phases were built at zero audit cost. Stage 4j `report` is next after that merge.
+`02cb6c0`, with review fixes merged at `9e4632c`. These
+phases were built at zero audit cost. Stage 4j `report` is next.
 The separate firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work
