@@ -217,13 +217,12 @@ def test_check_rolls_back_commit_failure(decision_case, tmp_path):
         con.close()
 
 
-def test_verified_package_refuses_newer_current_graph(completed_pipeline):
+def regenerate_graph(case):
+    """Replace the current Stage 4g graph after the decision completed."""
     from audit_core import firmware_chain
     from tests.test_firmware_chain_import import record as chain_record
     from tests.test_firmware_chain_gate import check as chain_check
 
-    pipeline, _ = completed_pipeline
-    case = pipeline[0]
     con, run, root = case[:3]
     firmware_chain.invalidate(con, "target", commit=True)
     prepared_chain = firmware_chain.prepare(con, run, root, image_id="target")
@@ -231,8 +230,48 @@ def test_verified_package_refuses_newer_current_graph(completed_pipeline):
     case[3]["chains"][0]["title"] = "New current graph after decision completion"
     chain_record(case, root=root)
     chain_check(case)
-    with pytest.raises(decide.FirmwareDecideError):
+
+
+def decide_files(run):
+    return {path: value for path, value in files(run).items()
+            if path.split("/")[1].startswith("firmware-decide")}
+
+
+def test_verified_package_refuses_newer_current_graph(completed_pipeline):
+    """Catches serving a completed package after its graph stopped being current."""
+    from audit_core import firmware_dive
+
+    pipeline, _ = completed_pipeline
+    case = pipeline[0]
+    con, run, root = case[:3]
+    regenerate_graph(case)
+    with pytest.raises(decide.FirmwareDecideError,
+                       match="^Cannot verify firmware decision input$") as refused:
         decide.verified_package(con, run, root, image_id="target")
+    assert isinstance(refused.value.__cause__, firmware_dive.FirmwareDiveError)
+    assert "different graph" in str(refused.value.__cause__)
+
+
+def test_completed_history_survives_upstream_graph_change(completed_pipeline):
+    """Catches deleting or rewriting a completed decision when upstream evidence changes."""
+    pipeline, summary = completed_pipeline
+    case = pipeline[0]
+    con, run, root = case[:3]
+    row_before, = rows(con, "cba_firmware_decide_runs")
+    artifacts = decide_files(run)
+    assert summary.package_path in artifacts
+    assert any(path.startswith("files/firmware-decide/") for path in artifacts)
+    assert any(path.startswith("artifacts/firmware-decide-results/") for path in artifacts)
+    regenerate_graph(case)
+    for operation in (decide.verified_package, decide.check):
+        with pytest.raises(decide.FirmwareDecideError):
+            operation(con, run, root, image_id="target")
+    assert rows(con, "cba_firmware_decide_runs") == [row_before]
+    assert row_before["status"] == "complete"
+    assert row_before["package_sha256"] == summary.package_sha256
+    assert decide_files(run) == artifacts
+    assert hashlib.sha256((run / summary.package_path).read_bytes()).hexdigest() == (
+        summary.package_sha256)
 
 
 def test_verified_package_rejects_executable_mode_drift(completed_pipeline):

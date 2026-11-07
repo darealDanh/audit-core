@@ -41,8 +41,32 @@ def test_prepare_freezes_exact_policy_graph_dive_and_open_denominator(decision_c
         "path": "policy.json", "policy_id": POLICY["policy_id"],
         "projection": POLICY, "sha256": summary.policy_sha256,
     }
-    assert [item["precondition_id"] for item in body["open_preconditions"]] == [
-        f"blocker:{graph.blockers[0].blocker_id}", "unknown:overlap"]
+    chain_id = graph.chains[0].chain_id
+    blocker = graph.blockers[0]
+    assert body["open_preconditions"] == [
+        {
+            "kind": "blocker",
+            "precondition_id": f"blocker:{blocker.blocker_id}",
+            "source_id": blocker.blocker_id,
+            "question": "Does the script persist?",
+            "settling_observation": "Observe persistent startup bytes",
+            "method": "static",
+            "axes": ["lifecycle"],
+            "locations": [{"chain_id": chain_id, "edge_ordinal": None},
+                          {"chain_id": chain_id, "edge_ordinal": 0}],
+        },
+        {
+            "kind": "unknown",
+            "precondition_id": "unknown:overlap",
+            "source_id": "overlap",
+            "question": "Which authority?",
+            "settling_observation": "Inspect handler authority",
+            "method": "static",
+            "axes": ["authentication"],
+            "locations": [{"chain_id": chain_id, "edge_ordinal": None},
+                          {"chain_id": chain_id, "edge_ordinal": 1}],
+        },
+    ]
     assert worklist_raw == (json.dumps(body, ensure_ascii=False, sort_keys=True,
                                       separators=(",", ":")) + "\n").encode()
 
