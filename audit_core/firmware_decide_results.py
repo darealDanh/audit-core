@@ -436,6 +436,10 @@ def _answer(value):
                            key=lambda item: item.test_id)
     scripts = _sorted_unique(row["proposed_scripts"], "proposed_scripts", _script,
                              maximum=MAX_SCRIPTS, key=lambda item: item.name)
+    # Script names become sibling files under bench/; a case-insensitive
+    # filesystem would alias names that differ only by case.
+    if len({item.name.casefold() for item in scripts}) != len(scripts):
+        _fail("proposed script names collide without case sensitivity")
     if sum(len(item.content.encode("utf-8")) for item in scripts) > MAX_SCRIPT_TOTAL_BYTES:
         _fail("proposed scripts exceed 256 KiB total")
     return DecisionAnswer(assessments, tests, scripts)
@@ -447,7 +451,7 @@ def _parse(raw: bytes) -> DecisionResult:
                            parse_constant=lambda token: _fail(f"non-finite value: {token}"))
     except FirmwareDecideResultError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise FirmwareDecideResultError("result requires strict UTF-8 JSON") from exc
     row = _object(value, (
         "schema_version", "image_id", "decision_generation",
@@ -530,8 +534,7 @@ def canonical_bytes(result: DecisionResult) -> bytes:
 
 def load(path: str | pathlib.Path) -> DecisionResult:
     try:
-        with pathlib.Path(path).open("rb") as stream:
-            raw = stream.read(MAX_RESULT_BYTES + 1)
+        raw = decide._read_stable_file(path, MAX_RESULT_BYTES)
     except OSError as exc:
         raise FirmwareDecideResultError("cannot read decision result") from exc
     if len(raw) > MAX_RESULT_BYTES:
@@ -547,7 +550,7 @@ def _strict_json(raw: bytes, label):
                           parse_constant=lambda token: _fail(f"non-finite value: {token}"))
     except FirmwareDecideResultError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise FirmwareDecideResultError(f"{label} requires strict UTF-8 JSON") from exc
 
 
@@ -681,7 +684,6 @@ def _chain_evidence(graph, worklist, chain, preconditions):
             _digest(identity, "observation_id")
             allowed.add(f"dive:{identity}#conclusion")
             allowed.add(f"dive:{identity}#evidence")
-            allowed.update(observation.get("evidence_refs", ()))
     return allowed
 
 
@@ -729,6 +731,7 @@ def _validate_assessments(answer, worklist, expected_preconditions):
 
 
 def _subject_ownership(subject, graph, preconditions):
+    """Return a subject's owning chains and its (subject, chain, edge) state requirements."""
     precondition = {item.precondition_id: item for item in preconditions}.get(subject)
     if precondition is not None:
         owners = {item.chain_id for item in precondition.locations}
@@ -739,7 +742,7 @@ def _subject_ownership(subject, graph, preconditions):
             edge_locations = [item for item in locations
                               if item.edge_ordinal is not None]
             if not edge_locations:
-                requirements.append((subject, {chain_id}, None))
+                requirements.append((subject, chain_id, None))
                 continue
             for location in edge_locations:
                 edge = next((item for item in graph["edges"]
@@ -747,7 +750,7 @@ def _subject_ownership(subject, graph, preconditions):
                     and item["ordinal"] == location.edge_ordinal), None)
                 if edge is None:
                     _fail("precondition location references a foreign edge")
-                requirements.append((subject, {chain_id}, edge))
+                requirements.append((subject, chain_id, edge))
         return owners, tuple(requirements)
     match = re.fullmatch(r"transition:([A-Za-z0-9][A-Za-z0-9._:-]{0,127}):(0|[1-9][0-9]*)", subject)
     if match is None:
@@ -758,7 +761,7 @@ def _subject_ownership(subject, graph, preconditions):
                  if item["chain_id"] == chain_id and item["ordinal"] == ordinal), None)
     if edge is None:
         _fail("bench transition subject is foreign")
-    return {chain_id}, ((subject, {chain_id}, edge),)
+    return {chain_id}, ((subject, chain_id, edge),)
 
 
 def _validate_state(test, graph, subject_edges):
@@ -782,9 +785,8 @@ def _validate_state(test, graph, subject_edges):
             or test.required_state.firmware != graph["candidate_snapshot_sha256"]):
         _fail("bench device or firmware state differs from frozen graph")
     grouped = {}
-    for subject, owners, edge in subject_edges:
-        for chain_id in owners:
-            grouped.setdefault((subject, chain_id), []).append(edge)
+    for subject, chain_id, edge in subject_edges:
+        grouped.setdefault((subject, chain_id), []).append(edge)
     for (_, chain_id), edges in grouped.items():
         initial = initial_states[chain_id]
         def matches(edge):
@@ -809,13 +811,18 @@ def _validate_bench(answer, worklist, preconditions):
             _fail("bench test identity differs from semantic content")
         if not set(test.chain_ids) <= chain_ids:
             _fail("bench test references a foreign chain")
+        # A test may cover a subset of a shared subject's owners: it lists the
+        # chains it exercises, and state authority comes only from those chains.
+        listed = set(test.chain_ids)
         owned = set()
         subject_edges = []
         for subject in test.subject_refs:
             owners, requirements = _subject_ownership(subject, graph, preconditions)
+            if not owners & listed:
+                _fail("bench subject is not owned by a listed chain")
             owned.update(owners)
-            subject_edges.extend(requirements)
-        if owned != set(test.chain_ids):
+            subject_edges.extend(item for item in requirements if item[1] in listed)
+        if not listed <= owned:
             _fail("bench chain ownership differs from subject ownership")
         _validate_state(test, graph, subject_edges)
         if test.script_name is not None:

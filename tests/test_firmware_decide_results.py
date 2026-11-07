@@ -3,6 +3,7 @@ import copy
 import dataclasses
 import hashlib
 import json
+import os
 import pathlib
 
 import pytest
@@ -11,7 +12,7 @@ from audit_core import firmware_chain, firmware_decide as decide
 from audit_core import firmware_decide_results as results
 from audit_core import firmware_dive as dive, firmware_dive_results
 from tests.test_firmware_decide_input import decision_case, graph_case, prepared  # noqa: F401
-from tests.test_firmware_decide_policy import write_policy
+from tests.test_firmware_decide_policy import POLICY, write_policy
 from tests.test_firmware_dive_prepare import canonical
 
 
@@ -460,3 +461,155 @@ def test_worker_authored_prose_remains_strict(decision_assignment):
     body["answer"]["chain_assessments"][0]["rationale"] = "reason\r\ncontinued"
     with pytest.raises(results.FirmwareDecideResultError, match="rationale exceeds text bounds"):
         results.load(save(path.with_name("strict.json"), body))
+
+
+def two_script_body(body, names):
+    """Reference each named script from its own copy of the fixture bench test."""
+    template = body["answer"]["bench_tests"][0]
+    tests = []
+    for name in names:
+        test = copy.deepcopy(template)
+        test["script_name"] = name
+        test["test_id"] = bench_id(test)
+        tests.append(test)
+    body["answer"]["bench_tests"] = sorted(tests, key=lambda item: item["test_id"])
+    body["answer"]["proposed_scripts"] = [
+        {"name": name, "content": "#!/bin/sh\nprintf '%s\\n' proposed-unreviewed\n"}
+        for name in names]
+    return body
+
+
+def test_record_rejects_script_names_colliding_under_casefold(decision_assignment):
+    """Catches recording bench/Probe.sh and bench/probe.sh that alias on APFS."""
+    case, summary, _, body, path = decision_assignment
+    con, run = case[:2]
+    save(path, two_script_body(copy.deepcopy(body), ["Probe.sh", "probe.sh"]))
+    with pytest.raises(results.FirmwareDecideResultError, match="case sensitivity"):
+        results.record(con, run, path)
+    row = con.execute(
+        "SELECT status,result_path FROM cba_firmware_decide_runs WHERE image_id='target'"
+    ).fetchone()
+    assert tuple(row) == ("pending", None) and not con.in_transaction
+    assert not (run / "artifacts" / "firmware-decide-results").exists()
+
+    save(path, two_script_body(copy.deepcopy(body), ["Probe-A.sh", "probe-b.sh"]))
+    recorded = results.record(con, run, path)
+    assert recorded.recorded and recorded.script_count == 2
+    assert recorded.decision_generation == summary.decision_generation
+
+
+@pytest.mark.parametrize("kind", ["fifo", "symlink"])
+def test_load_refuses_non_regular_result_without_blocking(decision_assignment, kind):
+    """Catches opening a FIFO (blocking forever) or following a symlinked result."""
+    _, _, _, _, path = decision_assignment
+    hostile = path.with_name(f"hostile-{kind}.json")
+    if kind == "fifo":
+        os.mkfifo(hostile)
+    else:
+        hostile.symlink_to(path)
+    with pytest.raises(results.FirmwareDecideResultError, match="cannot read decision result"):
+        results.load(hostile)
+
+
+def test_huge_integer_json_is_a_result_error(tmp_path):
+    """Catches leaking the int digit-limit ValueError instead of a typed refusal."""
+    digits = b"1" * 5000
+    path = tmp_path / "huge.json"
+    path.write_bytes(b'{"schema_version":' + digits + b'}')
+    with pytest.raises(results.FirmwareDecideResultError, match="strict UTF-8 JSON"):
+        results.load(path)
+    with pytest.raises(results.FirmwareDecideResultError, match="worklist requires strict"):
+        results._strict_json(digits, "worklist")
+
+
+def shared_hardware_case(decision_assignment):
+    """Two chains in different initial states share one hardware precondition."""
+    _, _, frozen, body, _ = decision_assignment
+    worklist = copy.deepcopy(frozen)
+    graph = worklist["graph"]
+    chain = graph["chains"][0]
+    other = copy.deepcopy(chain)
+    other["chain_id"] = "other"
+    other["initial_authentication"] = "admin"
+    graph["chains"].append(other)
+    shared = next(item for item in worklist["open_preconditions"]
+                  if item["precondition_id"] == "unknown:overlap")
+    shared["method"] = "hardware"
+    shared["locations"].append({"chain_id": "other", "edge_ordinal": None})
+    test = copy.deepcopy(body["answer"]["bench_tests"][0])
+    test["subject_refs"] = [shared["precondition_id"]]
+    test["script_name"] = None
+    test["test_id"] = bench_id(test)
+    body = copy.deepcopy(body)
+    body["answer"]["bench_tests"] = [test]
+    body["answer"]["proposed_scripts"] = []
+    return worklist, body, chain, shared
+
+
+def test_shared_hardware_precondition_is_coverable_per_listed_chain(decision_assignment):
+    """Catches requiring one test to list, and match the state of, every owner chain."""
+    worklist, body, chain, shared = shared_hardware_case(decision_assignment)
+    preconditions = results._expected_preconditions(worklist)
+    answer = results._parse(canonical_json(body)).answer
+    tests, _ = results._validate_bench(answer, worklist, preconditions)
+    assert tests[0].chain_ids == (chain["chain_id"],)
+
+    # Listing both owners demands both chains' frozen states at once.
+    test = body["answer"]["bench_tests"][0]
+    test["chain_ids"] = sorted([chain["chain_id"], "other"])
+    test["test_id"] = bench_id(test)
+    answer = results._parse(canonical_json(body)).answer
+    with pytest.raises(results.FirmwareDecideResultError, match="required state"):
+        results._validate_bench(answer, worklist, preconditions)
+
+    # The other owner is coverable by its own test in its own state.
+    test["chain_ids"] = ["other"]
+    test["required_state"]["authentication"] = "admin"
+    test["test_id"] = bench_id(test)
+    answer = results._parse(canonical_json(body)).answer
+    tests, _ = results._validate_bench(answer, worklist, preconditions)
+    assert tests[0].chain_ids == ("other",)
+
+    # A listed chain must still own at least one subject of the test.
+    test["subject_refs"] = [f"transition:{chain['chain_id']}:0"]
+    test["test_id"] = bench_id(test)
+    answer = results._parse(canonical_json(body)).answer
+    with pytest.raises(results.FirmwareDecideResultError, match="not owned by a listed chain"):
+        results._validate_bench(answer, worklist, preconditions)
+
+
+def test_shared_hardware_precondition_completes_top_chain_bench_plan(decision_assignment):
+    """Catches a bench plan for the top chain that stays incomplete for shared subjects."""
+    worklist, body, chain, shared = shared_hardware_case(decision_assignment)
+    preconditions = results._expected_preconditions(worklist)
+    answer = results._parse(canonical_json(body)).answer
+    tests, scripts = results._validate_bench(answer, worklist, preconditions)
+
+    def denominator(chain_id):
+        return tuple(item for item in preconditions
+                     if any(location.chain_id == chain_id for location in item.locations))
+
+    top = dataclasses.replace(answer.chain_assessments[0],
+                              open_preconditions=denominator(chain["chain_id"]))
+    other = dataclasses.replace(top, chain_id="other", rank=2,
+                                open_preconditions=denominator("other"))
+    assert shared["precondition_id"] in {
+        item.precondition_id for item in top.open_preconditions if item.method == "hardware"}
+    policy_value = copy.deepcopy(POLICY)
+    policy_value["payout_paths"][1]["status"] = "eligible"
+    policy = decide._parse((json.dumps(policy_value, ensure_ascii=False, sort_keys=True,
+                                       separators=(",", ":")) + "\n").encode())
+    validated = results.ValidatedDecisionResult(
+        "target", "0" * 64, "0" * 64, b"", "0" * 64, (top, other),
+        preconditions, tests, scripts)
+    derived = decide._technical_derivation(policy, validated)
+    assert derived.top_chain_id == chain["chain_id"]
+    assert derived.bench_plan_complete is True
+    assert derived.decision == "acquire"
+
+    # A top-chain test that omits the shared hardware subject leaves the plan open.
+    transition = results._parse(canonical_json(decision_assignment[3])).answer
+    unrelated, unrelated_scripts = results._validate_bench(transition, worklist, preconditions)
+    uncovered = dataclasses.replace(
+        validated, bench_tests=unrelated, scripts=unrelated_scripts)
+    assert decide._technical_derivation(policy, uncovered).bench_plan_complete is False
