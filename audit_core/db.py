@@ -72,6 +72,19 @@ FIRMWARE_DIVE_EVIDENCE_RUNGS = ("static-resolved", "emulated-observed", "hardwar
 FIRMWARE_DIVE_DEPENDENCY_KINDS = ("finding-artifact", "surface-artifact", "chain-artifact",
                                   "extract-record", "probe-manifest", "hardware-capture")
 FIRMWARE_DIVE_ACQUISITION_KINDS = ("probe", "capture")
+FIRMWARE_DECIDE_STATES = ("pending", "recorded", "complete")
+FIRMWARE_DECISIONS = ("acquire", "defer", "pass")
+FIRMWARE_DECIDE_SUPPORT = ("supported", "unsupported", "unknown")
+FIRMWARE_DECIDE_PAYOUT_STATUS = ("eligible", "ineligible", "unknown")
+FIRMWARE_DECIDE_REASON_CODES = (
+    "no-current-chain", "support-unsupported", "support-unknown",
+    "cost-exceeds-policy", "eligible-policy-match",
+    "unknown-policy-path-match", "no-policy-match",
+    "bench-plan-complete", "bench-plan-incomplete")
+FIRMWARE_DECIDE_PRIMARY_REASONS = (
+    "no-current-chain", "support-unsupported", "cost-exceeds-policy",
+    "eligible-chain", "support-unknown", "bench-plan-incomplete",
+    "payout-path-unknown", "no-policy-match")
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -946,6 +959,60 @@ def _validate_firmware_dive_acquisition(row: dict[str, str]) -> None:
         raise DbError("details kind must agree with acquisition kind")
 
 
+def _validate_firmware_decide_run(row: dict[str, str]) -> None:
+    table = "cba_firmware_decide_runs"
+    counts = ("chain_count", "bench_test_count", "script_count", "policy_match_count")
+    _validate_surface_text(row, table, counts=counts)
+    _validate_nonnegative_integers(row, counts)
+    for column, value in row.items():
+        if value is None:
+            continue
+        if column in counts:
+            continue
+        if column.endswith("_sha256") or column in (
+                "decision_generation", "dive_generation"):
+            _validate_sha256(row, column)
+        elif column.endswith("_path"):
+            _firmware_fp_path(value, column)
+        elif column not in ("reason_codes",):
+            _firmware_fp_text(value, column)
+    one_of("status", FIRMWARE_DECIDE_STATES)(row)
+    if row.get("decision") is not None:
+        one_of("decision", FIRMWARE_DECISIONS)(row)
+    if row.get("primary_reason") is not None:
+        one_of("primary_reason", FIRMWARE_DECIDE_PRIMARY_REASONS)(row)
+    result_fields = ("result_path", "result_sha256", "recorded_at")
+    complete_fields = ("package_path", "package_sha256", "decision",
+                       "primary_reason", "reason_codes", "completed_at")
+    if row["status"] == "pending":
+        for column in result_fields + complete_fields:
+            if row.get(column) is not None:
+                raise DbError(f"{column} must be NULL for a pending decision")
+    elif row["status"] == "recorded":
+        for column in result_fields:
+            if row.get(column) is None:
+                raise DbError(f"{column} is required for a recorded decision")
+        for column in complete_fields:
+            if row.get(column) is not None:
+                raise DbError(f"{column} must be NULL for a recorded decision")
+    else:
+        for column in result_fields + complete_fields:
+            if row.get(column) is None:
+                raise DbError(f"{column} is required for a complete decision")
+    if row["status"] != "complete":
+        for column in ("bench_test_count", "script_count", "policy_match_count"):
+            if int(row[column]) != 0:
+                raise DbError(f"{column} must be zero before decision completion")
+    if row.get("reason_codes") is not None:
+        codes = _firmware_dive_json(row, "reason_codes", list)
+        if (not codes or any(not isinstance(code, str) or
+                code not in FIRMWARE_DECIDE_REASON_CODES for code in codes)):
+            raise DbError("reason_codes requires known string codes")
+        order = {code: index for index, code in enumerate(FIRMWARE_DECIDE_REASON_CODES)}
+        if codes != sorted(set(codes), key=order.__getitem__):
+            raise DbError("reason_codes requires canonical ordered unique codes")
+
+
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
         columns=("id", "type", "source_path", "source_language",
@@ -1270,6 +1337,26 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "contract_sha256", "spec_path", "spec_sha256", "manifest_path",
                   "manifest_sha256", "evidence_paths", "details"),
         primary_key=("image_id", "dive_generation", "question_id", "acquisition_id"), validate=_validate_firmware_dive_acquisition),
+    "cba_firmware_decide_runs": TableSpec(
+        columns=("image_id", "decision_generation", "manifest_sha256",
+                 "surface_snapshot_sha256", "candidate_snapshot_sha256",
+                 "chain_worklist_sha256", "graph_path", "graph_sha256",
+                 "dive_generation", "journal_path", "journal_sha256",
+                 "overlay_sha256", "policy_id", "policy_path", "policy_sha256",
+                 "worklist_path", "worklist_sha256", "status", "result_path",
+                 "result_sha256", "package_path", "package_sha256", "decision",
+                 "primary_reason", "reason_codes", "chain_count",
+                 "bench_test_count", "script_count", "policy_match_count",
+                 "prepared_at", "recorded_at", "completed_at"),
+        required=("image_id", "decision_generation", "manifest_sha256",
+                  "surface_snapshot_sha256", "candidate_snapshot_sha256",
+                  "chain_worklist_sha256", "graph_path", "graph_sha256",
+                  "dive_generation", "journal_path", "journal_sha256",
+                  "overlay_sha256", "policy_id", "policy_path", "policy_sha256",
+                  "worklist_path", "worklist_sha256", "status", "chain_count",
+                  "bench_test_count", "script_count", "policy_match_count"),
+        primary_key=("image_id", "decision_generation"),
+        validate=_validate_firmware_decide_run),
 
 }
 

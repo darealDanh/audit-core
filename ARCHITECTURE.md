@@ -10,9 +10,9 @@ For *how to pick the work back up*, read
 ## 1. The thing being built
 
 This repository currently ships **one skill, made of two different kinds of
-material**. Its shared core now also contains the first eight vertical phases
+material**. Its shared core now also contains the first ten vertical phases
 of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, `diff`,
-`surface`, `hunt`, `fpcheck`, and `chain`); the separate firmware skill tree
+`surface`, `hunt`, `fpcheck`, `chain`, `dive`, and `decide`); the separate firmware skill tree
 does not exist yet.
 
 | Material | What it is | Who executes it |
@@ -52,7 +52,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 29 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 31 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -129,7 +129,7 @@ its own.
 One SQLite database per run, at `reports/audit-<timestamp>/audit.db`, created
 by `audit.py init`.
 
-**Thirty-one tables under contract**, all prefixed `cba_`:
+**Forty-four tables under contract**, all prefixed `cba_`:
 
 | Group | Tables |
 |---|---|
@@ -145,8 +145,11 @@ by `audit.py init`.
 | Firmware surface | `cba_surface_runs`, `cba_firmware_surfaces`, `cba_unknowns` |
 | Firmware hunt | `cba_hunt_runs`, `cba_hunt_receipts`, `cba_hunt_candidates` |
 | Firmware review | `cba_firmware_fp_runs`, `cba_firmware_fp_receipts`, `cba_firmware_fp_verdicts`, `cba_firmware_pivots`, `cba_firmware_findings` |
+| Firmware chain | `cba_firmware_chain_runs`, `cba_firmware_chain_receipts`, `cba_firmware_chain_dispositions`, `cba_firmware_chain_unknowns`, `cba_firmware_chains`, `cba_firmware_chain_edges` |
+| Firmware dive | `cba_firmware_dive_runs`, `cba_firmware_dive_questions`, `cba_firmware_dive_receipts`, `cba_firmware_dive_observations`, `cba_firmware_dive_dependencies`, `cba_firmware_dive_acquisitions` |
+| Firmware decide | `cba_firmware_decide_runs` |
 
-> `selftest` reports **32** tables in `schema.sql` against **31** under
+> `selftest` reports **45** tables in `schema.sql` against **44** under
 > contract. The extra table is `sqlite_sequence`, which SQLite creates by itself
 > for `AUTOINCREMENT`. Nothing is missing.
 
@@ -181,7 +184,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 1401 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f/4g review and chain row validation. |
+| `db.py` | 1706 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f–4i review, chain, dive and decision row validation. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -193,20 +196,26 @@ databases need triage of both acquired images to populate the new manifests.
 | `rerate.py` | 191 | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
 | `qualify.py` | 369 | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
 | `elf.py` | 265 | Pure, bounded ELF facts; strict I/O mode lets the shared scanner fail closed on read races. |
-| `acquire.py` | 88 | Record local firmware provenance; atomically invalidate changed-image manifests and dependent target surface state. |
-| `triage.py` | 206 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
+| `acquire.py` | 89 | Record local firmware provenance; atomically invalidate changed-image manifests and dependent target surface state. |
+| `triage.py` | 207 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
 | `firmware_diff.py` | 223 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
 | `firmware_tree.py` | 101 | Shared fail-closed regular-file traversal, hashing, classification, and retained ELF facts for triage and surface. |
-| `surface.py` | 582 | Exact-root verification, deterministic content-addressed batches, image-owned generation invalidation, and the sole completion transition. |
-| `surface_results.py` | 458 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
-| `hunt.py` | 455 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
-| `hunt_results.py` | 443 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
+| `surface.py` | 583 | Exact-root verification, deterministic content-addressed batches, image-owned generation invalidation, and the sole completion transition. |
+| `surface_results.py` | 459 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
+| `hunt.py` | 462 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
+| `hunt_results.py` | 484 | Strict bounded lane-result parsing, candidate validation, canonical artifact installation, and atomic receipt/coverage/candidate publication. |
 | `firmware_fpcheck.py` | 604 | Prepare immutable review batches, verify complete review evidence, resolve global duplicates, derive canonical reviewed findings, atomically complete a generation, and invalidate one image's review and derived chain state. |
 | `firmware_fpcheck_results.py` | 531 | Parse bounded review results, validate assignments and ownership without writes, atomically import canonical batch receipts/verdicts/pivots, and preserve or invalidate derived chain state on exact replacement. |
-| `firmware_chain.py` | 323 | Prepare one immutable global findings worklist, invalidate image-owned graphs, reconstruct exact receipt-owned graph state, derive the deterministic graph artifact, and atomically complete the current snapshot. |
-| `firmware_chain_results.py` | 977 | Parse bounded hostile chain JSON, enforce complete dispositions/evidence ownership/typed links/device-state continuity, derive stable graph identities, and publish canonical receipts and rows atomically. |
+| `firmware_chain.py` | 641 | Prepare one immutable global findings worklist, invalidate image-owned graphs, reconstruct exact receipt-owned graph state, derive the deterministic graph artifact, and atomically complete the current snapshot. |
+| `firmware_chain_results.py` | 1097 | Parse bounded hostile chain JSON, enforce complete dispositions/evidence ownership/typed links/device-state continuity, derive stable graph identities, and publish canonical receipts and rows atomically. |
+| `firmware_dive_questions.py` | 780 | Freeze strict question/resolution contracts and stable subject fingerprints from current graph authority. |
+| `firmware_dive_acquisition.py` | 968 | Seal bounded probe/capture inputs, isolate execution through adapters, and verify exact acquisition evidence. |
+| `firmware_dive_results.py` | 998 | Parse and validate bounded question results, exact settlement authority and immutable observation imports. |
+| `firmware_dive.py` | 1372 | Prepare immutable question generations, gate acquisitions/results, reconstruct completion/current overlays and exact decision input. |
+| `firmware_decide.py` | 980 | Parse separately hashed operator policy, verify current graph/dive inputs, prepare global assignments, derive policy projections and publish verified current acquisition packages. |
+| `firmware_decide_results.py` | 916 | Parse bounded hostile decision results, enforce exact chain/precondition/bench ownership and carried state, and atomically import inert script/result bytes. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
-| `skill_lint.py` | 164 | The shipped skill against the economics contract. |
+| `skill_lint.py` | 170 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
 | `ceiling.py` | 115 | The context ceiling and its checkpoint (R3). |
 | `pivot.py` | 112 | Write a FALSE_POSITIVE verdict and the observation it pivots to, together. |
@@ -218,7 +227,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 54 | An asserted identity needs evidence that is not the component's own name. |
 
-### The twenty-nine verbs
+### The thirty-one verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -226,12 +235,13 @@ put   rows      status     note   checkpoint            state
 extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
-qualify  acquire  triage  diff  surface  hunt  fpcheck firmware phases
+qualify  acquire  triage  diff  surface  hunt  fpcheck  dive  decide
+                                                       firmware phases
 ```
 
-### The firmware boundary through Stage 4g
+### The shared firmware boundary through Stage 4i
 
-Stages 4b through 4g add firmware behavior to the shared core without pretending that the
+Stages 4b through 4i add firmware behavior to the shared core without pretending that the
 separate `firmware-audit` skill exists. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
 writes file, ELF, and evidenced boot-service rows; it does not infer open ports
@@ -391,7 +401,8 @@ generic `cba_findings`. It inherits triage's upsert-only snapshots and the
 Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below and merged into local `main` at `303232e` after
 clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
-`30ca3ba`; the next firmware slice is `dive`.
+`30ca3ba`; `dive` is merged locally at `dcfb01e`. Stage 4i `decide` is
+implemented and reviewed on its feature branch; Stage 4j `report` is next.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -627,7 +638,9 @@ Final review then found that blocker-side affected findings could contradict
 nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
 the complete fix wave passed scoped re-review. Stage 4g is merged locally but
-unpushed. The next firmware slice is `dive`. Triage's upsert-only snapshots and Stage 4d's retained-
+unpushed. Stage 4h `dive` is merged locally; Stage 4i `decide` is implemented
+and reviewed on its unmerged branch. Stage 4j `report` is next.
+Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
 
@@ -635,8 +648,8 @@ audit, separate firmware skill tree, and monorepo/submodule decision remain open
 
 Stage 4h is merged into local `main` at `dcfb01e`; nothing is pushed. Six
 additive tables retain dive runs, questions, receipts, observations,
-dependencies and acquisitions. The schema has 44 tables and 43 TableSpec
-contracts; all four existing migrations are unchanged. Question/packet
+dependencies and acquisitions. Stage 4h brought the schema to 44 tables and
+43 TableSpec contracts; Stage 4i adds one table/contract; all four existing migrations are unchanged. Question/packet
 authority, preparation, bounded fail-closed acquisition, strict result
 publication, exact completion/journals/current overlays, Stage 4g consumption,
 bounded CLI and installed worker routing are implemented below.
@@ -961,7 +974,7 @@ family roots (including conflict descendants), makes refuted reachability a
 mandatory graph constraint, fails probes closed without memory containment while
 sharing one sealed limit map between producer and verifier, and corrects the
 installed post-dive Stage 4g regeneration route. Scoped re-review found no
-remaining Critical or Important issue. Final reconciled `make all` passed all
+remaining Critical or Important issue. The historical Stage 4h final `make all` passed all
 eight gates: 8,168 tests; 30 verbs; 44 tables / 43 contracts; four migrations;
 6 CRLF / 243 LF files; 65 features / 16 stages / 21 open items; 120 installed
 markdown files with zero sentinels; 0/11,376 unexecuted statements with zero
@@ -972,6 +985,94 @@ integration is not claimed. Runtime verification is macOS Python 3.14; Linux and
 alternate-interpreter execution remain unverified. Triage upsert-only snapshots,
 Stage 4d retained-orphan scan scaling and paid semantic quality limitations
 persist. `make mutate` remains separate.
+
+### Stage 4i — firmware acquisition decisions
+
+Stage 4i is implemented and independently reviewed through `8a0b2a3` on
+`stage4i-firmware-decide`; integration into local `main` is pending and nothing
+is pushed. `cba_firmware_decide_runs` has one lifecycle row per image and decision
+generation, keyed by `(image_id, decision_generation)`, with at most one active
+pending/recorded generation per image. Completed historical rows and packages
+survive changed evidence or policy; they are never current-authority fallbacks.
+
+`audit_core/firmware_decide.py` owns strict operator policy, exact current
+completed Stage 4g graph/Stage 4h dive reconstruction, immutable preparation,
+deterministic policy-tier matches, payout projections, recommendation precedence
+and package publication. Preparation requires an explicit completed dive
+denominator, including the canonical empty case, and refuses pending, stale or
+contested input. `audit_core/firmware_decide_results.py` validates every chain,
+contiguous rank, copied fact, evidence reference, exact open precondition and
+bench subject against that frozen global assignment. Wildcard bench requirements
+use each edge's carried incoming state. `audit_core/firmware_dive.py` supplies
+the independently reconstructed current decision-input boundary.
+
+Policy remains separately hashed operator input, never an observation or payout
+promise. The worker owns result JSON only; deterministic code derives
+`acquire|defer|pass`. Proposed scripts remain bounded, `proposed_unreviewed`,
+regular mode-`0600` bytes and are never executed. New content-addressed artifacts
+install before locked SQL publication. Existing terminal lifecycles verify their
+owned artifacts read-only and refuse missing/corrupt bytes without repair.
+
+Canonical run-relative paths are:
+
+- `files/firmware-decide/<decision-generation>/policy.json`
+- `files/firmware-decide/<decision-generation>/worklist.json`
+- `artifacts/firmware-decide-results/<decision-generation>/<result-sha256>/result.json`
+- `artifacts/firmware-decide/<decision-generation>/<package-sha256>/decision.json`
+- `artifacts/firmware-decide/<decision-generation>/<package-sha256>/bench/<name>`
+
+The worklist's `policy.path` is generation-relative `policy.json`, avoiding a
+self-referential generation hash; the lifecycle row stores the full run-relative
+policy path. `firmware_decide.verified_package` is the read-only current-package
+boundary for Stage 4j `report`; ordinary SQL rows are history, not current advice.
+
+`audit.py decide` exposes exactly `--prepare`, `--record` or `--check`.
+`references/briefs/firmware-decide-brief.md` and `SKILL.md` route prepare → one
+global worker → record DONE → check. JSON preserves exact public scalar values
+and usable paths; human output and expected diagnostics stay escaped, root-redacted
+and bounded. Generic source-code behavior and all Stage 4a–4h history remain
+compatible. The complete Stage 4i test and compatibility-path inventory is in
+`feature_lists.json`; the binding spec and plan are
+`docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md` and
+`docs/superpowers/plans/2026-11-04-stage4i-firmware-decide.md`.
+
+Whole-branch review found four Important issues; `4287d15` fixes selected
+assignment/result binding, terminal no-repair checks, carried wildcard state and
+exact JSON identities. Scoped re-review found 0 Critical and 0 Important issues.
+The first completed full harness failed coverage at 109/13,096 unexecuted
+statements after 8,497 passing tests. Coverage fix `a28e06e` removes four
+proven-unreachable guards and adds 92 behavior cases in the tenth dedicated
+Stage 4i test module, `tests/test_firmware_decide_coverage.py`; its scoped
+re-review found 0 Critical, Important or Minor issues. The final whole-branch
+review of the reconciled tree found one Important and two Minor issues.
+`8a0b2a3` parses copied `member_ids` with order-preserving uniqueness so a valid
+non-lexicographic Stage 4g exploit path records exactly; validates copied
+`question`, `settling_observation` and `initial_attacker_position` with
+`_copied_text`, preserving upstream-valid CRLF and text beyond 16 KiB while
+retaining NUL/UTF-8 rejection; and states integration only in the handoff.
+Worker-authored prose stays strict. RED/GREEN regressions cover a descending
+member path through prepare → record → check → package, CRLF and 16 KiB + 1
+byte copied positions end-to-end, and Stage 4g-accepted CRLF/large precondition
+text at the worklist parser; the affected Stage 4g/4i selection passed 1,978
+tests. Scoped re-review found all three findings addressed with 0
+Critical/Important breakage. Static inventory now contains 13,103 executable
+statements; this is not an execution measurement.
+Full `make all` passed all eight gates: 8,599 tests; 31 verbs; 45 tables / 44 contracts;
+four migrations; 6 CRLF / 259 LF files; 66 features / 17 stages / 21 open items;
+124 installed markdown files with zero sentinels and the real install untouched.
+Coverage: 0/13,103 unexecuted statements, zero allowed. Read-only benchmark:
+recall 9/19 over 45 findings, precision 39/40, $73.15 per match. These are
+mechanical measurements; no new audit or semantic-quality improvement is claimed.
+Two non-blocking observations remain recorded in the Task 6 report: the
+`_copied_text` docstring names an 8 MiB worklist cap although the worklist read
+helper defaults to 64 MiB, and pre-existing `MAX_ARRAY_ITEMS=4096` can reject a
+Stage 4g chain with more than 4,096 members.
+
+Stage 4j `report` is next after explicit Stage 4i integration. Mutation, paid
+audit/milestone, Asus golden, second indicator snapshot, real hardware/corpus,
+Linux/alternate-interpreter execution, separate firmware skill tree and
+monorepo/submodule decision remain open. Triage stays upsert-only; Stage 4d
+retains its orphan-result scan scaling limitation.
 
 ### Stage 3's five quality mechanisms
 

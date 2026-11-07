@@ -98,8 +98,8 @@ def test_dive_exact_sql_and_tablespec_contract(con, table, columns, optional, ke
 
 def test_dive_adds_six_tables_without_column_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
-    assert len(workspace.apply_schema(run / "audit.db").tables) == 44
-    assert len(db.TABLE_SPECS) == 43
+    assert len(workspace.apply_schema(run / "audit.db").tables) == 45
+    assert len(db.TABLE_SPECS) == 44
     assert db.MIGRATIONS == (("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
         ("cba_fp_verdicts", "enabled_observation", "TEXT"), ("cba_patterns", "swept_at", "TEXT"),
         ("cba_patterns", "hit_count", "INTEGER"))

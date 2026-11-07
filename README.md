@@ -255,8 +255,8 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 
 ## Firmware surface mapping (Stage 4d)
 
-The shared CLI has 29 verbs, including `surface`, `hunt`, and firmware
-`fpcheck`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
+The shared CLI has 31 verbs, including `surface`, `hunt`, firmware
+`fpcheck`, `dive`, and `decide`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
 `diff`, `surface`); the separate `firmware-audit` skill tree is still planned. Start with an initialized
 run, an acquired `target` image, and its image-scoped triage manifest. In an installed
 copy, use that client's skill directory as the path to `audit.py`.
@@ -414,16 +414,18 @@ success exits 0. Stage 4e records candidates for later firmware `fpcheck`; it
 does not adjudicate false positives, set final severity, execute or emulate
 firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
-scan scaling. Firmware `fpcheck` is implemented below; the next firmware slice is
-`chain`. The Asus golden and the
+scan scaling. Firmware `fpcheck`, `chain`, and `dive` are merged locally;
+`decide` is implemented and reviewed on its feature branch. Stage 4j `report`
+is next after Stage 4i integration. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
 
 ## Firmware static review (Stage 4f)
 
-Stage 4f implementation and documentation are complete on the feature branch;
-controller-owned scoped re-review of the final JSON fix and integration remain pending.
-The next firmware slice is `chain`. Firmware review uses the shared CLI; the
+Stage 4f is merged into local `main` at `303232e` after clean scoped re-review;
+`chain` and `dive` are also merged. Stage 4i `decide` is implemented and reviewed
+on its unmerged feature branch; Stage 4j `report` is next. Firmware review uses
+the shared CLI; the
 separate `firmware-audit` skill tree remains planned. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
 
@@ -533,6 +535,57 @@ reports. The Asus golden and monorepo/submodule decision remain milestone and
 restructure prerequisites. Deterministic harness success verifies contracts;
 paid semantic quality, recall and audit-cost improvement remain unmeasured.
 `make mutate` remains separate and opt-in.
+
+## Firmware acquisition decisions (Stage 4i)
+
+Stage 4i is implemented and reviewed through `8a0b2a3` on
+`stage4i-firmware-decide`; integration into local `main` is pending and nothing
+is pushed. Stage 4j `report` is the
+next implementation stage and must consume only a verified current package.
+
+Stage 4i adds `audit.py decide` after the current firmware chain and dive gates.
+`--prepare` freezes the current graph, exact non-contested dive overlay, and a
+separately hashed operator policy into one immutable global worklist. A single
+worker writes strict result-only JSON covering every chain and open
+precondition; `--record` imports it, and `--check` mechanically publishes the
+current `acquire`, `defer`, or `pass` package.
+
+The package keeps observed technical facts separate from policy matches and
+payout projections. Proposed scripts are inert, bounded, mode `0600`, and never
+executed by the workflow. Historical packages remain retained, while
+`verified_package` returns only the exact current graph/dive/policy result.
+The lifecycle table `cba_firmware_decide_runs` has one row per image and decision
+generation; completed historical generations survive. The authority modules are
+`audit_core/firmware_decide.py` and `audit_core/firmware_decide_results.py`, with
+current graph/dive reconstruction supplied by `audit_core/firmware_dive.py`.
+
+```bash
+python3 audit.py decide --run RUN --root ROOT --prepare --policy POLICY [--image-id ID]
+python3 audit.py decide --run RUN --record RESULT
+python3 audit.py decide --run RUN --root ROOT --check [--image-id ID]
+```
+
+Prepare requires an explicit completed dive denominator, including the empty
+case, and refuses pending, stale or contested input. Worker ranks cover every
+current chain; policy matching, payout projections and recommendation precedence
+remain deterministic. JSON summaries preserve exact scalar identities and paths;
+human summaries and expected diagnostics remain escaped and bounded.
+
+Canonical run-relative artifacts are:
+
+- `files/firmware-decide/<decision-generation>/policy.json`
+- `files/firmware-decide/<decision-generation>/worklist.json`
+- `artifacts/firmware-decide-results/<decision-generation>/<result-sha256>/result.json`
+- `artifacts/firmware-decide/<decision-generation>/<package-sha256>/decision.json`
+- `artifacts/firmware-decide/<decision-generation>/<package-sha256>/bench/<name>`
+
+See `references/briefs/firmware-decide-brief.md` and the Stage 4i section of
+`SKILL.md` for the one-global-worker route, and
+`docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md` for its
+contract. Mutation, paid audit/milestone, Asus golden, second indicator snapshot,
+real hardware/corpus execution, Linux/alternate-interpreter execution, the
+separate firmware skill tree and monorepo/submodule decision remain open.
+Triage remains upsert-only; Stage 4d retains its orphan-result scan scaling limit.
 
 ## Layout
 

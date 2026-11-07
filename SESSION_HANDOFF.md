@@ -1,18 +1,26 @@
 # Session handoff
 
-**Written:** 2026-11-04 · **Branch:** local `main` at `dcfb01e`, not pushed ·
-**Status:** Stage 4h firmware `dive` is merged and verified. Tasks 1–12 implement
-exact graph/question authority, immutable preparation, sealed/fail-closed
-acquisitions, strict imports, exact completion/current overlays, Stage 4g
-consumption, bounded CLI and installed per-question routing. Whole-branch review
-fixes are in `3ba4814`; scoped re-review found no remaining Critical/Important
-issue. Merged-tree `make all` passed all eight gates: 8,168 tests, 30 verbs,
-44 tables / 43 contracts, four migrations, 6 CRLF / 243 LF files, 65 features /
-16 stages / 21 open items, 120 installed markdown files with zero sentinels,
-0/11,376 unexecuted statements with zero allowed, and benchmark recall 9/19 over
-45 findings, precision 39/40, $73.15 per match. Stage 4i `decide` design is
-approved at `docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md`;
-implementation planning is next.
+**Written:** 2026-11-07 · **Branch:** `stage4i-firmware-decide`; reviewed implementation `8a0b2a3`, not merged or pushed ·
+**Status:** Stage 4i firmware `decide` is implemented and independently
+reviewed. One lifecycle row per image and decision generation binds the exact
+current completed graph/dive input and separately hashed policy to an immutable
+global result/package. Scripts remain inert, unreviewed and mode `0600`.
+Whole-branch review's four Important issues were fixed in `4287d15`; scoped
+re-review found 0 Critical and 0 Important issues. Focused verification passed
+145 affected-module tests plus two publication-race tests. Coverage fix
+`a28e06e` then passed scoped re-review with 0 Critical/Important/Minor issues;
+its cold Stage 4i selection passed 418 tests. The final whole-branch review found
+one Important ordered-member-path defect and two Minor copied-text/handoff
+issues; `8a0b2a3` preserves Stage 4g member order and exact upstream-valid
+copied bytes, and its scoped re-review found all findings addressed with 0
+Critical/Important breakage. Full `make all` passed all eight
+gates: 8,599 tests, 31 verbs, 45 tables / 44 contracts, four
+migrations, 6 CRLF / 259 LF files, 66 features / 17 stages / 21 open items and
+124 installed markdown files with zero sentinels and the real install untouched.
+Coverage: 0/13,103 unexecuted statements, zero allowed. Read-only benchmark:
+recall 9/19 over 45 findings, precision 39/40, $73.15 per match. Stage 4j
+`report` is next after explicit Stage 4i integration. Nothing
+is merged or pushed from this feature branch.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -26,17 +34,15 @@ you can break expensively, the state you are inheriting, and what to do next.
 
 ### Current pickup
 
-Do not continue Stage 4h implementation. It is merged and verified. Continue
-from the approved Stage 4i `decide` design, whose one-row immutable-package
-architecture preserves the observation/policy boundary and deliberately avoids
-Stage 4h's broad schema and repeated full-harness cost. The Stage 4h independent
-security review found four Important issues: context subjects falsely settled
-unknowns, uncited refuted reachability was optional, probes lacked memory
-containment, and the documented post-dive Stage 4g route falsely claimed
-regeneration while omitting `--root` on import. The merged fixes provide explicit
-`settled_subject_refs`, mandatory reachability constraints, fail-closed memory
-containment with Linux address-space/process bounds, and an explicit Stage 4g
-prepare/worker/root-bound-record/check rerun.
+Stage 4i implementation, independent review and full-harness verification are
+complete on the feature branch. Explicit integration remains pending; then
+continue with Stage 4j `report`. Preserve the
+one-row-per-image-and-generation lifecycle, exact current graph/dive ownership, separate policy hash,
+complete chain/precondition denominator, mechanical ranks and recommendation
+precedence, atomic immutable package publication, and inert proposed scripts.
+Workers own result JSON only; they never own SQL, policy, recommendation,
+payout, canonical installation, completion, severity, exploit, or report
+authority.
 
 Preserve these open items: Asus golden, paid milestone audit, mutation sweep,
 second indicator snapshot, real corpus/hardware probe, separate firmware skill
@@ -89,10 +95,10 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** local `main`; Stage 4d's merge point remains `6eba6d6`, Stage 4e
-  remains merged at `8119af1`, and Stage 4f is merged by fast-forward at
-  `303232e`. Stage 4g is merged by fast-forward at `30ca3ba`. Nothing has been
-  pushed.
+- **Branch:** `stage4i-firmware-decide`, reviewed through `8a0b2a3`; integration
+  into local `main` is pending. Stages 4d–4h are already merged locally at
+  `6eba6d6`, `8119af1`, `303232e`, `30ca3ba` and `dcfb01e`, respectively.
+  Nothing has been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
   committed on the feature branch and are now in local `main`; its five-table schema foundation and row
   contracts, the verified completed-hunt snapshot, deterministic review preparation,
@@ -106,7 +112,7 @@ These are not style preferences. Each one has a specific, known cost.
   The historical synchronization observation for `main` was 50 commits ahead
   of `origin/main` (checked 2026-10-16; `git rev-list --left-right --count
   origin/main...main` reported `0 50`). Nothing has been pushed.
-- **Stages 4a–4g are firmware-audit behavior on the shared spine, not a separate
+- **Stages 4a–4i are firmware-audit behavior on the shared spine, not a separate
   skill tree.** The repository still ships the `codebase-audit` skill. The
   monorepo/submodule decision remains open and blocks the later restructure.
 - **Image isolation is implemented:** firmware facts now use `(image_id,
@@ -204,7 +210,8 @@ These are not style preferences. Each one has a specific, known cost.
   routing are complete. Ordinary source-code `chain` proposal/human composition
   behavior remains compatible. Static chains do not prove runtime reachability,
   severity, exploitability or semantic causality beyond retained evidence.
-  Stage 4g is merged locally and unpushed; `dive` is next.
+  Stage 4g and Stage 4h are merged locally and unpushed. Stage 4i is
+  implemented/reviewed on its feature branch; Stage 4j `report` is next.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
@@ -226,6 +233,78 @@ These are not style preferences. Each one has a specific, known cost.
   review then found a cross-image inventory/coverage collision, fixed in
   `b14b4fb` with overlapping-target and rollback regressions; scoped re-review
   was clean. Reopened Task 10 reconciles that implemented ownership contract.
+
+### Current Stage 4i implementation and verification
+
+Implemented through `8a0b2a3` on `stage4i-firmware-decide`, not merged or pushed.
+One `cba_firmware_decide_runs` row per image and decision generation binds the
+exact current completed graph/dive input, separately hashed policy, complete
+global result and canonical package. `firmware_decide.py` owns preparation,
+mechanical policy matching/recommendation and current package verification;
+`firmware_decide_results.py` owns strict imports, exact chain/precondition/rank
+coverage, carried bench state and inert proposed scripts. `firmware_dive.py`
+supplies exact current technical input. The bounded `decide` CLI and
+`references/briefs/firmware-decide-brief.md` route one global worker without
+SQL, policy, payout, recommendation, completion, severity or report authority.
+
+Preparation installs `files/firmware-decide/<decision-generation>/policy.json`
+and `worklist.json`; recording installs
+`artifacts/firmware-decide-results/<decision-generation>/<result-sha256>/result.json`;
+completion installs
+`artifacts/firmware-decide/<decision-generation>/<package-sha256>/decision.json`
+and `bench/<name>` under that package directory. Proposed scripts are regular,
+mode `0600`, visibly unreviewed and never executed. Complete rechecks verify
+exact installed bytes read-only and never repair. Historical packages remain
+retained, but `firmware_decide.verified_package` refuses them as current; it is
+the only later firmware `report` input. Schema, module, test and documentation
+paths are fully enumerated by `feature_lists.json`.
+
+Task 6's initial focused suite passed 709 tests. Whole-branch review found four
+Important issues. Fix `4287d15` binds selected assignment ownership, makes
+terminal lifecycles refuse missing artifacts, carries wildcard bench state and
+preserves exact JSON identities. Its six affected modules passed 145 tests;
+two separately collected publication-race tests also passed. Independent scoped
+re-review found 0 Critical and 0 Important issues.
+
+The first completed full harness passed 8,497 tests but failed coverage at
+109/13,096 unexecuted statements, zero allowed. Coverage fix `a28e06e` removes
+four proven-unreachable guards and adds 92 behavior cases in
+`tests/test_firmware_decide_coverage.py`, bringing the dedicated Stage 4i test
+inventory to ten files. Its scoped re-review found 0 Critical, Important or
+Minor issues. The cold Stage 4i selection passed 418 tests and executed all
+824 decision-authority and 762 decision-result statements; this scoped result
+does not establish whole-repository coverage.
+
+The final whole-branch review of the reconciled tree found one Important and two
+Minor issues. `8a0b2a3` parses copied `member_ids` with order-preserving
+uniqueness so a valid non-lexicographic Stage 4g exploit path records exactly;
+it validates copied `question`, `settling_observation` and
+`initial_attacker_position` with `_copied_text`, preserving upstream-valid CRLF
+and text beyond 16 KiB while retaining NUL/UTF-8 rejection; and it corrects the
+handoff instruction to integration only. Worker-authored prose stays strict.
+RED/GREEN regressions cover a descending member path through prepare → record →
+check → package, CRLF and 16 KiB + 1 byte copied positions end-to-end, and
+Stage 4g-accepted CRLF/large precondition text at the worklist parser. The
+affected Stage 4g/4i selection passed 1,978 tests. Scoped re-review found all
+three findings addressed with 0 Critical/Important breakage. Two non-blocking
+observations remain recorded in the Task 6 report: the `_copied_text` docstring
+names an 8 MiB worklist cap although the worklist read helper defaults to
+64 MiB, and pre-existing `MAX_ARRAY_ITEMS=4096` can reject a Stage 4g chain with
+more than 4,096 members.
+
+Static inventory now contains 13,103 executable statements; this is not an
+execution measurement. The full-harness result after this fix is recorded below.
+
+Deterministic checks: 31 dispatchable verbs; 45 SQLite tables / 44 contracts;
+four migrations and both frozen baselines; clean skill lint; 6 CRLF / 259 LF
+files; 66 features / 17 stages / 21 open items; 124 installed markdown files
+with zero sentinels and the real install untouched. Full `make all` passed all
+eight gates: **8,599 tests**; **0/13,103 unexecuted statements**, zero allowed;
+read-only benchmark **recall 9/19 over 45 findings,
+precision 39/40, $73.15 per match**. Mutation, paid audit/milestone, Asus golden, second indicator
+snapshot, real corpus/hardware and Linux/alternate-interpreter gates remain
+unrun. Triage upsert-only behavior, retained-orphan scan scaling, separate
+firmware skill tree and monorepo/submodule decision remain open.
 
 ### Verify the state yourself
 
@@ -603,7 +682,7 @@ upsert-only snapshots and Stage 4d retained-orphan scan scaling persist; the Asu
 golden and monorepo/submodule decision remain overall milestone/restructure
 prerequisites. Paid semantic quality measurement remains deferred.
 
-### Stage 4f implementation and documentation verification
+### Historical Stage 4f implementation and documentation verification
 
 The following records the historical Task 11 boundary.
 
@@ -645,7 +724,7 @@ monorepo/submodule decision remain overall milestone/restructure prerequisites.
 Paid semantic quality remains deferred. At this historical Task 11 boundary,
 controller final review was still required.
 
-### Stage 4f final-review JSON fix verification
+### Historical Stage 4f final-review JSON fix verification
 
 Final whole-branch review found one Important defect: success display formatting
 changed JSON identities and artifact paths. The final fix applies escaping,
@@ -685,7 +764,7 @@ triage's upsert-only snapshots and Stage 4d orphan-scan scaling. The Asus golden
 and monorepo/submodule decision remain overall milestone/restructure
 prerequisites; static contracts do not establish semantic audit quality.
 
-### Stage 4g implementation and verification
+### Historical Stage 4g implementation and verification
 
 Stage 4g is merged into local `main` by fast-forward at `30ca3ba`; it is not
 pushed. Approved design `00edb44` and plan `380b075` define a
@@ -862,8 +941,10 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a-4g are merged to local `main`; Stage 4f is
-included at `303232e` and Stage 4g at `30ca3ba`, not pushed. Stage 4c adds
+Stages 0 through 3c and Stages 4a–4h are merged to local `main`; Stage 4h is
+included at `dcfb01e`. Stage 4i is implemented and reviewed through `8a0b2a3` on
+its unmerged feature branch. Complete integration, then plan Stage
+4j `report` using only verified current decision packages. Nothing is pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -877,6 +958,8 @@ Installed-user prepare/record/check commands, bounded output, state/unknown
 rules, and provenance/invalidation contracts are documented in `README.md`;
 `ARCHITECTURE.md` describes their implementation boundaries. The real last
 implementation commit is `b14b4fb`, independent of the documentation commit.
+
+### Historical Stage 4h task handoffs
 
 Task 4 implements artifact-first immutable preparation through `firmware_dive.prepare`.
 It freezes complete question denominators, preserves every prior generation and
@@ -1356,7 +1439,9 @@ Stage 4 is built as vertical slices. Stage 4a shipped `qualify`; Stage 4b shippe
 `acquire` and `triage`; Stage 4c shipped `diff`; Stage 4d shipped `surface` into
 local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
 `fpcheck` at `303232e`; Stage 4g merged firmware `chain` at `30ca3ba`.
-These phases were built at zero audit cost. The next firmware slice is `dive`.
+Stage 4h `dive` is merged locally at `dcfb01e`; Stage 4i `decide` is implemented
+and reviewed through `8a0b2a3` on its unmerged feature branch. These phases
+were built at zero audit cost. Stage 4j `report` is next after Stage 4i integration.
 The separate firmware skill tree does not exist yet.
 
 ### Stage 4 milestone work

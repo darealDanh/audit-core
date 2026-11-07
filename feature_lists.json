@@ -95,35 +95,42 @@
       "name": "hunt - evidence-bound two-lane firmware candidate analysis",
       "status": "shipped",
       "gate": "make all: 8/8 gates; 2,925 tests; 0/4,946 uncovered statements; merged locally at 8119af1, not pushed",
-      "summary": "Merged into local main at 8119af1, not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Stage 4f is merged into local main at 303232e and Stage 4g at 30ca3ba. Dive is next."
+      "summary": "Merged into local main at 8119af1, not pushed. Independent L-sink and L-dark worklists cover the complete selected target denominator and bind candidates to current surface evidence. Stage 4f is merged into local main at 303232e and Stage 4g at 30ca3ba. Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "stage4f",
       "name": "fpcheck - dedicated static firmware review",
       "status": "shipped",
       "gate": "merged-tree make all: 8/8 gates; 4,164 tests; 0/5,933 uncovered statements; scoped final re-review clean; paid semantic milestone gates deferred",
-      "summary": "Stage 4f is merged into local main at 303232e after clean scoped final re-review. Stage 4g chain is merged into local main at 30ca3ba; dive is next. Dedicated receipt-owned verdicts and false-positive pivots produce canonical static-reviewed findings; no generic promotion, severity or runtime claims."
+      "summary": "Stage 4f is merged into local main at 303232e after clean scoped final re-review. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. Dedicated receipt-owned verdicts and false-positive pivots produce canonical static-reviewed findings; no generic promotion, severity or runtime claims."
     },
     {
       "id": "stage4g",
       "name": "chain - global static firmware evidence graphs",
       "status": "shipped",
       "gate": "merged-tree make all: 8/8 gates; 5,902 tests; 0/7,392 uncovered statements; scoped final re-review clean; paid semantic milestone gates deferred",
-      "summary": "Merged into local main at 30ca3ba, not pushed. Six dedicated image/snapshot-owned tables retain exact finding dispositions, reciprocal settleable blockers, reusable deterministic chains and typed ordered edges with mechanical device-state continuity. Generic source-code chain behavior remains compatible. Static-chained evidence makes no runtime, severity or exploit claim. Dive is next."
+      "summary": "Merged into local main at 30ca3ba, not pushed. Six dedicated image/snapshot-owned tables retain exact finding dispositions, reciprocal settleable blockers, reusable deterministic chains and typed ordered edges with mechanical device-state continuity. Generic source-code chain behavior remains compatible. Static-chained evidence makes no runtime, severity or exploit claim. Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "stage4h",
       "name": "dive - runtime evidence settlement",
       "status": "shipped",
       "gate": "final make all: 8/8 gates; 8,168 tests; 30 verbs; 44 tables / 43 contracts; four migrations; 6 CRLF / 243 LF; 65 features / 16 stages / 21 open items; 120 installed markdown files, zero sentinels; 0/11,376 unexecuted statements, zero allowed; benchmark recall 9/19, 45 findings, precision 39/40, $73.15 per match; whole-branch review fixes in 3ba4814 and scoped re-review clean",
-      "summary": "Merged into local main at dcfb01e, not pushed. Exact frozen questions, bounded acquisitions, immutable observations and current overlays feed deterministic Stage 4g regeneration. The bounded dive CLI and installed per-question worker route are complete. Stage 4i decide design is approved; inherited milestone and scaling limitations remain."
+      "summary": "Merged into local main at dcfb01e, not pushed. Exact frozen questions, bounded acquisitions, immutable observations and current overlays feed deterministic Stage 4g regeneration. The bounded dive CLI and installed per-question worker route are complete. Stage 4i decide is implemented and reviewed on its unmerged feature branch; Stage 4j report is next; inherited milestone and scaling limitations remain."
+    },
+    {
+      "id": "stage4i",
+      "name": "decide - immutable firmware acquisition decisions",
+      "status": "shipped",
+      "gate": "make all: 8/8 gates; 8,599 tests; 31 verbs; 45 tables / 44 contracts; four migrations; 6 CRLF / 259 LF; 66 features / 17 stages / 21 open items; 124 installed markdown files, zero sentinels, real install untouched; 0/13,103 unexecuted statements, zero allowed; benchmark recall 9/19, 45 findings, precision 39/40, $73.15 per match; whole-branch review and scoped fixes through 4287d15 and a28e06e: 0 Critical/Important; coverage-fix scoped review: 0 Critical/Important/Minor; final whole-branch review fixed in 8a0b2a3 (ordered member path, copied upstream text) and scoped re-review: 0 Critical/Important",
+      "summary": "Implemented and independently reviewed through 8a0b2a3 on stage4i-firmware-decide, not merged or pushed. One lifecycle row per image and decision generation binds exact current chain/dive authority and separately hashed policy to immutable global worklists, strict results and canonical acquisition decision packages. The bounded decide CLI and one-global-worker route are complete; Stage 4j report is next after explicit integration."
     },
     {
       "id": "stage4",
       "name": "firmware-audit",
       "status": "planned",
       "gate": "tplink >= 12/19 at <= $45, and the asus golden must also pass",
-      "summary": "Firmware phases qualify, acquire/triage, diff, surface, hunt, fpcheck, chain and dive are merged through Stage 4h. Stage 4i decide design is approved. The Asus golden, monorepo/submodule decision and separate firmware skill tree remain open."
+      "summary": "Firmware phases qualify, acquire/triage, diff, surface, hunt, fpcheck, chain and dive are merged through Stage 4h. Stage 4i decide is implemented and reviewed through 8a0b2a3 on its unmerged feature branch; Stage 4j report is next after integration. The Asus golden, monorepo/submodule decision and separate firmware skill tree remain open."
     },
     {
       "id": "stage5",
@@ -134,6 +141,61 @@
     }
   ],
   "features": [
+    {
+      "id": "firmware-decide",
+      "name": "Exact firmware acquisition decision authority, package and route",
+      "area": "core",
+      "status": "shipped",
+      "stage": "stage4i",
+      "verbs": [
+        "decide",
+        "brief"
+      ],
+      "modules": [
+        "audit_core/schema.sql",
+        "audit_core/db.py",
+        "audit_core/firmware_dive.py",
+        "audit_core/firmware_decide.py",
+        "audit_core/firmware_decide_results.py",
+        "audit_core/skill_lint.py",
+        "audit_core/briefs.py",
+        "audit.py",
+        "references/briefs/firmware-decide-brief.md",
+        "SKILL.md"
+      ],
+      "tests": [
+        "tests/test_firmware_decide_brief.py",
+        "tests/test_firmware_decide_coverage.py",
+        "tests/test_firmware_decide_gate.py",
+        "tests/test_firmware_decide_import.py",
+        "tests/test_firmware_decide_input.py",
+        "tests/test_firmware_decide_package.py",
+        "tests/test_firmware_decide_policy.py",
+        "tests/test_firmware_decide_prepare.py",
+        "tests/test_firmware_decide_results.py",
+        "tests/test_firmware_decide_schema.py",
+        "tests/test_cli_stage4i.py",
+        "tests/test_cli.py",
+        "tests/test_brief_templates.py",
+        "tests/test_install.py",
+        "tests/test_skill_lint.py",
+        "tests/test_harness.py",
+        "tests/test_migrate.py",
+        "tests/test_firmware_schema.py",
+        "tests/test_firmware_fpcheck_schema.py",
+        "tests/test_firmware_chain_schema.py",
+        "tests/test_firmware_dive_schema.py"
+      ],
+      "docs": [
+        "README.md",
+        "ARCHITECTURE.md",
+        "progress.md",
+        "SESSION_HANDOFF.md",
+        "docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md",
+        "docs/superpowers/plans/2026-11-04-stage4i-firmware-decide.md"
+      ],
+      "notes": "Implemented and independently reviewed through 8a0b2a3 on the feature branch; integration and push remain pending. cba_firmware_decide_runs is keyed by (image_id, decision_generation), with at most one active generation per image and retained completed history. Only an exact current completed graph and completed non-contested dive input plus separately hashed operator policy can produce a package. Complete chain/precondition coverage, contiguous ranks, fixed recommendation precedence, carried bench state and inert mode-0600 scripts are enforced. Preparation uses files/firmware-decide/<decision-generation>/{policy,worklist}.json; results use artifacts/firmware-decide-results/<decision-generation>/<result-sha256>/result.json; packages use artifacts/firmware-decide/<decision-generation>/<package-sha256>/decision.json and bench/<name>. verified_package is the only later report authority and never falls back or repairs terminal artifacts. Stage 4j report is next after integration. Mutation, paid milestone, Asus golden, second indicators, real hardware/corpus, Linux/alternate-interpreter execution, separate firmware skill tree and monorepo/submodule decision remain open; triage is upsert-only and Stage 4d retains orphan-scan scaling."
+    },
     {
       "id": "firmware-dive-schema",
       "name": "Firmware dive persistence contracts",
@@ -408,7 +470,7 @@
         "docs/superpowers/plans/2026-10-25-stage4g-firmware-chain.md",
         "references/briefs/firmware-chain-brief.md"
       ],
-      "notes": "Merged into local main at 30ca3ba; not pushed. One verified complete Stage 4f snapshot produces an immutable global worklist. Exact dispositions cover every finding and permit reusable chain membership. Typed adjacent edges bind semantic capability/link identity, producer/consumer-owned retained evidence and mechanically continuous lifecycle/posture/authentication state; explicit device boundaries need evidence on both sides. Stage 4d unknowns and new blockers remain settleable; blocker-side affected nonmaterialized findings require reciprocal blocked dispositions and references; pivots are context-only. Canonical artifact-first import and final reconstruction are snapshot/image-isolated, deterministic and atomically invalidated when Stage 4f evidence changes. The ninth installed brief assigns one strongest global worker while preserving generic source-code chain behavior. Static-chained evidence does not prove runtime reachability, severity, exploitability or semantic causality beyond retained evidence. Whole-branch review's two Important invariant findings were fixed in 661c3c9 and scoped re-review was clean; final review's blocker reciprocity finding was fixed in 7dad245 and the complete fix wave passed scoped re-review. Dive is next; triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
+      "notes": "Merged into local main at 30ca3ba; not pushed. One verified complete Stage 4f snapshot produces an immutable global worklist. Exact dispositions cover every finding and permit reusable chain membership. Typed adjacent edges bind semantic capability/link identity, producer/consumer-owned retained evidence and mechanically continuous lifecycle/posture/authentication state; explicit device boundaries need evidence on both sides. Stage 4d unknowns and new blockers remain settleable; blocker-side affected nonmaterialized findings require reciprocal blocked dispositions and references; pivots are context-only. Canonical artifact-first import and final reconstruction are snapshot/image-isolated, deterministic and atomically invalidated when Stage 4f evidence changes. The ninth installed brief assigns one strongest global worker while preserving generic source-code chain behavior. Static-chained evidence does not prove runtime reachability, severity, exploitability or semantic causality beyond retained evidence. Whole-branch review's two Important invariant findings were fixed in 661c3c9 and scoped re-review was clean; final review's blocker reciprocity finding was fixed in 7dad245 and the complete fix wave passed scoped re-review. Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration; triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
     },
     {
       "id": "firmware-fpcheck",
@@ -471,7 +533,7 @@
         "docs/superpowers/derivations/2026-10-23-stage4f-firmware-fpcheck-brief.md",
         "references/phase5-fp-check.md"
       ],
-      "notes": "Merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next. Exact root-cause keys alone group findings; global duplicates terminate at true positives; false positives retain one pivot. Static-only review inherits triage upsert-only snapshots and Stage 4d orphan-scan scaling. Deterministic verification does not measure paid semantic quality."
+      "notes": "Merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. Exact root-cause keys alone group findings; global duplicates terminate at true positives; false positives retain one pivot. Static-only review inherits triage upsert-only snapshots and Stage 4d orphan-scan scaling. Deterministic verification does not measure paid semantic quality."
     },
     {
       "id": "budget-report",
@@ -1293,7 +1355,7 @@
       "modules": ["audit_core/schema.sql", "audit_core/db.py"],
       "tests": ["tests/test_firmware_fpcheck_schema.py", "tests/test_firmware_schema.py", "tests/test_migrate.py", "tests/test_workspace.py", "tests/test_harness.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md", "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md", "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md"],
-      "notes": "Schema foundation of the implemented Stage 4f phase. Five additive tables retain image/generation/batch ownership for runs, receipts, verdicts, pivots and reviewed findings. Exact TableSpec contracts validate canonical unique JSON arrays, variant-specific evidence, bounded identifiers, lowercase digests, nonnegative counts, confidence 0-10, static-reviewed evidence rung, relative batch/component paths, and canonical stored paths. Phase modules enforce run containment and cross-row ownership. No generic findings/verdicts or column migrations change. The complete Stage 4f phase, firmware review brief and installed-user routing are merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next."
+      "notes": "Schema foundation of the implemented Stage 4f phase. Five additive tables retain image/generation/batch ownership for runs, receipts, verdicts, pivots and reviewed findings. Exact TableSpec contracts validate canonical unique JSON arrays, variant-specific evidence, bounded identifiers, lowercase digests, nonnegative counts, confidence 0-10, static-reviewed evidence rung, relative batch/component paths, and canonical stored paths. Phase modules enforce run containment and cross-row ownership. No generic findings/verdicts or column migrations change. The complete Stage 4f phase, firmware review brief and installed-user routing are merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "firmware-hunt-verified-snapshot",
@@ -1317,7 +1379,7 @@
       "modules": ["audit_core/firmware_fpcheck.py"],
       "tests": ["tests/test_firmware_fpcheck_prepare.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md"],
-      "notes": "Consumes the verified completed-hunt snapshot and exact live root. Canonical full-evidence candidate snapshots bind both hunt worklist digests and lane-qualified IDs with run-relative artifact provenance. Normalized priority-only similarity signatures never merge findings; equal signatures form deterministic indivisible clusters. Batch size is an integer from 1 to 200; clusters may exceed the target but clusters and emitted batches cannot exceed 1000. Empty hunts receive one empty batch. Immutable installation rejects symlink parents; locked revalidation repeats hunt/root/prior-run checks and installed-byte checks before pending-run publication. Index digest identifies the generation and binds batch policy. Same inputs preserve review state; changed preparation or explicit invalidation clears only the selected image's five review tables. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next."
+      "notes": "Consumes the verified completed-hunt snapshot and exact live root. Canonical full-evidence candidate snapshots bind both hunt worklist digests and lane-qualified IDs with run-relative artifact provenance. Normalized priority-only similarity signatures never merge findings; equal signatures form deterministic indivisible clusters. Batch size is an integer from 1 to 200; clusters may exceed the target but clusters and emitted batches cannot exceed 1000. Empty hunts receive one empty batch. Immutable installation rejects symlink parents; locked revalidation repeats hunt/root/prior-run checks and installed-byte checks before pending-run publication. Index digest identifies the generation and binds batch policy. Same inputs preserve review state; changed preparation or explicit invalidation clears only the selected image's five review tables. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "firmware-fpcheck-results",
@@ -1329,7 +1391,7 @@
       "modules": ["audit_core/firmware_fpcheck_results.py"],
       "tests": ["tests/test_firmware_fpcheck_results.py", "tests/test_firmware_fpcheck_prepare.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md"],
-      "notes": "Frozen typed records preserve exact reviewer evidence. Strict UTF-8 JSON rejects duplicate keys, extra/missing fields, coercions, non-finite values and invalid or mismatched verdict variants. Raw and canonical output each have an 8 MiB cap. Rules require canonical HE-1..18, PR-1..10, CV-1..3 or MARGINAL-GAIN. Validation reuses completed hunt lane/artifact verification, rebuilds current canonical review worklists, requires a matching run with consistent pending/complete status and completion timestamp, and enforces exact lane-qualified assignment membership before verdict semantics including confidence 0-10. Image IDs retain the existing nonempty UTF-8 text contract; candidate/pivot/root/surface IDs use bounded identifiers. Reviewed components and surfaces must belong to selected-image evidence; duplicate targets must be in-snapshot and non-self, with global chains resolved by the final completion gate. No SQL/artifact writes, live-root access, publication, completion or CLI; read-only SQLite and caller transactions supported. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next."
+      "notes": "Frozen typed records preserve exact reviewer evidence. Strict UTF-8 JSON rejects duplicate keys, extra/missing fields, coercions, non-finite values and invalid or mismatched verdict variants. Raw and canonical output each have an 8 MiB cap. Rules require canonical HE-1..18, PR-1..10, CV-1..3 or MARGINAL-GAIN. Validation reuses completed hunt lane/artifact verification, rebuilds current canonical review worklists, requires a matching run with consistent pending/complete status and completion timestamp, and enforces exact lane-qualified assignment membership before verdict semantics including confidence 0-10. Image IDs retain the existing nonempty UTF-8 text contract; candidate/pivot/root/surface IDs use bounded identifiers. Reviewed components and surfaces must belong to selected-image evidence; duplicate targets must be in-snapshot and non-self, with global chains resolved by the final completion gate. No SQL/artifact writes, live-root access, publication, completion or CLI; read-only SQLite and caller transactions supported. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "firmware-fpcheck-import",
@@ -1341,7 +1403,7 @@
       "modules": ["audit_core/firmware_fpcheck_results.py"],
       "tests": ["tests/test_firmware_fpcheck_import.py", "tests/test_firmware_fpcheck_results.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md"],
-      "notes": "Installs canonical immutable artifacts beneath artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json before one BEGIN IMMEDIATE transaction. Repeats current hunt/snapshot/worklist/assignment, prior receipt ownership and installed-byte checks under the lock. Publishes one receipt, one lane-qualified verdict per assigned candidate and one pivot per FALSE_POSITIVE with importer-owned provenance and SQL-default timestamps. Empty batches retain zero-count receipts. Duplicate imports require replace. Replacement isolates one image/current snapshot/batch; pivot removal joins exact lane-qualified source verdicts, preserving siblings and old snapshots. Clears selected-image derived findings and returns its run to pending. Read, install, SQL and commit failures preserve prior SQL; an unreferenced canonical artifact may remain. Unicode/delimiter image IDs never become host path components. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next."
+      "notes": "Installs canonical immutable artifacts beneath artifacts/firmware-fpcheck/<generation>/<result-sha256>/result.json before one BEGIN IMMEDIATE transaction. Repeats current hunt/snapshot/worklist/assignment, prior receipt ownership and installed-byte checks under the lock. Publishes one receipt, one lane-qualified verdict per assigned candidate and one pivot per FALSE_POSITIVE with importer-owned provenance and SQL-default timestamps. Empty batches retain zero-count receipts. Duplicate imports require replace. Replacement isolates one image/current snapshot/batch; pivot removal joins exact lane-qualified source verdicts, preserving siblings and old snapshots. Clears selected-image derived findings and returns its run to pending. Read, install, SQL and commit failures preserve prior SQL; an unreferenced canonical artifact may remain. Unicode/delimiter image IDs never become host path components. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "firmware-fpcheck-gate",
@@ -1353,7 +1415,7 @@
       "modules": ["audit_core/firmware_fpcheck.py"],
       "tests": ["tests/test_firmware_fpcheck_gate.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md"],
-      "notes": "check requires exact current receipts, verdicts and false-positive pivots and reconstructs them from immutable canonical result artifacts. Iterative path-compressed duplicate resolution is global across lanes/batches and rejects cycles, missing/self/foreign targets and non-TP terminals. Exact root-cause keys group contributors; similarity hints never merge. Canonical scalars come from the lexicographically first direct/terminal TRUE_POSITIVE, using its immutable candidate title/bug class and reviewed TP fields. Sorted unions retain all contributors/components/surfaces; confidence is the minimum including duplicates; evidence rung is static-reviewed. Finding IDs bind image, candidate snapshot and exact root key. Deterministic findings.json installs before one immediate transaction, with locked full hunt/live-root/input/artifact revalidation before derived rows and completion status publish. Completed rechecks require existing canonical artifact and matching derived rows and preserve timestamps. Empty and all-FP generations complete with zero findings. SQL/install/commit/lock failures preserve prior SQL; an unreferenced immutable artifact may remain. Dedicated Stage 4f outputs only; no generic findings/verdicts, dynamic evidence, severity or report claims. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next."
+      "notes": "check requires exact current receipts, verdicts and false-positive pivots and reconstructs them from immutable canonical result artifacts. Iterative path-compressed duplicate resolution is global across lanes/batches and rejects cycles, missing/self/foreign targets and non-TP terminals. Exact root-cause keys group contributors; similarity hints never merge. Canonical scalars come from the lexicographically first direct/terminal TRUE_POSITIVE, using its immutable candidate title/bug class and reviewed TP fields. Sorted unions retain all contributors/components/surfaces; confidence is the minimum including duplicates; evidence rung is static-reviewed. Finding IDs bind image, candidate snapshot and exact root key. Deterministic findings.json installs before one immediate transaction, with locked full hunt/live-root/input/artifact revalidation before derived rows and completion status publish. Completed rechecks require existing canonical artifact and matching derived rows and preserve timestamps. Empty and all-FP generations complete with zero findings. SQL/install/commit/lock failures preserve prior SQL; an unreferenced immutable artifact may remain. Dedicated Stage 4f outputs only; no generic findings/verdicts, dynamic evidence, severity or report claims. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration."
     },
     {
       "id": "firmware-fpcheck-upstream-invalidation",
@@ -1365,7 +1427,7 @@
       "modules": ["audit_core/acquire.py", "audit_core/triage.py", "audit_core/surface.py", "audit_core/surface_results.py", "audit_core/hunt.py", "audit_core/hunt_results.py", "audit_core/firmware_fpcheck.py"],
       "tests": ["tests/test_acquire.py", "tests/test_triage.py", "tests/test_surface_prepare.py", "tests/test_surface_results.py", "tests/test_hunt_prepare.py", "tests/test_hunt_import.py", "tests/test_hunt_gate.py", "tests/test_cli_stage4e.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md", "README.md"],
-      "notes": "Local imports invoke the SQL-only Stage 4f invalidator with commit=False in existing upstream transactions. Changed selected-target hash/version or triage manifest, surface prepare/results, hunt prepare/results and real lane completion transitions clear only that image's dedicated runs, receipts, verdicts, pivots and findings. Byte-identical operations, sibling images and reference/supplemental acquisition changes preserve review state. Hunt result replacement compares receipt provenance/counts, qualified coverage and complete receipt-owned candidate rows; identical replacement preserves lane completion and timestamps, while durable row repair invalidates review. Real SQLite deletion failures at all five review tables roll back complete upstream/review snapshots. Unicode/delimiter image IDs and lane-qualified repeated candidate IDs stay isolated. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next. Triage upsert-only snapshots and Stage 4d orphan scan scaling remain."
+      "notes": "Local imports invoke the SQL-only Stage 4f invalidator with commit=False in existing upstream transactions. Changed selected-target hash/version or triage manifest, surface prepare/results, hunt prepare/results and real lane completion transitions clear only that image's dedicated runs, receipts, verdicts, pivots and findings. Byte-identical operations, sibling images and reference/supplemental acquisition changes preserve review state. Hunt result replacement compares receipt provenance/counts, qualified coverage and complete receipt-owned candidate rows; identical replacement preserves lane completion and timestamps, while durable row repair invalidates review. Real SQLite deletion failures at all five review tables roll back complete upstream/review snapshots. Unicode/delimiter image IDs and lane-qualified repeated candidate IDs stay isolated. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. Triage upsert-only snapshots and Stage 4d orphan scan scaling remain."
     },
     {
       "id": "firmware-fpcheck-cli",
@@ -1377,7 +1439,7 @@
       "modules": ["audit.py", "audit_core/firmware_fpcheck.py", "audit_core/firmware_fpcheck_results.py"],
       "tests": ["tests/test_cli_stage4f.py", "tests/test_cli.py", "tests/test_harness.py"],
       "docs": ["ARCHITECTURE.md", "progress.md", "SESSION_HANDOFF.md", "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md"],
-      "notes": "Exactly one explicit prepare, record or check mode is required. Semantic flag errors exit 1 before database I/O; syntax errors exit 2. Prepare/check require root; batch targets are integers 1-200 with default 20; replace belongs only to record. The handler delegates validation, artifact publication and SQL ownership to the completed firmware boundaries. Success output whitelists scalar aggregates/provenance and artifact paths, using finding_count instead of per-finding review records; human display text is escaped, root-redacted and capped at 512 ASCII characters; JSON serializes the fixed scalar field set losslessly, preserving exact identities and usable artifact paths without the human per-string display cap. Expected diagnostics are escaped/capped at 512 ASCII characters plus newline; SQLite cause/context chains map to the fixed fpcheck database diagnostic. Unexpected direct-handler exceptions propagate after cleanup. Real subprocess tests cover candidate-bearing and empty generations, literal canonical review results, replacement, completion, clean stderr and private-evidence exclusion. Returned Unicode/delimiter identities and Unicode/long/root-prefix artifact paths round-trip through prepare, record, replacement and check. The existing prose workflow and generic source-code verdict commands retain their semantics. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next. Triage upsert-only snapshots and Stage 4d orphan scan scaling persist."
+      "notes": "Exactly one explicit prepare, record or check mode is required. Semantic flag errors exit 1 before database I/O; syntax errors exit 2. Prepare/check require root; batch targets are integers 1-200 with default 20; replace belongs only to record. The handler delegates validation, artifact publication and SQL ownership to the completed firmware boundaries. Success output whitelists scalar aggregates/provenance and artifact paths, using finding_count instead of per-finding review records; human display text is escaped, root-redacted and capped at 512 ASCII characters; JSON serializes the fixed scalar field set losslessly, preserving exact identities and usable artifact paths without the human per-string display cap. Expected diagnostics are escaped/capped at 512 ASCII characters plus newline; SQLite cause/context chains map to the fixed fpcheck database diagnostic. Unexpected direct-handler exceptions propagate after cleanup. Real subprocess tests cover candidate-bearing and empty generations, literal canonical review results, replacement, completion, clean stderr and private-evidence exclusion. Returned Unicode/delimiter identities and Unicode/long/root-prefix artifact paths round-trip through prepare, record, replacement and check. The existing prose workflow and generic source-code verdict commands retain their semantics. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. Triage upsert-only snapshots and Stage 4d orphan scan scaling persist."
     },
     {
       "id": "firmware-fpcheck-brief",
@@ -1406,7 +1468,7 @@
         "progress.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Eighth template uses the shared renderer and eight required provenance/path variables. Installed Claude and both Codex trees resolve parser and shared FP-rule references. Firmware routing uses immutable lane-qualified candidate batches and explicit prepare/record/check, preserving ordinary source-code fpcheck semantics. Workers apply attacker advantage first, shared HE/PR/CV/Marginal Gain rules, evidence rereads and cross-lane comparison; exact decisions preserve all candidates, pivots and duplicate targets. Strict result-only JSON is capped at 8 MiB; SQL, canonical installation and transitions remain deterministic. Static-only limits, no absolute-root persistence, PARTIAL checkpoints without fabricated decisions, and exactly one return line are explicit. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; dive is next. Triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
+      "notes": "Eighth template uses the shared renderer and eight required provenance/path variables. Installed Claude and both Codex trees resolve parser and shared FP-rule references. Firmware routing uses immutable lane-qualified candidate batches and explicit prepare/record/check, preserving ordinary source-code fpcheck semantics. Workers apply attacker advantage first, shared HE/PR/CV/Marginal Gain rules, evidence rereads and cross-lane comparison; exact decisions preserve all candidates, pivots and duplicate targets. Strict result-only JSON is capped at 8 MiB; SQL, canonical installation and transitions remain deterministic. Static-only limits, no absolute-root persistence, PARTIAL checkpoints without fabricated decisions, and exactly one return line are explicit. Stage 4f is merged into local main at 303232e after clean scoped final re-review; not pushed. Stage 4g chain is merged into local main at 30ca3ba; Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. Triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
     },
     {
       "id": "firmware-hunt",
@@ -1447,7 +1509,7 @@
         "progress.md",
         "SESSION_HANDOFF.md"
       ],
-      "notes": "Merged into local main at 8119af1, not pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason retained; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Stage 4f is merged into local main at 303232e and Stage 4g at 30ca3ba, with dive next. The Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
+      "notes": "Merged into local main at 8119af1, not pushed. Both lanes assign every selected target regular file exactly once and bind results to the current manifest and completed surface snapshot. Durable receipts own candidate-free batches; imports atomically publish receipt, image-qualified coverage, and candidates. not_applicable maps to analyzed coverage with its evidence-backed reason retained; budget skips fail the lane gate. Replacement is batch-scoped; changed acquisition, target triage, or surface evidence invalidates same-image hunts. Expected SQLite errors use the fixed hunt diagnostic; other expected errors are escaped/capped. Stage 4e remains firmware-audit functionality inside the shared codebase-audit repository, not a separately packaged skill. It inherits triage upsert-only snapshots and Stage 4d orphan-candidate scan scaling. Stage 4f is merged into local main at 303232e and Stage 4g at 30ca3ba, Stage 4h dive is merged locally; Stage 4j report is next after Stage 4i integration. The Asus golden and monorepo/submodule decision remain overall Stage 4 prerequisites."
     }
   ],
   "open_items": [

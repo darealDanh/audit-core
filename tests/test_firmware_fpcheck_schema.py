@@ -104,8 +104,8 @@ def test_fpcheck_exact_durable_contract(con, table, columns, optional, key):
 
 def test_fpcheck_inventory_and_schema_reapplication(tmp_path):
     run = workspace.init_run(tmp_path)
-    assert len(workspace.apply_schema(run / "audit.db").tables) == 44
-    assert len(db.TABLE_SPECS) == 43
+    assert len(workspace.apply_schema(run / "audit.db").tables) == 45
+    assert len(db.TABLE_SPECS) == 44
 
 
 @pytest.mark.parametrize("table,row", ROWS + [("cba_firmware_fp_verdicts", FP), ("cba_firmware_fp_verdicts", DUP)])
