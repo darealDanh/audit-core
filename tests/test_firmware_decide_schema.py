@@ -66,8 +66,8 @@ def test_decide_exact_sql_and_tablespec_contract(con):
 
 def test_decide_adds_one_table_and_two_lifecycle_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
-    assert len(workspace.apply_schema(run / "audit.db").tables) == 45
-    assert len(db.TABLE_SPECS) == 44
+    assert len(workspace.apply_schema(run / "audit.db").tables) == 47
+    assert len(db.TABLE_SPECS) == 46
     assert len(db.MIGRATIONS) == 6
     assert db.MIGRATIONS[-2:] == (
         (TABLE, "superseded_at", "TEXT"),

@@ -20,7 +20,7 @@ def test_unknown_verb_exits_nonzero():
 def test_selftest_cross_checks_the_table_contract_against_the_real_schema():
     r = run("selftest")
     assert r.returncode == 0, r.stderr
-    assert "45 in schema.sql, 44 under contract" in r.stdout
+    assert "47 in schema.sql, 46 under contract" in r.stdout
     assert "31 declared, all dispatchable" in r.stdout
 
 

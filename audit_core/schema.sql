@@ -685,3 +685,43 @@ CREATE TABLE IF NOT EXISTS cba_firmware_decide_runs (
     superseded_at TEXT,
     preparation_ordinal INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (image_id, decision_generation));
+
+-- Stage 4j: immutable maintainer-report lifecycle and one item per chain.
+
+CREATE TABLE IF NOT EXISTS cba_firmware_report_runs (
+    image_id TEXT NOT NULL,
+    report_generation TEXT NOT NULL,
+    preparation_ordinal INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    decision_generation TEXT NOT NULL,
+    decision_package_sha256 TEXT NOT NULL,
+    style_contract_sha256 TEXT NOT NULL,
+    manifest_path TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    item_count INTEGER NOT NULL,
+    results_path TEXT,
+    results_sha256 TEXT,
+    result_count INTEGER NOT NULL,
+    report_path TEXT,
+    report_sha256 TEXT,
+    report_bytes BLOB,
+    index_path TEXT,
+    index_sha256 TEXT,
+    prepared_at TEXT DEFAULT (datetime('now')),
+    recorded_at TEXT,
+    completed_at TEXT,
+    superseded_at TEXT,
+    PRIMARY KEY (image_id, report_generation));
+
+CREATE TABLE IF NOT EXISTS cba_firmware_report_items (
+    image_id TEXT NOT NULL,
+    report_generation TEXT NOT NULL,
+    chain_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    assignment_path TEXT NOT NULL,
+    assignment_sha256 TEXT NOT NULL,
+    result_path TEXT NOT NULL,
+    result_sha256 TEXT,
+    recorded_at TEXT,
+    PRIMARY KEY (image_id, report_generation, chain_id),
+    UNIQUE (image_id, report_generation, ordinal));

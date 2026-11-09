@@ -249,8 +249,8 @@ def con(tmp_path):
 def test_schema_and_contract_expose_all_firmware_tables(tmp_path):
     run = workspace.init_run(tmp_path, timestamp="20261009-000000")
     result = workspace.apply_schema(run / "audit.db")
-    assert len(result.tables) == 45
-    assert len(db.TABLE_SPECS) == 44
+    assert len(result.tables) == 47
+    assert len(db.TABLE_SPECS) == 46
     con = sqlite3.connect(run / "audit.db")
     try:
         for table in ("cba_images", "cba_binfacts", "cba_services",

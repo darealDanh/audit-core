@@ -65,8 +65,8 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                    for table in old_rows}
     con.close()
     result = workspace.apply_schema(path)
-    assert len(result.tables) == 45
-    assert len(db.TABLE_SPECS) == 44
+    assert len(result.tables) == 47
+    assert len(db.TABLE_SPECS) == 46
     assert len(db.MIGRATIONS) == 6
     con = db.connect(path)
     try:
@@ -79,7 +79,8 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
                       "cba_firmware_chains", "cba_firmware_chain_edges",
                       "cba_firmware_dive_runs", "cba_firmware_dive_questions",
                       "cba_firmware_dive_receipts", "cba_firmware_dive_observations",
-                      "cba_firmware_dive_dependencies", "cba_firmware_dive_acquisitions"):
+                      "cba_firmware_dive_dependencies", "cba_firmware_dive_acquisitions",
+                      "cba_firmware_report_runs", "cba_firmware_report_items"):
             assert db.rows(con, table) == []
         for table in old_rows:
             assert [tuple(row) for row in con.execute(

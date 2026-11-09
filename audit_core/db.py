@@ -86,6 +86,8 @@ FIRMWARE_DECIDE_PRIMARY_REASONS = (
     "no-current-chain", "support-unsupported", "cost-exceeds-policy",
     "eligible-chain", "support-unknown", "bench-plan-incomplete",
     "payout-path-unknown", "no-policy-match")
+FIRMWARE_REPORT_STATES = ("pending", "recorded", "complete", "superseded")
+FIRMWARE_REPORT_SEVERITIES = ("critical", "high", "medium", "low", "informational")
 LIFECYCLE_STATES = ("factory-fresh", "provisioned", "bound-to-owner",
                     "cloud-registered", "post-reset", "unknown")
 POSTURE_STATES = ("softap-setup", "sta-lan", "wan-exposed", "ble",
@@ -1035,6 +1037,87 @@ def _validate_firmware_decide_run(row: dict[str, str]) -> None:
         if codes != sorted(set(codes), key=order.__getitem__):
             raise DbError("reason_codes requires canonical ordered unique codes")
 
+def _validate_firmware_report_run(row: dict[str, str]) -> None:
+    table = "cba_firmware_report_runs"
+    required_counts = ("preparation_ordinal", "item_count", "result_count")
+    _validate_surface_text(row, table, counts=required_counts)
+    counts = required_counts
+    _validate_nonnegative_integers(row, counts)
+    report_bytes = row.get("report_bytes")
+    if report_bytes is not None and (
+            not isinstance(report_bytes, bytes) or not report_bytes):
+        raise DbError("report_bytes requires non-empty bytes")
+    if int(row["preparation_ordinal"]) < 1:
+        raise DbError("preparation_ordinal must be at least 1")
+    stamps = ("prepared_at", "recorded_at", "completed_at", "superseded_at")
+    for column, value in row.items():
+        if value is None or column in counts or column == "report_bytes":
+            continue
+        if column.endswith("_sha256") or column.endswith("_generation"):
+            _validate_sha256(row, column)
+        elif column.endswith("_path"):
+            _firmware_fp_path(value, column)
+        elif column in stamps:
+            _decide_timestamp(value, column)
+        else:
+            _firmware_fp_text(value, column)
+    one_of("status", FIRMWARE_REPORT_STATES)(row)
+    status = row["status"]
+    recorded = status in ("recorded", "complete") or (
+        status == "superseded" and row.get("recorded_at") is not None)
+    for column in ("results_path", "results_sha256", "recorded_at"):
+        if recorded and row.get(column) is None:
+            raise DbError(f"{column} is required for a {status} report")
+        if not recorded and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for a {status} report")
+    expected_results = int(row["item_count"]) if recorded else 0
+    if int(row["result_count"]) != expected_results:
+        raise DbError(
+            f"result_count must be {expected_results} for a {status} report")
+    complete = status == "complete"
+    for column in (
+            "report_path", "report_sha256", "report_bytes",
+            "index_path", "index_sha256", "completed_at"):
+        if complete and row.get(column) is None:
+            raise DbError(f"{column} is required for a complete report")
+        if not complete and row.get(column) is not None:
+            raise DbError(f"{column} must be NULL for a {status} report")
+    superseded = status == "superseded"
+    if superseded and row.get("superseded_at") is None:
+        raise DbError("superseded_at is required for a superseded report")
+    if not superseded and row.get("superseded_at") is not None:
+        raise DbError(f"superseded_at must be NULL for a {status} report")
+    if "prepared_at" in row and row["prepared_at"] is None:
+        raise DbError("prepared_at is required for every report")
+    ordered = [(column, row[column]) for column in stamps if row.get(column) is not None]
+    for (earlier, before), (later, after) in zip(ordered, ordered[1:]):
+        if after < before:
+            raise DbError(f"{later} precedes {earlier}")
+
+
+def _validate_firmware_report_item(row: dict[str, str]) -> None:
+    table = "cba_firmware_report_items"
+    _validate_surface_text(row, table, counts=("ordinal",))
+    _validate_nonnegative_integers(row, ("ordinal",))
+    if int(row["ordinal"]) < 1:
+        raise DbError("ordinal must be at least 1")
+    _validate_sha256(row, "report_generation")
+    _validate_surface_identifier(row, "chain_id")
+    for column in ("assignment_path", "result_path"):
+        _firmware_fp_path(row[column], column)
+    _validate_sha256(row, "assignment_sha256")
+    result_sha256 = row.get("result_sha256")
+    recorded_at = row.get("recorded_at")
+    if result_sha256 is not None:
+        _validate_sha256(row, "result_sha256")
+    if recorded_at is not None:
+        _decide_timestamp(recorded_at, "recorded_at")
+    if result_sha256 is None and recorded_at is not None:
+        raise DbError("result_sha256 is required for a recorded report item")
+    if result_sha256 is not None and recorded_at is None:
+        raise DbError("recorded_at is required for a recorded report item")
+
+
 
 TABLE_SPECS: dict[str, TableSpec] = {
     "cba_sources": TableSpec(
@@ -1382,6 +1465,29 @@ TABLE_SPECS: dict[str, TableSpec] = {
                   "preparation_ordinal"),
         primary_key=("image_id", "decision_generation"),
         validate=_validate_firmware_decide_run),
+
+    "cba_firmware_report_runs": TableSpec(
+        columns=("image_id", "report_generation", "preparation_ordinal", "status",
+                 "decision_generation", "decision_package_sha256",
+                 "style_contract_sha256", "manifest_path", "manifest_sha256",
+                 "item_count", "results_path", "results_sha256", "result_count",
+                 "report_path", "report_sha256", "report_bytes", "index_path",
+                 "index_sha256", "prepared_at", "recorded_at", "completed_at",
+                 "superseded_at"),
+        required=("image_id", "report_generation", "preparation_ordinal", "status",
+                  "decision_generation", "decision_package_sha256",
+                  "style_contract_sha256", "manifest_path", "manifest_sha256",
+                  "item_count", "result_count"),
+        primary_key=("image_id", "report_generation"),
+        validate=_validate_firmware_report_run),
+    "cba_firmware_report_items": TableSpec(
+        columns=("image_id", "report_generation", "chain_id", "ordinal",
+                 "assignment_path", "assignment_sha256", "result_path",
+                 "result_sha256", "recorded_at"),
+        required=("image_id", "report_generation", "chain_id", "ordinal",
+                  "assignment_path", "assignment_sha256", "result_path"),
+        primary_key=("image_id", "report_generation", "chain_id"),
+        validate=_validate_firmware_report_item),
 
 }
 

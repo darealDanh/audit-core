@@ -104,8 +104,8 @@ def test_chain_exact_durable_contract(con, table, columns, optional, key):
 
 def test_chain_inventory_and_no_new_column_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
-    assert len(workspace.apply_schema(run / "audit.db").tables) == 45
-    assert len(db.TABLE_SPECS) == 44
+    assert len(workspace.apply_schema(run / "audit.db").tables) == 47
+    assert len(db.TABLE_SPECS) == 46
     # Stage 4g added no column migrations; later entries belong to later stages.
     assert db.MIGRATIONS[:4] == (("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
         ("cba_fp_verdicts", "enabled_observation", "TEXT"), ("cba_patterns", "swept_at", "TEXT"),
