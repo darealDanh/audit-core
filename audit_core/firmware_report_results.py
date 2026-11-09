@@ -7,6 +7,12 @@ structured entry to cite assignment-owned evidence, and enforces the versioned
 style contract that `firmware_report` owns. It never derives facts, ordering,
 pre-authentication status, severity or Markdown, and it never echoes rejected
 prose in a diagnostic.
+
+`record` then owns the per-item half of the Stage 4j lifecycle: it installs
+the one canonical result artifact, reconstructs the current preparation under
+`BEGIN IMMEDIATE`, fills exactly one item row with a guarded update, and
+transitions the run to `recorded` with its exact result manifest only when
+every assigned chain has a result.
 """
 from __future__ import annotations
 
@@ -14,9 +20,10 @@ import dataclasses
 import json
 import pathlib
 import re
+import sqlite3
 import unicodedata
 
-from audit_core import db, firmware_decide as decide
+from audit_core import db, firmware_decide as decide, firmware_dive, surface
 from audit_core import firmware_report as report
 
 
@@ -567,3 +574,258 @@ def _canonical(validated: ValidatedReportResult) -> bytes:
     if len(raw) > MAX_RESULT_BYTES:
         _fail("canonical report result exceeds 16 KiB")
     return raw
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ReportRecordSummary:
+    image_id: str
+    report_generation: str
+    chain_id: str
+    ordinal: int
+    result_path: str
+    result_sha256: str
+    item_count: int
+    recorded_count: int
+    status: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _RecordState:
+    row: dict
+    items: tuple[dict, ...]
+    item: dict
+    recorded: str | None
+    validated: ValidatedReportResult
+    raw: bytes
+    result_sha256: str
+    assignments: report._Assignments
+    identity: tuple
+
+
+def _current_row(con, result) -> dict:
+    """The unique highest active report preparation this result belongs to."""
+    rows = surface._query(
+        con, "SELECT * FROM cba_firmware_report_runs WHERE image_id=?",
+        (result.image_id,))
+    if not rows:
+        _fail("image has no report preparation")
+    top = max(int(row["preparation_ordinal"]) for row in rows)
+    current = [row for row in rows if int(row["preparation_ordinal"]) == top]
+    if len(current) != 1:
+        _fail("image has more than one current report preparation")
+    row, = current
+    db.TABLE_SPECS["cba_firmware_report_runs"].validate(row)
+    if row["report_generation"] != result.report_generation:
+        _fail("result is not for the current report preparation")
+    if row["status"] not in ("pending", "recorded"):
+        _fail("the current report preparation is not active")
+    return row
+
+
+def _identity(item) -> dict:
+    """Exactly the manifest projection one prepared item row owns."""
+    return {"ordinal": int(item["ordinal"]), "chain_id": item["chain_id"],
+            "assignment_path": item["assignment_path"],
+            "assignment_sha256": item["assignment_sha256"],
+            "result_path": item["result_path"]}
+
+
+def _bound(validated: ValidatedReportResult, item, generation) -> None:
+    """One validated result against the exact item row that assigned it."""
+    if ((validated.report_generation, validated.chain_id, validated.ordinal,
+         validated.assignment_sha256, validated.result_path)
+            != (generation, item["chain_id"], int(item["ordinal"]),
+                item["assignment_sha256"], item["result_path"])):
+        _fail("report result differs from its assigned item")
+
+
+def _recorded_entry(run, generation, item, assignment_bytes) -> dict:
+    """One already recorded sibling result, re-read and re-validated."""
+    raw = firmware_dive._read(
+        run, report._result_artifact_path(generation, item["chain_id"],
+                                          item["result_sha256"]),
+        item["result_sha256"], MAX_RESULT_BYTES)
+    value = validate(_parse(raw), assignment_bytes)
+    _bound(value, item, generation)
+    if _canonical(value) != raw:
+        _fail("recorded report result is not canonical")
+    return report._result_entry(generation, value, item["result_sha256"])
+
+
+def _reconstruct(con, run, result: ReportResult) -> _RecordState:
+    """Rebuild the current preparation, its installed bytes and this result.
+
+    Recording owns no root and never widens the verified scope: the run row,
+    its item rows and the immutable assignment bytes are the only authority,
+    and they must agree on the exact manifest the preparation published.
+    """
+    row = _current_row(con, result)
+    generation = row["report_generation"]
+    items = surface._query(
+        con, "SELECT * FROM cba_firmware_report_items WHERE image_id=? "
+        "AND report_generation=? ORDER BY ordinal", (result.image_id, generation))
+    contents, assigned = {}, []
+    for ordinal, item in enumerate(items, 1):
+        db.TABLE_SPECS["cba_firmware_report_items"].validate(item)
+        name = f"items/{ordinal}-{item['chain_id']}.json"
+        contents[name] = firmware_dive._read(run, item["assignment_path"],
+                                             maximum=report.MAX_ASSIGNMENT_BYTES)
+        assigned.append((item, contents[name]))
+    identities = tuple(_identity(item) for item, _ in assigned)
+    manifest = report._canonical({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "image_id": row["image_id"],
+        "report_generation": generation,
+        "decision_generation": row["decision_generation"],
+        "decision_package_sha256": row["decision_package_sha256"],
+        "style_contract_sha256": report._style_contract_sha256(),
+        "item_count": int(row["item_count"]),
+        "items": list(identities)})
+    manifest_sha256 = report._digest(manifest)
+    if (len(identities) != int(row["item_count"])
+            or manifest_sha256 != row["manifest_sha256"]
+            or row["manifest_path"] != f"files/firmware-report/{generation}"
+                                       "/manifest.json"):
+        _fail("stored report items differ from the current report preparation")
+    contents["manifest.json"] = manifest
+    matching = [pair for pair in assigned if pair[0]["chain_id"] == result.chain_id]
+    if len(matching) != 1:
+        _fail("report result is not assigned by the current report preparation")
+    (item, assignment_bytes), = matching
+    validated = validate(result, assignment_bytes)
+    _bound(validated, item, generation)
+    raw = _canonical(validated)
+    result_sha256 = report._digest(raw)
+    recorded = item["result_sha256"]
+    if recorded is not None and recorded != result_sha256:
+        _fail("report item is already recorded with different result bytes")
+    results_sha256, results_contents = None, {}
+    if all(other["result_sha256"] is not None for other, _ in assigned
+           if other["chain_id"] != item["chain_id"]):
+        # This result is the last one the preparation waits for, so the exact
+        # recorded result manifest is already determined.
+        entries = [report._result_entry(generation, validated, result_sha256)
+                   if other["chain_id"] == item["chain_id"]
+                   else _recorded_entry(run, generation, other, other_bytes)
+                   for other, other_bytes in assigned]
+        results_sha256, results_raw = report._results(generation, entries)
+        results_contents = {"results.json": results_raw}
+    if row["status"] != "pending" and (
+            results_sha256 is None
+            or (row["results_sha256"], row["results_path"]) != (
+                results_sha256, report._results_path(generation, results_sha256))):
+        _fail("stored report result manifest differs from the recorded results")
+    assignments = report._Assignments(generation, manifest_sha256, identities,
+                                      contents, results_sha256, results_contents)
+    return _RecordState(
+        row, tuple(item for item, _ in assigned), item, recorded, validated, raw,
+        result_sha256, assignments,
+        (raw, generation, manifest_sha256, identities, contents))
+
+
+def _publish(con, state: _RecordState, now: str) -> ReportRecordSummary:
+    """Fill exactly one item, then transition a fully recorded run."""
+    row, item = state.row, state.item
+    generation = state.assignments.generation
+    if now < row["prepared_at"]:
+        # The prepare-side guard, for recording: a clock that moved backwards
+        # never stamps a result before the preparation that assigned it.
+        _fail("report recording timestamp precedes preparation")
+    status, items = row["status"], int(row["item_count"])
+    recorded_count = sum(other["result_sha256"] is not None
+                         or other["chain_id"] == item["chain_id"]
+                         for other in state.items)
+    if state.recorded is None:
+        db.TABLE_SPECS["cba_firmware_report_items"].validate(
+            dict(item, result_sha256=state.result_sha256, recorded_at=now))
+        cursor = con.execute(
+            "UPDATE cba_firmware_report_items SET result_sha256=?,recorded_at=? "
+            "WHERE image_id=? AND report_generation=? AND chain_id=? "
+            "AND result_sha256 IS NULL",
+            (state.result_sha256, now, row["image_id"], generation,
+             item["chain_id"]))
+        if cursor.rowcount != 1:
+            _fail("report item was recorded before this result")
+    if state.assignments.results_sha256 is not None and status == "pending":
+        status = "recorded"
+        results_path = report._results_path(generation,
+                                            state.assignments.results_sha256)
+        db.TABLE_SPECS["cba_firmware_report_runs"].validate(dict(
+            row, status=status, result_count=items, results_path=results_path,
+            results_sha256=state.assignments.results_sha256, recorded_at=now))
+        cursor = con.execute(
+            "UPDATE cba_firmware_report_runs SET status='recorded',result_count=?,"
+            "results_path=?,results_sha256=?,recorded_at=? WHERE image_id=? "
+            "AND report_generation=? AND status='pending'",
+            (items, results_path, state.assignments.results_sha256, now,
+             row["image_id"], generation))
+        if cursor.rowcount != 1:
+            _fail("report run was recorded before this result")
+    return ReportRecordSummary(
+        row["image_id"], generation, item["chain_id"], int(item["ordinal"]),
+        report._result_artifact_path(generation, item["chain_id"],
+                                     state.result_sha256),
+        state.result_sha256, items, recorded_count, status)
+
+
+def _artifact(run, state: _RecordState):
+    return run / pathlib.PurePosixPath(report._result_artifact_path(
+        state.assignments.generation, state.item["chain_id"],
+        state.result_sha256)).parent
+
+
+def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+           result_path: str | pathlib.Path) -> ReportRecordSummary:
+    """Install one canonical worker result, then fill exactly one item row.
+
+    The immutable result bytes are installed before any lock is taken, every
+    authority is reconstructed again under `BEGIN IMMEDIATE`, and one guarded
+    update fills the item. The run becomes `recorded`, with its exact result
+    manifest, only when this result is the last one its preparation waits
+    for. An identical retry writes nothing; conflicting bytes are refused.
+    """
+    started = False
+    try:
+        if con.in_transaction:
+            _fail("report recording requires no active caller transaction")
+        run = firmware_dive._selector(run_dir)
+        result = load(result_path)
+        con.execute("BEGIN")
+        started = True
+        first = _reconstruct(con, run, result)
+        con.rollback()
+        started = False
+        destination = run / "files" / "firmware-report" / first.assignments.generation
+        firmware_dive._install(_artifact(run, first), {"result.json": first.raw}, run)
+        report._install_check(run, destination, first.assignments, installed=False)
+
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        state = _reconstruct(con, run, result)
+        if state.identity != first.identity:
+            _fail("report recording inputs changed before publication")
+        firmware_dive._checked_install(_artifact(run, state),
+                                       {"result.json": state.raw}, run,
+                                       exact_mode=0o600)
+        # A sibling that landed between the passes makes this result the last
+        # one, so its result manifest is installed before the row that names it.
+        installed = (state.assignments.results_sha256
+                     == first.assignments.results_sha256)
+        report._install_check(run, destination, state.assignments,
+                              installed=installed)
+        summary = _publish(con, state,
+                           con.execute("SELECT datetime('now')").fetchone()[0])
+        con.commit()
+        started = False
+        return summary
+    except FirmwareReportResultError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareReportResultError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            report.FirmwareReportError, firmware_dive.FirmwareDiveError,
+            surface.SurfaceError) as exc:
+        raise FirmwareReportResultError("cannot record report result") from exc
+    finally:
+        if started:
+            con.rollback()
