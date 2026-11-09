@@ -17,11 +17,12 @@ the result parser and dataclasses in
 authoritative, and the schema below restates it.
 
 The assignment envelope has exactly `report_generation`, `assignment_sha256`,
-`result_path` and `seed`. Copy all four identity values into your result
-exactly. If the assignment bytes, image, chain or generation differ from the
-values above, return FAILED; do not repair the assignment or switch to another
-generation. A newer preparation can supersede this one; the orchestrator then
-prepares and dispatches again.
+`result_path` and `seed`. Bind `report_generation` and `assignment_sha256`
+into your result exactly; `result_path` is where you write, and `seed` is the
+frozen assignment content you reason from. If the assignment bytes, image,
+chain or generation differ from the values above, return FAILED; do not repair
+the assignment or switch to another generation. A newer preparation can
+supersede this one; the orchestrator then prepares and dispatches again.
 
 Your assignment carries the frozen chain, its members, its edges, its open
 preconditions and its evidence catalog. Every statement you write must rest on
@@ -70,9 +71,9 @@ entries. Each entry is an object with exactly `text` and `citation_refs`.
 one copied exactly from the assignment evidence catalog. An entry that cites a
 reference outside that catalog is rejected whole. Each entry's prose must name
 something its own citations own: the chain ID, one of its member IDs, one of
-its edge states, one of its open precondition IDs, or the catalog owner,
-component path or location of a reference that entry cites. Naming another
-entry's subject does not support this one.
+its edge states, one of its open precondition IDs or their source IDs, or the
+catalog owner, component path or location of a reference that entry cites.
+Naming another entry's subject does not support this one.
 
 ## Prose contract
 

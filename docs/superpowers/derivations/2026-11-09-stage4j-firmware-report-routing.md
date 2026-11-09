@@ -110,3 +110,28 @@ No other shipped-prose file changed. One non-prose consequence of the new
 return line: `audit_core/skill_lint.py` gains `REPORT_RETURN_CONTRACT` and its
 brief-table entry, because `audit.py lint-skill` otherwise reports the new
 template as missing the R2 contract.
+
+## 6. Review fix round 1: intended shipped-prose changes
+
+Written before the edits, as the rule requires.
+
+1. `references/briefs/firmware-report-brief.md`, the envelope paragraph: the
+   sentence "Copy all four identity values into your result exactly"
+   contradicts the brief's own result key set and `_RESULT_KEYS`, where
+   `result_path` and `seed` are not result keys and `_object` refuses any
+   key-set difference. Replace it with: bind `report_generation` and
+   `assignment_sha256` into the result exactly; `result_path` is where the
+   worker writes; `seed` is the frozen assignment content it reasons from. All
+   four names stay in backticks.
+2. `references/briefs/firmware-report-brief.md`, the entry-anchor list: add the
+   open precondition `source_id` anchor, which
+   `firmware_report_results._seed_anchors` also admits.
+3. `SKILL.md`, Stage 4j: one added sentence after the manifest-item sentence —
+   set `ASSIGNMENT_PATH` and `RESULT_PATH` to `${AUDIT_DIR}/` plus the item's
+   run-relative `assignment_path` and `result_path`, matching how Stage 4i
+   states the join for its worklist. CRLF preserved.
+
+Reconciled against `git diff -U0` after the edits: the shipped-prose diff
+contains exactly one `SKILL.md` hunk (the added sentence) and two
+`firmware-report-brief.md` hunks (the envelope paragraph and the anchor list),
+with no other prose file touched and no line endings changed.

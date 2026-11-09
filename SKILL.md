@@ -429,6 +429,8 @@ Prepare prints only scalars: image, report generation, manifest path, item
 count and state. Read the N per-chain item paths from that bounded manifest at
 `${AUDIT_DIR}/` plus the returned `manifest_path`; the CLI never prints them.
 Each manifest item carries its `chain_id`, `assignment_path` and `result_path`.
+Set ASSIGNMENT_PATH and RESULT_PATH to `${AUDIT_DIR}/` plus the item's
+run-relative `assignment_path` and `result_path`.
 
 Dispatch one fresh strongest worker with high reasoning per item. Read
 [references/briefs/firmware-report-brief.md](references/briefs/firmware-report-brief.md)

@@ -21,6 +21,7 @@ def test_twelve_templates_exist():
                      "firmware-chain-brief.md", "firmware-dive-brief.md",
                      "firmware-decide-brief.md", "firmware-report-brief.md"}
 
+
 @pytest.mark.parametrize("path", TEMPLATES, ids=lambda p: p.name)
 def test_every_template_states_the_return_contract(path):
     contracts = {

@@ -1,6 +1,9 @@
 """The firmware report worker receives one bounded per-chain assignment."""
+import os
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -37,20 +40,34 @@ def test_report_brief_restates_every_parser_key():
         assert f"`{key}`" in source, key
 
 
+# Each bound is asserted against the field it governs, so a brief that states
+# the right numbers against the wrong field still fails.
+FIELD_BOUNDS = {
+    "title_bytes": "`title_detail`: {low} to {high}",
+    "summary_paragraphs": "`summary`: {low} to {high} entries",
+    "root_cause_paragraphs": "`root_cause`: {low} to {high} entries",
+    "reproduction_steps": "`reproduction_steps`: {low} to {high} entries",
+    "impact_paragraphs": "`impact`: {low} to {high} entries",
+    "text_bytes": "Each entry `text` is {low} to {high} UTF-8 bytes",
+    "severity_justification_bytes":
+        "`severity_justification`: one entry whose `text` is {low} to {high}",
+    "fix_direction_bytes":
+        "`fix_direction`: `null`, or one entry whose `text` is {low} to {high}",
+}
+
+
 def test_report_brief_restates_the_style_contract_bounds_and_severities():
-    source = text()
+    squashed = " ".join(text().split())
     bounds = report._style_contract()["bounds"]
-    for key in ("text_bytes", "title_bytes", "severity_justification_bytes",
-                "fix_direction_bytes", "summary_paragraphs",
-                "root_cause_paragraphs", "reproduction_steps",
-                "impact_paragraphs"):
+    for key, phrase in FIELD_BOUNDS.items():
         low, high = bounds[key]
-        assert f"{low} to {high}" in source, key
-    assert str(bounds["citations_per_entry"]) in source
-    assert str(results.MAX_RESULT_BYTES // 1024) + " KiB" in source
-    assert str(results.RESULT_SCHEMA_VERSION) in source
+        assert phrase.format(low=low, high=high) in squashed, key
+    assert (f"`citation_refs` holds 1 to {bounds['citations_per_entry']} "
+            "references") in squashed
+    assert f"at most {results.MAX_RESULT_BYTES // 1024} KiB" in squashed
+    assert f"schema version {results.RESULT_SCHEMA_VERSION}" in squashed
     for severity in db.FIRMWARE_REPORT_SEVERITIES:
-        assert f"`{severity}`" in source
+        assert f"`{severity}`" in squashed
 
 
 def test_report_brief_pins_one_fresh_per_item_worker_and_incremental_reading():
@@ -92,7 +109,7 @@ def test_skill_routes_prepare_writers_record_then_check():
         "firmware-report --run ${AUDIT_DIR} --record ${RESULT_PATH}",
         "firmware-report --run ${AUDIT_DIR} --root ${ROOTFS} --check")]
     assert order == sorted(order)
-    assert RETURN_LINE.replace("<DONE|FAILED>", "<DONE|FAILED>") in section
+    assert RETURN_LINE in section
     lowered = section.lower()
     for required in ("manifest", "one fresh strongest", "do not inline",
                      "failed is never recorded", "no script"):
@@ -121,7 +138,21 @@ def test_installed_template_renders_through_write_brief(tmp_path):
     assert "<report_generation>" in path.read_text()
 
 
-def test_report_brief_is_listed_for_every_installer():
-    for installer in ("install.sh", "install.ps1"):
-        source = (ROOT / installer).read_text()
-        assert "briefs" in source, installer
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+def test_installed_tree_carries_the_report_template_and_modules(tmp_path):
+    """A brief that is not installed renders nothing on the operator's box."""
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**os.environ, "HOME": str(home),
+           "CLAUDE_CONFIG_DIR": str(home / ".claude"),
+           "CODEX_HOME": str(home / ".codex")}
+    run = subprocess.run(["bash", str(ROOT / "install.sh"), "claude"],
+                         capture_output=True, text=True, env=env, cwd=str(ROOT))
+    assert run.returncode == 0, run.stdout + run.stderr
+    target = home / ".claude" / "skills" / "codebase-audit"
+    installed = target / "references" / "briefs" / "firmware-report-brief.md"
+    assert installed.is_file()
+    assert "__SKILL_DIR__" not in installed.read_text()
+    assert str(target) in installed.read_text()
+    for module in ("firmware_report.py", "firmware_report_results.py"):
+        assert (target / "audit_core" / module).is_file()
