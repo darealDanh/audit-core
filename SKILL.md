@@ -417,6 +417,52 @@ generation can never be prepared again; change the policy bytes to create a new
 generation. Upgrading a run ranks its existing decision rows so the generation
 selected before the upgrade stays current.
 
+### Stage 4j firmware report
+
+After the Stage 4i acquisition decision package is complete and current,
+prepare one immutable report generation from it:
+
+    python3 __SKILL_DIR__/audit.py firmware-report --run ${AUDIT_DIR} --root ${ROOTFS} \
+      --prepare --json
+
+Prepare prints only scalars: image, report generation, manifest path, item
+count and state. Read the N per-chain item paths from that bounded manifest at
+`${AUDIT_DIR}/` plus the returned `manifest_path`; the CLI never prints them.
+Each manifest item carries its `chain_id`, `assignment_path` and `result_path`.
+
+Dispatch one fresh strongest worker with high reasoning per item. Read
+[references/briefs/firmware-report-brief.md](references/briefs/firmware-report-brief.md)
+for the exact result schema, bounds, citation rules and prose contract. Render
+one brief per item with the five frozen variables and dispatch only its path
+plus context the template cannot know. Do not inline the assignment, the
+evidence catalog or any prose in the dispatch.
+
+    python3 __SKILL_DIR__/audit.py brief --phase firmware-report \
+      --unit ${CHAIN_ID} --run ${AUDIT_DIR} \
+      --var run_dir=${AUDIT_DIR} --var image_id=${IMAGE_ID} \
+      --var report_generation=${REPORT_GENERATION} \
+      --var assignment_path=${ASSIGNMENT_PATH} --var result_path=${RESULT_PATH}
+
+Each worker owns one chain and returns exactly
+`firmware-report <DONE|FAILED> chain=<id> artifact=<path> [flags=<csv>]`.
+Record each DONE result; FAILED is never recorded, and no script is executed
+at any point in this stage. When every item is recorded, run the completion
+gate:
+
+    python3 __SKILL_DIR__/audit.py firmware-report --run ${AUDIT_DIR} --record ${RESULT_PATH}
+    python3 __SKILL_DIR__/audit.py firmware-report --run ${AUDIT_DIR} --root ${ROOTFS} --check
+
+Deterministic code owns chain selection, section ordering, pre-authentication
+statements, provisional labeling, document layout, the result manifest, SQL and
+publication. Workers own result JSON only; worker output alone publishes
+nothing. A generation that is already complete refuses every further record,
+and the refusal is an error, not a silent no-op.
+
+The latest preparation is current. When the decision package changes, prepare
+again: the stale active generation is superseded and can never be recorded,
+while completed history stays immutable and is never returned. Reads never
+fall back to an older generation.
+
 ### Cross-client tool mapping
 
 The workflows name **capabilities**, not one client's tool IDs. Use your client's equivalent:

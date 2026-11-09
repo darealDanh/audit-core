@@ -52,6 +52,8 @@ from audit_core import firmware_dive_acquisition as firmware_dive_acquisition_mo
 from audit_core import firmware_dive_results as firmware_dive_results_mod  # noqa: E402
 from audit_core import firmware_decide as firmware_decide_mod  # noqa: E402
 from audit_core import firmware_decide_results as firmware_decide_results_mod  # noqa: E402
+from audit_core import firmware_report as firmware_report_mod  # noqa: E402
+from audit_core import firmware_report_results as firmware_report_results_mod  # noqa: E402
 
 
 
@@ -1342,6 +1344,102 @@ def cmd_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_firmware_report(args: argparse.Namespace) -> int:
+    """Run one bounded firmware report operation and print scalar provenance."""
+    mode = "prepare" if args.prepare else "record" if args.record is not None else "check"
+    if mode in {"prepare", "check"} and args.root is None:
+        error = f"--root is required for firmware-report {mode}"
+    elif mode == "record" and args.root is not None:
+        error = "--root is not valid with --record"
+    elif mode == "record" and args.image_id is not None:
+        error = "--image-id is not valid with --record"
+    else:
+        error = None
+    if error is not None:
+        print(error, file=sys.stderr)
+        return 1
+
+    run_dir = pathlib.Path(args.run).expanduser()
+    root = pathlib.Path(args.root).expanduser() if args.root is not None else None
+    # Prepare and check raise FirmwareReportError; record raises only
+    # FirmwareReportResultError. Catching one class would turn the other
+    # module's refusal into a traceback.
+    expected_errors = (firmware_report_mod.FirmwareReportError,
+                       firmware_report_results_mod.FirmwareReportResultError,
+                       db_mod.DbError, OSError, sqlite3.Error)
+    def diagnostic(exc):
+        return _hunt_error_message(exc, root, verb="firmware-report")
+    try:
+        con = _open_db(str(run_dir / "audit.db"), error_message=diagnostic)
+    except (db_mod.DbError, OSError, sqlite3.Error) as exc:
+        print(diagnostic(exc), file=sys.stderr)
+        return 1
+    if con is None:
+        return 1
+
+    failure = None
+    summary_type = {
+        "prepare": firmware_report_mod.ReportPreparationSummary,
+        "record": firmware_report_results_mod.ReportRecordSummary,
+        "check": firmware_report_mod.ReportSummary,
+    }[mode]
+    fields = tuple(field.name for field in dataclasses.fields(summary_type))
+    try:
+        if mode == "prepare":
+            result = firmware_report_mod.prepare(
+                con, run_dir, root, image_id=args.image_id)
+        elif mode == "record":
+            result = firmware_report_results_mod.record(
+                con, run_dir, pathlib.Path(args.record).expanduser())
+        else:
+            result = firmware_report_mod.check(
+                con, run_dir, root, image_id=args.image_id)
+        payload = {field: getattr(result, field) for field in fields}
+    except Exception as exc:
+        failure = exc
+    finally:
+        try:
+            if failure is not None and con.in_transaction:
+                con.rollback()
+        except Exception as exc:
+            if failure is None or isinstance(failure, expected_errors):
+                exc.__context__ = failure
+                failure = exc
+        finally:
+            try:
+                con.close()
+            except Exception as exc:
+                if failure is None or isinstance(failure, expected_errors):
+                    exc.__context__ = failure
+                    failure = exc
+    if failure is not None:
+        if isinstance(failure, expected_errors):
+            print(diagnostic(failure), file=sys.stderr)
+            return 1
+        raise failure
+
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        display = {
+            key: _bounded_cli_text(value, root) if isinstance(value, str) else value
+            for key, value in payload.items()
+        }
+        counts = ", ".join(
+            f"{display[field]} {field.replace('_', ' ')}"
+            for field in fields if field.endswith("_count"))
+        print(_bounded_cli_text(
+            f"firmware-report {mode} {display['image_id']}: {counts}, "
+            f"{display['status']}", root))
+        print(f"report generation {display['report_generation']}")
+        # One path per mode. The N item paths live in the bounded manifest the
+        # consumer reads; printing them here would make output unbounded.
+        for field in ("manifest_path", "result_path", "report_path"):
+            if field in display:
+                print(display[field])
+    return 0
+
+
 def cmd_chain(args: argparse.Namespace) -> int:
     if args.run is not None:
         return _cmd_firmware_chain(args)
@@ -1688,6 +1786,7 @@ HANDLERS = {
     "fpcheck": cmd_fpcheck,
     "dive": cmd_dive,
     "decide": cmd_decide,
+    "firmware-report": cmd_firmware_report,
     "init": cmd_init,
     "preflight": cmd_preflight,
     "brief": cmd_brief,
@@ -1945,6 +2044,20 @@ def build_parser() -> argparse.ArgumentParser:
     dc.add_argument("--policy", metavar="POLICY", help="decision policy JSON for prepare")
     dc.add_argument("--image-id", metavar="ID", help="select the firmware image for prepare/check")
     dc.add_argument("--json", action="store_true")
+    fr = sub.add_parser("firmware-report",
+                        help="prepare, record, or check the firmware report")
+    fr.add_argument("--run", required=True, metavar="RUN", help="firmware run directory")
+    report_mode = fr.add_mutually_exclusive_group(required=True)
+    report_mode.add_argument("--prepare", action="store_true",
+                             help="prepare the immutable per-chain report assignments")
+    report_mode.add_argument("--record", metavar="RESULT",
+                             help="import one DONE per-chain report result")
+    report_mode.add_argument("--check", action="store_true",
+                             help="complete and publish the verified report")
+    fr.add_argument("--root", metavar="ROOT", help="live firmware root for prepare/check")
+    fr.add_argument("--image-id", metavar="ID",
+                    help="select the firmware image for prepare/check")
+    fr.add_argument("--json", action="store_true")
     cv = sub.add_parser("coverage", help="analyzed vs inventoried, with reasons for every gap")
     cv.add_argument("--db", required=True, metavar="AUDIT_DB")
     cv.add_argument("--phase", default=None)

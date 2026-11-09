@@ -14,6 +14,7 @@ VERB_MENTION = re.compile(r"audit\.py\s+([a-z][a-z-]*)")
 RETURN_CONTRACT = "rows=<n> artifact="
 DIVE_RETURN_CONTRACT = "question=<question-id> artifact="
 DECIDE_RETURN_CONTRACT = "chains=<n> artifact="
+REPORT_RETURN_CONTRACT = "chain=<id> artifact="
 BLANKET_MANDATE = "strongest model your client offers"
 # The installer sentinel. install.sh / install.ps1 sed-substitute it with the
 # client's own skill dir on copy, so an installed tree must never contain it:
@@ -161,6 +162,7 @@ def lint(root: str | pathlib.Path, known_verbs: set[str]) -> list[Finding]:
             contract = {
                 "firmware-dive-brief.md": DIVE_RETURN_CONTRACT,
                 "firmware-decide-brief.md": DECIDE_RETURN_CONTRACT,
+                "firmware-report-brief.md": REPORT_RETURN_CONTRACT,
             }.get(path.name, RETURN_CONTRACT)
             if contract not in path.read_text():
                 findings.append(Finding(
