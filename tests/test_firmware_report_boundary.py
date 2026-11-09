@@ -109,13 +109,18 @@ def test_only_decide_constructs_the_extended_verified_package():
     assert builders == {"audit_core/firmware_decide.py"}
 
 
-@pytest.mark.parametrize("relative", STAGE4J)
-def test_report_modules_use_only_the_decide_package_boundary(relative):
+# The package boundary is one call site: only the report core may reach it, and
+# the result parser may reach nothing upstream at all.
+@pytest.mark.parametrize("relative,expected", [
+    ("audit_core/firmware_report.py", {"firmware_decide.verified_package"}),
+    ("audit_core/firmware_report_results.py", set()),
+])
+def test_report_modules_use_only_the_decide_package_boundary(relative, expected):
     """Catches Stage 4j re-deriving Stage 4g/4h evidence behind the boundary."""
     used = upstream_attributes(relative)
     assert not {name for name in used
                 if name.split(".")[0] in UPSTREAM}
-    assert used <= {"firmware_decide.verified_package"}
+    assert used == expected
 
 
 def test_report_module_reaches_the_package_boundary():

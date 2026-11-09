@@ -13,8 +13,10 @@ firmware report. Read only that immutable assignment and its frozen references.
 Read the assignment incrementally from that exact path; never partition it,
 never cap its evidence catalog, and never read another chain's assignment. Read
 the result parser and dataclasses in
-`__SKILL_DIR__/audit_core/firmware_report_results.py`; that installed copy is
-authoritative, and the schema below restates it.
+`__SKILL_DIR__/audit_core/firmware_report_results.py` and the literal rule
+lists and bounds in `_style_contract()` in
+`__SKILL_DIR__/audit_core/firmware_report.py`; those installed copies are
+authoritative, and the schema below restates them.
 
 The assignment envelope has exactly `report_generation`, `assignment_sha256`,
 `result_path` and `seed`. Bind `report_generation` and `assignment_sha256`
@@ -88,7 +90,7 @@ the field and the rule, never your text:
 - the em dash, repeated `!!` or `??`, emoji, and any raw url;
 - any absolute path, Windows drive path, internal `files/`, `artifacts/` or
   `reports/` path, or `cba_` table name;
-- one duplicate sentence anywhere in the answer, or four sentences in a row
+- one duplicate sentence anywhere in the answer, or three sentences in a row
   that share the same three-token prefix.
 
 Write plain declarative prose. Prefer one concrete mechanism over three vague

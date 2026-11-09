@@ -55,6 +55,10 @@ FIELD_BOUNDS = {
         "`fix_direction`: `null`, or one entry whose `text` is {low} to {high}",
 }
 
+# The brief spells its small numbers out, so the pinned contract values are
+# compared as words.
+_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
 
 def test_report_brief_restates_the_style_contract_bounds_and_severities():
     squashed = " ".join(text().split())
@@ -68,6 +72,13 @@ def test_report_brief_restates_the_style_contract_bounds_and_severities():
     assert f"schema version {results.RESULT_SCHEMA_VERSION}" in squashed
     for severity in db.FIRMWARE_REPORT_SEVERITIES:
         assert f"`{severity}`" in squashed
+    repetition = report._style_contract()["repetition"]
+    run = repetition["max_consecutive_same_prefix_sentences"]
+    width = repetition["prefix_tokens"]
+    # The lint rejects at the run length, so a brief promising one more
+    # sentence of latitude than the code allows fails here.
+    assert (f"or {_WORDS[run]} sentences in a row that share the same "
+            f"{_WORDS[width]}-token prefix") in squashed
 
 
 def test_report_brief_pins_one_fresh_per_item_worker_and_incremental_reading():

@@ -59,7 +59,7 @@ authoritative):
   phrases, absolute claims, meta phrases, runtime terms, em dash, repeated
   punctuation, raw URLs, internal `files/`, `artifacts/` and `reports/` paths,
   `cba_` table names, emoji, absolute POSIX and Windows paths, duplicate
-  sentences, more than three consecutive same-prefix sentences, and entries
+  sentences, three or more consecutive same-prefix sentences, and entries
   that name nothing their own citations own.
 - The brief must state: one fresh strongest-available worker per item; read the
   one assignment incrementally from its exact path; never partition or cap it;
@@ -135,3 +135,28 @@ Reconciled against `git diff -U0` after the edits: the shipped-prose diff
 contains exactly one `SKILL.md` hunk (the added sentence) and two
 `firmware-report-brief.md` hunks (the envelope paragraph and the anchor list),
 with no other prose file touched and no line endings changed.
+
+## 7. Review fix round 2 (whole branch): intended shipped-prose changes
+
+Written before the edits, as the rule requires.
+
+1. `references/briefs/firmware-report-brief.md`, the prose contract list: the
+   repetition rule said "four sentences in a row that share the same
+   three-token prefix", but `firmware_report_results._lint` rejects once the
+   run reaches `repetition.max_consecutive_same_prefix_sentences`, which is 3.
+   A worker following the brief literally would write a rejected result.
+   Replace "four sentences in a row" with "three sentences in a row". The same
+   off-by-one in section 2 of this file ("more than three consecutive") is
+   corrected to "three or more consecutive", and
+   `tests/test_firmware_report_brief.py` now derives the number from
+   `report._style_contract()["repetition"]` instead of hard-coding it.
+2. `references/briefs/firmware-report-brief.md`, the authority sentence: it
+   named only `audit_core/firmware_report_results.py` as authoritative, but
+   every banned list, bound, formatting rule and renderer literal the parser
+   enforces lives in `_style_contract()` in `audit_core/firmware_report.py`.
+   Name that module and that function alongside the result parser so a worker
+   can discover the literal rules the brief only summarizes.
+
+Reconciled against `git diff -U0` after the edits: the shipped-prose diff
+contains exactly two `firmware-report-brief.md` hunks (the authority sentence
+and the repetition rule), no `SKILL.md` hunk, and no line endings changed.

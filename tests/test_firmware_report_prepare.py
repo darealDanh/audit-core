@@ -206,10 +206,14 @@ def test_prepare_supersedes_the_run_of_a_superseded_decision_package(
 def test_prepare_refuses_a_superseded_generation(completed_pipeline):
     con, run, root = completed_pipeline[0][0][:3]
     first = report.prepare(con, run, root, image_id="target")
+    # The row's own prepared_at, not a fixed wall-clock literal: the contract
+    # refuses a superseded_at earlier than the preparation it ends, so a
+    # hardcoded hour made this test pass or fail by time of day.
     con.execute(
-        "UPDATE cba_firmware_report_runs SET status='superseded',superseded_at=? "
+        "UPDATE cba_firmware_report_runs SET status='superseded',"
+        "superseded_at=prepared_at "
         "WHERE image_id='target' AND report_generation=?",
-        ("2026-11-09 12:00:00", first.report_generation))
+        (first.report_generation,))
     con.commit()
     before = state(con)
     with pytest.raises(report.FirmwareReportError, match="superseded"):

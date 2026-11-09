@@ -214,7 +214,11 @@ def _style_contract_sha256() -> str:
 
 # Renderer-owned literals. Every escaping and path rule the renderer applies
 # comes from the one hashed style contract; these are the fixed sentences the
-# core writes around validated worker text.
+# core writes around validated worker text. Editing any literal below changes
+# rendered report bytes, so it requires bumping `renderer.version` in
+# `_style_contract()`: that version is hashed into the report generation, and
+# without the bump an already-complete report no longer re-renders to its
+# recorded digest and becomes unverifiable.
 _ESCAPED_CHARACTERS = tuple(_style_contract()["escaping"]["characters"])
 _ORDERED_MARKER = re.compile(r"\d{1,9}[.)]")
 _REPORT_TITLE = "Firmware assessment report"
