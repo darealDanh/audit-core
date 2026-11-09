@@ -49,6 +49,23 @@ class ReportPreparationSummary:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class ReportSummary:
+    image_id: str
+    report_generation: str
+    decision_generation: str
+    decision_package_sha256: str
+    style_contract_sha256: str
+    results_path: str
+    results_sha256: str
+    item_count: int
+    report_path: str
+    report_sha256: str
+    index_path: str
+    index_sha256: str
+    status: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class VerifiedFirmwareReportSection:
     ordinal: int
     chain_id: str
@@ -997,6 +1014,117 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
             firmware_decide.FirmwareDecideError, surface.SurfaceError) as exc:
         raise FirmwareReportError("Cannot prepare firmware report") from exc
+    finally:
+        if started:
+            con.rollback()
+
+
+def _completion_identity(verified: _CompleteInputs) -> tuple:
+    """Everything one completion publishes, excluding the stored run row.
+
+    The row itself legitimately moves to `complete` between the two passes
+    when another writer wins the race, so publication compares exactly the
+    reconstructed authority and the canonical bytes that authority owns.
+    """
+    return (verified.package, verified.assignments, verified.results,
+            verified.report_bytes, verified.index_bytes)
+
+
+def _completion_summary(verified: _CompleteInputs) -> ReportSummary:
+    """One complete report as bounded scalars; no prose and no evidence."""
+    generation = verified.assignments.generation
+    return ReportSummary(
+        verified.package.image_id, generation,
+        verified.package.decision_generation, verified.package.package_sha256,
+        _style_contract_sha256(),
+        _results_path(generation, verified.results_sha256),
+        verified.results_sha256, len(verified.assignments.items),
+        _report_path(generation, verified.report_sha256), verified.report_sha256,
+        _index_path(generation, verified.report_sha256), verified.index_sha256,
+        "complete")
+
+
+def _publish_completion(con, verified: _CompleteInputs) -> ReportSummary:
+    """Mark exactly one recorded run complete, under its own status guard."""
+    row, generation = verified.row, verified.assignments.generation
+    now = con.execute("SELECT datetime('now')").fetchone()[0]
+    if now < row["recorded_at"]:
+        # The record-side guard, for completion: a clock that moved backwards
+        # never stamps a report before the results it was rendered from.
+        _fail("Report completion timestamp precedes recording")
+    report_path = _report_path(generation, verified.report_sha256)
+    index_path = _index_path(generation, verified.report_sha256)
+    db.TABLE_SPECS["cba_firmware_report_runs"].validate(dict(
+        row, status="complete", report_path=report_path,
+        report_sha256=verified.report_sha256, report_bytes=verified.report_bytes,
+        index_path=index_path, index_sha256=verified.index_sha256,
+        completed_at=now))
+    cursor = con.execute(
+        "UPDATE cba_firmware_report_runs SET status='complete',report_path=?,"
+        "report_sha256=?,report_bytes=?,index_path=?,index_sha256=?,completed_at=? "
+        "WHERE image_id=? AND report_generation=? AND status='recorded'",
+        (report_path, verified.report_sha256, verified.report_bytes, index_path,
+         verified.index_sha256, now, row["image_id"], generation))
+    if cursor.rowcount != 1:
+        _fail("Report run was completed before this check")
+    return _completion_summary(verified)
+
+
+def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path, *,
+        image_id: str | None = None) -> ReportSummary:
+    """Publish one current recorded firmware report, or verify a complete one.
+
+    The recorded path reconstructs the report purely, installs the immutable
+    report and index, takes `BEGIN IMMEDIATE`, repeats that reconstruction and
+    every byte check, and marks exactly one recorded run complete. The
+    complete path runs the pure verifier alone: a missing or differing
+    artifact is refused, and nothing is installed or repaired.
+    """
+    started = False
+    try:
+        if con.in_transaction:
+            _fail("Report completion requires no active caller transaction")
+        run = firmware_dive._selector(run_dir)
+        con.execute("BEGIN")
+        started = True
+        first = _verify_complete_inputs(con, run, root, image_id=image_id)
+        con.rollback()
+        started = False
+        if first.row["status"] == "complete":
+            return _completion_summary(first)
+        destination = _report_destination(run, first.assignments.generation,
+                                          first.report_sha256)
+        firmware_dive._install(destination, first.contents, run)
+
+        con.execute("BEGIN IMMEDIATE")
+        started = True
+        verified = _verify_complete_inputs(con, run, root, image_id=image_id)
+        if _completion_identity(verified) != _completion_identity(first):
+            _fail("Report inputs changed before publication")
+        if verified.row["status"] == "complete":
+            # Another writer published this exact report between the passes.
+            # The pure verifier already checked its installed bytes, so this
+            # check has nothing left to publish.
+            con.rollback()
+            started = False
+            return _completion_summary(verified)
+        # `_install` falls back to a mode-blind check on an existing
+        # destination, so the committing transaction asserts mode itself.
+        firmware_dive._checked_install(destination, verified.contents, run,
+                                       exact_mode=0o600)
+        summary = _publish_completion(con, verified)
+        con.commit()
+        started = False
+        return summary
+    except FirmwareReportError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareReportError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
+            firmware_decide.FirmwareDecideError, surface.SurfaceError) as exc:
+        raise FirmwareReportError("Cannot complete firmware report") from exc
     finally:
         if started:
             con.rollback()
