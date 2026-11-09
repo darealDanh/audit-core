@@ -18,6 +18,7 @@ from audit_core import db, firmware_decide as decide
 from audit_core import firmware_decide_results as results, firmware_dive as dive
 from tests.test_firmware_decide_input import decision_case, graph_case, prepared  # noqa: F401
 from tests.test_firmware_decide_policy import POLICY, RAW, write_policy
+from tests.test_firmware_decide_package import completed_pipeline  # noqa: F401
 from tests.test_firmware_decide_results import bench_id, decision_assignment  # noqa: F401
 from tests.test_firmware_decide_schema import BASE, RECORDED, COMPLETE, con as schema_con  # noqa: F401
 from tests.test_hunt_gate import state
@@ -260,6 +261,26 @@ def test_row_selection_refuses_missing_ambiguous_or_unrecorded_authority(schema_
     with pytest.raises(decide.FirmwareDecideError, match=match):
         decide._select_decision_row(schema_con, None if damage.startswith("implicit") else image)
     assert state(schema_con) == before
+
+
+@pytest.mark.parametrize("damage", ["malformed", "missing", "foreign"])
+def test_verified_package_rejects_invalid_image_identity(
+        completed_pipeline, damage):
+    """Catches accepting an invalid or non-owner cba_images projection."""
+    pipeline, _ = completed_pipeline
+    con, run, root = pipeline[0][:3]
+    if damage == "malformed":
+        con.execute("UPDATE cba_images SET sha256=? WHERE id='target'", ("A" * 64,))
+    elif damage == "missing":
+        con.execute("DELETE FROM cba_images WHERE id='target'")
+    else:
+        con.execute("UPDATE cba_images SET role='diff-reference' WHERE id='target'")
+    con.commit()
+    before, changes = state(con), con.total_changes
+    with pytest.raises(decide.FirmwareDecideError):
+        decide.verified_package(con, run, root, image_id="target")
+    assert state(con) == before and con.total_changes == changes
+    assert not con.in_transaction
 
 
 def test_row_selection_prefers_latest_preparation_over_completion_time(schema_con):

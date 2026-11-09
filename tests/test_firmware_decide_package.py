@@ -1,5 +1,6 @@
 """Canonical current Stage 4i packages, inert scripts, and failure atomicity."""
 import copy
+import dataclasses
 import hashlib
 import json
 import os
@@ -49,6 +50,34 @@ def test_verified_package_matches_canonical_file_and_regular_0600_scripts(comple
     mode = stat.S_IMODE(target.stat().st_mode)
     assert mode == 0o600 and stat.S_ISREG(target.stat().st_mode)
     assert not os.access(target, os.X_OK)
+
+
+def test_verified_package_exposes_exact_technical_input_and_image_identity(
+        completed_pipeline):
+    pipeline, _ = completed_pipeline
+    con, run, root = pipeline[0][:3]
+    expected_input = decide.verified_input(con, run, root, image_id="target")
+    image = con.execute(
+        "SELECT id,vendor,model,version,role,sha256 FROM cba_images WHERE id=?",
+        ("target",)).fetchone()
+    package = decide.verified_package(con, run, root, image_id="target")
+    assert package.technical_input == expected_input
+    assert package.image == decide.VerifiedFirmwareImageIdentity(*image)
+
+
+def test_image_version_changes_identity_without_changing_stage4i_package(
+        completed_pipeline):
+    pipeline, _ = completed_pipeline
+    con, run, root = pipeline[0][:3]
+    before = decide.verified_package(con, run, root, image_id="target")
+    stored = (before.package_bytes, before.package_sha256,
+              (run / before.package_path).read_bytes())
+    con.execute("UPDATE cba_images SET version='2.0' WHERE id='target'")
+    con.commit()
+    after = decide.verified_package(con, run, root, image_id="target")
+    assert after.image == dataclasses.replace(before.image, version="2.0")
+    assert (after.package_bytes, after.package_sha256,
+            (run / after.package_path).read_bytes()) == stored
 
 
 def test_verified_package_supports_readonly_and_caller_transactions(completed_pipeline):

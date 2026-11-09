@@ -72,6 +72,15 @@ class VerifiedFirmwareDecisionInput:
     dive: firmware_dive.VerifiedDiveDecisionInput
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class VerifiedFirmwareImageIdentity:
+    image_id: str
+    vendor: str
+    model: str
+    version: str
+    role: str
+    sha256: str
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class DecisionPreparationSummary:
@@ -659,6 +668,8 @@ class VerifiedFirmwareDecisionPackage:
     package_path: str
     package_sha256: str
     package_bytes: bytes
+    technical_input: VerifiedFirmwareDecisionInput
+    image: VerifiedFirmwareImageIdentity
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -675,6 +686,7 @@ class _DerivedDecision:
 @dataclasses.dataclass(frozen=True, slots=True)
 class _DecisionCapture:
     row: object
+    technical_input: VerifiedFirmwareDecisionInput
     policy: DecisionPolicy
     validated: object
     derived: _DerivedDecision
@@ -894,7 +906,8 @@ def _capture_decision(con, run, root, image_id):
     contents = {"decision.json": package_raw}
     contents.update({item.path: item.content for item in script_values})
     return _DecisionCapture(
-        row, policy, validated, derived, package_raw, package_sha256, contents)
+        row, inputs, policy, validated, derived, package_raw, package_sha256,
+        contents)
 
 
 def _package_path(row, package_sha256):
@@ -997,6 +1010,29 @@ def check(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             con.rollback()
 
 
+def _verified_image_identity(con, owner_id) -> VerifiedFirmwareImageIdentity:
+    from audit_core import firmware_decide_results as results
+    row = con.execute(
+        "SELECT id,vendor,model,version,role,sha256 FROM cba_images WHERE id=?",
+        (owner_id,)).fetchone()
+    if row is None:
+        raise FirmwareDecideError("Decision image identity is missing")
+    values = tuple(row)
+    try:
+        image = VerifiedFirmwareImageIdentity(
+            results._image(values[0]),
+            results._copied_text(values[1], "image vendor"),
+            results._copied_text(values[2], "image model"),
+            results._copied_text(values[3], "image version"),
+            _enum(values[4], db.IMAGE_ROLES, "image role"),
+            results._digest(values[5], "image sha256"))
+    except results.FirmwareDecideResultError as exc:
+        raise FirmwareDecideError("Decision image identity is invalid") from exc
+    if image.image_id != owner_id or image.role != "target":
+        raise FirmwareDecideError("Decision image identity differs from package owner")
+    return image
+
+
 def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         root: str | pathlib.Path, *,
         image_id: str | None = None) -> VerifiedFirmwareDecisionPackage:
@@ -1009,6 +1045,7 @@ def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         run = firmware_dive._selector(run_dir)
         captured = _capture_decision(con, run, root, image_id)
         _require_complete_row(captured)
+        image = _verified_image_identity(con, captured.row["image_id"])
         destination = run / pathlib.PurePosixPath(
             _package_path(captured.row, captured.package_sha256)).parent
         firmware_dive._checked_install(
@@ -1034,7 +1071,7 @@ def verified_package(con: sqlite3.Connection, run_dir: str | pathlib.Path,
             captured.validated.open_preconditions,
             captured.validated.bench_tests, scripts,
             captured.row["package_path"], captured.package_sha256,
-            captured.package_bytes)
+            captured.package_bytes, captured.technical_input, image)
     except FirmwareDecideError:
         raise
     except (sqlite3.Error, db.DbError) as exc:
