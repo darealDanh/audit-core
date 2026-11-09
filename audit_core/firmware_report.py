@@ -11,6 +11,7 @@ import dataclasses
 import hashlib
 import json
 import pathlib
+import re
 import sqlite3
 
 from audit_core import db, firmware_chain, firmware_chain_results
@@ -191,6 +192,21 @@ def _style_contract() -> dict:
 
 def _style_contract_sha256() -> str:
     return _digest(_canonical(_style_contract()))
+
+
+# Renderer-owned literals. Every escaping and path rule the renderer applies
+# comes from the one hashed style contract; these are the fixed sentences the
+# core writes around validated worker text.
+_ESCAPED_CHARACTERS = tuple(_style_contract()["escaping"]["characters"])
+_ORDERED_MARKER = re.compile(r"\d{1,9}[.)]")
+_REPORT_TITLE = "Firmware assessment report"
+_STEPS_PREAMBLE = "Source-level verification guide; no runtime execution is claimed."
+_EMPTY_REPORT = ("No technical chain is present in the current completed "
+                 "decision package.")
+_PRE_AUTH_LINE = "Pre-authentication path: {state}."
+_SEVERITY_LINE = "Severity: {severity}. {justification}"
+_PROVISIONAL_LINE = "Provisional: unresolved preconditions {precondition_ids}."
+_FIX_LINE = "Fix direction: {text}"
 
 
 def _excerpt(value: object, label: str) -> str:
@@ -403,10 +419,27 @@ def _result_path(generation, ordinal, chain_id) -> str:
     return f"files/firmware-report-results/{generation}/{ordinal}-{chain_id}.json"
 
 
-def _results(generation) -> tuple[str, bytes]:
-    """The canonical zero-result manifest for a zero-chain report."""
+def _result_artifact_path(generation, chain_id, result_sha256) -> str:
+    """The immutable destination one recorded worker result owns."""
+    return (f"artifacts/firmware-report-results/{generation}/{chain_id}/"
+            f"{result_sha256}/result.json")
+
+
+def _result_entry(generation, validated, result_sha256) -> dict:
+    """One recorded result as the result manifest records it."""
+    return {
+        "ordinal": validated.ordinal,
+        "chain_id": validated.chain_id,
+        "result_path": _result_artifact_path(
+            generation, validated.chain_id, result_sha256),
+        "result_sha256": result_sha256,
+    }
+
+
+def _results(generation, entries=()) -> tuple[str, bytes]:
+    """The canonical result manifest one recorded report owns, in ordinal order."""
     raw = _canonical({"schema_version": SCHEMA_VERSION,
-                      "report_generation": generation, "results": []})
+                      "report_generation": generation, "results": list(entries)})
     return _digest(raw), raw
 
 
@@ -622,6 +655,274 @@ def _install_check(run, destination, assignments, *, installed):
             firmware_dive._install(results, assignments.results_contents, run)
 
 
+def _escape(value: str) -> str:
+    """One displayed string that cannot introduce Markdown syntax."""
+    text = value.strip(" ")
+    for char in _ESCAPED_CHARACTERS:
+        text = text.replace(char, "\\" + char)
+    if text[:1] in ("-", "+"):
+        return "\\" + text
+    marker = _ORDERED_MARKER.match(text)
+    if marker is None:
+        return text
+    # An ordered-list marker only starts a list through its punctuation.
+    return text[:marker.end() - 1] + "\\" + text[marker.end() - 1:]
+
+
+def _inline(value: str) -> str:
+    """One core-owned identifier as a code span, or as escaped text."""
+    text = value.strip(" ")
+    return f"`{text}`" if "`" not in text else _escape(text)
+
+
+def _display(ref, catalog, prefixes) -> str:
+    """The exact display citation one catalog reference is rendered as.
+
+    Run-relative storage paths and absolute roots are never displayed, so a
+    reference whose component path is internal keeps only its reference.
+    """
+    from audit_core import firmware_report_results as results
+    entry = catalog.get(ref)
+    _require(entry is not None, "Report cites a reference outside its assignment catalog")
+    path = results._safe(entry["component_path"], prefixes)
+    if path is None:
+        return f"evidence {_inline(ref)}"
+    location = results._safe(entry["location"], prefixes)
+    subject = path if location is None else f"{path}:{location}"
+    return f"{_inline(subject)} [{_inline(ref)}]"
+
+
+def _cited(entry, catalog, prefixes) -> str:
+    """One worker text entry with its deterministic display citations."""
+    citations = "; ".join(_display(ref, catalog, prefixes)
+                          for ref in entry.citation_refs)
+    return f"{_escape(entry.text)} ({citations})"
+
+
+def _paragraphs(heading, entries, catalog, prefixes) -> list[str]:
+    lines = ["", f"## {heading}"]
+    for index, entry in enumerate(entries):
+        if index:
+            lines.append("")
+        lines.append(_cited(entry, catalog, prefixes))
+    return lines
+
+
+def _pre_auth(value, preconditions, contract) -> str:
+    """The fixed pre-authentication statement one chain is published with."""
+    _require(value != "unknown" or preconditions,
+             "Unknown pre-authentication requires one open precondition")
+    return contract["pre_auth_mapping"][value].format(
+        precondition_ids=", ".join(_inline(item) for item in preconditions))
+
+
+def _section(image, seed, validated, contract) -> list[str]:
+    """One chain's exact one-H1, five-H2 section."""
+    affected, summary, root_cause, steps, impact = (
+        contract["renderer"]["heading_template"])
+    prefixes = contract["formatting"]["internal_path_prefixes"]
+    catalog = {entry["ref"]: entry for entry in seed["evidence_catalog"]}
+    chain, answer = seed["chain"], validated.answer
+    lines = ["", contract["renderer"]["section_h1"].format(
+        chain_id=_inline(chain["chain_id"]),
+        title_detail=_escape(answer.title_detail))]
+    lines.extend(("", f"## {affected}",
+                  f"- Image: {_inline(_image_label(image))}",
+                  f"- Image SHA-256: {_inline(image.sha256)}",
+                  "- Chain members: " + ", ".join(
+                      _inline(member) for member in chain["member_ids"])))
+    lines.extend(_paragraphs(summary, answer.summary, catalog, prefixes))
+    lines.extend(_paragraphs(root_cause, answer.root_cause, catalog, prefixes))
+    lines.extend(("", f"## {steps}", _STEPS_PREAMBLE, ""))
+    lines.extend(f"{number}. {_cited(entry, catalog, prefixes)}"
+                 for number, entry in enumerate(answer.reproduction_steps, 1))
+    lines.extend(_paragraphs(impact, answer.impact, catalog, prefixes))
+    lines.extend(("", _PRE_AUTH_LINE.format(state=_pre_auth(
+        chain["pre_auth"], validated.open_precondition_ids, contract)),
+        _SEVERITY_LINE.format(
+            severity=answer.severity.upper(),
+            justification=_cited(answer.severity_justification, catalog, prefixes))))
+    if validated.open_precondition_ids:
+        lines.append(_PROVISIONAL_LINE.format(precondition_ids=", ".join(
+            _inline(item) for item in validated.open_precondition_ids)))
+    if answer.fix_direction is not None:
+        lines.append(_FIX_LINE.format(
+            text=_cited(answer.fix_direction, catalog, prefixes)))
+    return lines
+
+
+def _image_label(image) -> str:
+    return f"{image.vendor} {image.model} {image.version}"
+
+
+def _render(package, assignments, results) -> tuple[bytes, bytes, tuple]:
+    """The canonical Markdown, report index and ordered sections of one report.
+
+    This is the only code that writes Markdown syntax. Every displayed string
+    is escaped here; worker text never reaches the document unescaped and
+    never controls headings, ordering, inline code or citations.
+    """
+    contract = _style_contract()
+    image = package.image
+    lines = [_REPORT_TITLE,
+             f"Image: {_inline(_image_label(image))} ({_inline(image.sha256)})",
+             f"Decision: {_inline(package.decision)} "
+             f"({_inline(package.primary_reason)})",
+             contract["renderer"]["source_level_preamble"]]
+    _require(len(results) == len(assignments.items),
+             "Report requires exactly one result for every assignment")
+    sections = []
+    for ordinal, item in enumerate(assignments.items, 1):
+        _require(item["ordinal"] == ordinal,
+                 "Report assignments require ascending ordinals")
+        validated = results.get(item["chain_id"])
+        _require(validated is not None, "Report result is absent for an assigned chain")
+        seed = json.loads(assignments.contents[
+            f"items/{ordinal}-{item['chain_id']}.json"])["seed"]
+        _require(seed["chain"]["rank"] == ordinal,
+                 "Chain rank must equal its report ordinal")
+        lines.extend(_section(image, seed, validated, contract))
+        sections.append(VerifiedFirmwareReportSection(
+            ordinal, item["chain_id"], validated.severity,
+            seed["chain"]["pre_auth"], validated.citation_refs))
+    if not sections:
+        lines.extend(("", _EMPTY_REPORT))
+    raw = ("\n".join(lines) + "\n").encode()
+    index = _canonical({
+        "schema_version": SCHEMA_VERSION,
+        "image_id": package.image_id,
+        "report_generation": assignments.generation,
+        "decision_generation": package.decision_generation,
+        "decision_package_sha256": package.package_sha256,
+        "report_sha256": _digest(raw),
+        "sections": [{"ordinal": section.ordinal, "chain_id": section.chain_id,
+                      "severity": section.severity, "pre_auth": section.pre_auth,
+                      "citation_refs": list(section.citation_refs)}
+                     for section in sections],
+    })
+    _require(len(index) <= MAX_REPORT_INDEX_BYTES,
+             "Report index exceeds its byte cap")
+    return raw, index, tuple(sections)
+
+
+def _report_path(generation, report_sha256) -> str:
+    return f"artifacts/firmware-report/{generation}/{report_sha256}/report.md"
+
+
+def _index_path(generation, report_sha256) -> str:
+    return f"artifacts/firmware-report/{generation}/{report_sha256}/report.json"
+
+
+def _report_destination(run, generation, report_sha256):
+    return run / "artifacts" / "firmware-report" / generation / report_sha256
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class _CompleteInputs:
+    row: dict
+    package: firmware_decide.VerifiedFirmwareDecisionPackage
+    assignments: _Assignments
+    results: tuple
+    results_sha256: str
+    report_sha256: str
+    report_bytes: bytes
+    index_sha256: str
+    index_bytes: bytes
+    sections: tuple[VerifiedFirmwareReportSection, ...]
+    contents: dict
+
+
+def _current_run(con, image_id) -> dict:
+    """The unique highest preparation one image has; ties are refused."""
+    rows = surface._query(
+        con, "SELECT * FROM cba_firmware_report_runs WHERE image_id=?", (image_id,))
+    _require(rows, "Image has no report preparation")
+    top = max(row["preparation_ordinal"] for row in rows)
+    latest = [row for row in rows if row["preparation_ordinal"] == top]
+    _require(len(latest) == 1, "Image has more than one current report preparation")
+    return latest[0]
+
+
+def _verify_complete_inputs(con, run, root, *,
+                            image_id: str | None = None) -> _CompleteInputs:
+    """Reconstruct one current recorded or complete report without writing.
+
+    The current package, assignments, recorded results, result manifest and
+    canonical report bytes are rebuilt from authority, and any installed
+    complete artifact is verified. Nothing is installed or repaired here.
+    """
+    from audit_core import firmware_report_results as results
+    package = firmware_decide.verified_package(con, run, root, image_id=image_id)
+    assignments = _assignments(package)
+    row = _current_run(con, package.image_id)
+    _require(row["report_generation"] == assignments.generation,
+             "The current report preparation is not the current decision package")
+    db.TABLE_SPECS["cba_firmware_report_runs"].validate(row)
+    _require(row["status"] in ("recorded", "complete"),
+             "The current firmware report has no recorded results")
+    for key, value in _frozen(package, assignments).items():
+        _require(row[key] == value, "Stored report differs from current authority")
+    stored = surface._query(
+        con, "SELECT * FROM cba_firmware_report_items WHERE image_id=? "
+        "AND report_generation=? ORDER BY ordinal",
+        (package.image_id, assignments.generation))
+    expected = _item_rows(package, assignments)
+    _require(len(stored) == len(expected),
+             "Stored report items differ from current authority")
+    validated, entries = {}, []
+    for item, values in zip(stored, expected):
+        _require(all(item[key] == value for key, value in values.items()),
+                 "Stored report items differ from current authority")
+        db.TABLE_SPECS["cba_firmware_report_items"].validate(item)
+        _require(item["result_sha256"] is not None,
+                 "A current report item is not recorded")
+        # `assignment_sha256` identifies the seed, not the installed envelope,
+        # so the exact current envelope bytes are the comparison.
+        raw = firmware_dive._read(run, item["assignment_path"],
+                                  maximum=MAX_ASSIGNMENT_BYTES)
+        _require(raw == assignments.contents[
+            f"items/{item['ordinal']}-{item['chain_id']}.json"],
+            "Installed report assignment differs from current authority")
+        result_raw = firmware_dive._read(
+            run, _result_artifact_path(assignments.generation, item["chain_id"],
+                                       item["result_sha256"]),
+            item["result_sha256"], results.MAX_RESULT_BYTES)
+        value = results.validate(results._parse(result_raw), raw)
+        _require(results._canonical(value) == result_raw,
+                 "Recorded report result is not canonical")
+        _require((value.image_id, value.report_generation, value.chain_id,
+                  value.ordinal) == (package.image_id, assignments.generation,
+                                     item["chain_id"], item["ordinal"]),
+                 "Recorded report result differs from its assignment")
+        validated[item["chain_id"]] = value
+        entries.append(_result_entry(assignments.generation, value,
+                                     item["result_sha256"]))
+    results_sha256, results_raw = _results(assignments.generation, entries)
+    _require((row["results_sha256"], row["results_path"]) == (
+        results_sha256, _results_path(assignments.generation, results_sha256)),
+        "Stored report result manifest differs from current authority")
+    firmware_dive._checked_install(
+        _results_destination(run, assignments.generation, results_sha256),
+        {"results.json": results_raw}, run, exact_mode=0o600)
+    report_bytes, index_bytes, sections = _render(package, assignments, validated)
+    report_sha256, index_sha256 = _digest(report_bytes), _digest(index_bytes)
+    contents = {"report.md": report_bytes, "report.json": index_bytes}
+    if row["status"] == "complete":
+        _require((row["report_path"], row["report_sha256"], row["report_bytes"],
+                  row["index_path"], row["index_sha256"]) == (
+            _report_path(assignments.generation, report_sha256), report_sha256,
+            report_bytes, _index_path(assignments.generation, report_sha256),
+            index_sha256),
+            "Stored complete report row differs from the canonical report")
+        firmware_dive._checked_install(
+            _report_destination(run, assignments.generation, report_sha256),
+            contents, run, exact_mode=0o600)
+    return _CompleteInputs(
+        row, package, assignments,
+        tuple(validated[item["chain_id"]] for item in stored), results_sha256,
+        report_sha256, report_bytes, index_sha256, index_bytes, sections, contents)
+
+
 def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         root: str | pathlib.Path, *,
         image_id: str | None = None) -> ReportPreparationSummary:
@@ -673,4 +974,44 @@ def prepare(con: sqlite3.Connection, run_dir: str | pathlib.Path,
         raise FirmwareReportError("Cannot prepare firmware report") from exc
     finally:
         if started:
+            con.rollback()
+
+
+def verified_report(con: sqlite3.Connection, run_dir: str | pathlib.Path,
+        root: str | pathlib.Path, *,
+        image_id: str | None = None) -> VerifiedFirmwareReport:
+    """Return one current complete report without writing or repairing.
+
+    Only the pure verifier runs here, inside a read transaction. A missing or
+    differing artifact, a stale package, an ambiguous preparation or an
+    incomplete lifecycle is refused; history is never used as a fallback.
+    """
+    owned = False
+    try:
+        if not con.in_transaction:
+            con.execute("BEGIN")
+            owned = True
+        run = firmware_dive._selector(run_dir)
+        verified = _verify_complete_inputs(con, run, root, image_id=image_id)
+        _require(verified.row["status"] == "complete",
+                 "The current firmware report is not complete")
+        generation = verified.assignments.generation
+        return VerifiedFirmwareReport(
+            verified.package.image_id, generation,
+            verified.package.decision_generation,
+            verified.package.package_sha256,
+            _report_path(generation, verified.report_sha256),
+            verified.report_sha256, verified.report_bytes,
+            _index_path(generation, verified.report_sha256),
+            verified.index_sha256, verified.sections)
+    except FirmwareReportError:
+        raise
+    except (sqlite3.Error, db.DbError) as exc:
+        raise FirmwareReportError("database operation failed") from exc
+    except (OSError, ValueError, TypeError, KeyError, RecursionError,
+            firmware_chain.FirmwareChainError, firmware_dive.FirmwareDiveError,
+            firmware_decide.FirmwareDecideError, surface.SurfaceError) as exc:
+        raise FirmwareReportError("Cannot verify firmware report") from exc
+    finally:
+        if owned:
             con.rollback()

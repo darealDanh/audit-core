@@ -33,7 +33,8 @@ _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 _TOKEN = re.compile(r"[0-9a-z]+")
 _TERMINATORS = ".?!"
 _CATALOG_KINDS = ("finding", "edge", "observation", "precondition")
-_CATALOG_RUNGS = db.FIRMWARE_CHAIN_EVIDENCE_RUNGS + ("unresolved",)
+_CATALOG_RUNGS = (db.FIRMWARE_FP_EVIDENCE_RUNGS + db.FIRMWARE_CHAIN_EVIDENCE_RUNGS
+                  + db.FIRMWARE_DIVE_EVIDENCE_RUNGS + ("unresolved",))
 _CATALOG_KEYS = ("ref", "kind", "owner_id", "component_path", "location",
                  "field", "evidence_rung", "excerpt")
 _SEED_KEYS = ("schema_version", "image", "decision", "ordinal", "chain", "members",
