@@ -255,8 +255,8 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 
 ## Firmware surface mapping (Stage 4d)
 
-The shared CLI has 31 verbs, including `surface`, `hunt`, firmware
-`fpcheck`, `dive`, and `decide`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
+The shared CLI has 32 verbs, including `surface`, `hunt`, firmware
+`fpcheck`, `dive`, `decide` and `firmware-report`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
 `diff`, `surface`); the separate `firmware-audit` skill tree is still planned. Start with an initialized
 run, an acquired `target` image, and its image-scoped triage manifest. In an installed
 copy, use that client's skill directory as the path to `audit.py`.
@@ -415,8 +415,9 @@ does not adjudicate false positives, set final severity, execute or emulate
 firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
 scan scaling. Firmware `fpcheck`, `chain`, `dive` and `decide` are merged
-locally; Stage 4i review fixes are merged at `9e4632c`. Stage 4j `report`
-is next. The Asus golden and the
+locally; Stage 4i review fixes are merged at `9e4632c`. Stage 4j
+`firmware-report` is implemented and reviewed on branch
+`stage4j-firmware-report`, with merge pending. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
 
@@ -424,7 +425,8 @@ milestone and restructure.
 
 Stage 4f is merged into local `main` at `303232e` after clean scoped re-review;
 `chain`, `dive` and Stage 4i `decide` are also merged; Stage 4i review fixes
-are merged at `9e4632c`; Stage 4j `report` is next. Firmware review uses
+are merged at `9e4632c`; Stage 4j `firmware-report` is implemented on its
+branch and not yet merged. Firmware review uses
 the shared CLI; the
 separate `firmware-audit` skill tree remains planned. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
@@ -541,8 +543,9 @@ paid semantic quality, recall and audit-cost improvement remain unmeasured.
 Stage 4i is merged into local `main` at `02cb6c0`. Review fixes through
 `92562c4` passed all eight `make all` gates (8,682
 tests; six migrations; 0/13,174 unexecuted statements); the final
-post-documentation `make all` also passed, the fixes are merged into local `main` at `9e4632c` (fast-forward), and nothing is pushed. Stage 4j `report` is the
-next implementation stage and must consume only a verified current package.
+post-documentation `make all` also passed, the fixes are merged into local `main` at `9e4632c` (fast-forward), and nothing is pushed. Stage 4j
+`firmware-report` consumes only the verified current package and is described
+below.
 
 Stage 4i adds `audit.py decide` after the current firmware chain and dive gates.
 `--prepare` freezes the current graph, exact non-contested dive overlay, and a
@@ -601,6 +604,82 @@ contract. Mutation, paid audit/milestone, Asus golden, second indicator snapshot
 real hardware/corpus execution, Linux/alternate-interpreter execution, the
 separate firmware skill tree and monorepo/submodule decision remain open.
 Triage remains upsert-only; Stage 4d retains its orphan-result scan scaling limit.
+
+## Firmware maintainer reports (Stage 4j)
+
+Stage 4j is implemented and independently reviewed — per task and across the
+whole branch — on `stage4j-firmware-report` (commits `b496152..HEAD`). It is
+not merged into local `main`, and its final `make all` has not been run.
+
+Stage 4j adds the `firmware-report` verb, which turns one current completed
+Stage 4i decision package into one immutable maintainer-facing Markdown report.
+Its only input boundary is `firmware_decide.verified_package`; it never reads
+Stage 4g/4h/4i tables and never falls back to a historical package.
+
+```bash
+python3 audit.py firmware-report --run RUN --root ROOT --prepare [--image-id ID] [--json]
+python3 audit.py firmware-report --run RUN --record RESULT [--json]
+python3 audit.py firmware-report --run RUN --root ROOT --check [--image-id ID] [--json]
+```
+
+`--prepare` freezes one bounded assignment per current chain and prints only
+scalars: image, report generation, manifest path, item count and state. One
+fresh worker per chain writes strict result-only JSON — explanation and the
+final severity judgment — and `--record` imports one DONE result at a time;
+FAILED is never recorded. `--check` renders the canonical report purely,
+installs `report.md` and `report.json`, repeats every reconstruction and byte
+check under an immediate transaction, and marks exactly one recorded run
+complete; on an already-complete run it verifies the installed bytes and never
+repairs them. `firmware_report.verified_report` returns the current complete
+report read-only.
+
+Deterministic code owns chain selection, section ordering, the
+pre-authentication statement, provisional labeling, headings, layout, the
+result manifest and publication. A hashed style contract owns the field bounds,
+the banned filler, absolute, meta and runtime vocabularies, the formatting bans
+(em dash, repeated punctuation, emoji, raw URLs, absolute and internal paths,
+`cba_` table names), the repetition limits, the citation rules and the severity
+enum; the lint rejects a whole result by item, field and rule, never by quoting
+the worker's text. The authority modules are `audit_core/firmware_report.py`
+and `audit_core/firmware_report_results.py`; the lifecycle tables are
+`cba_firmware_report_runs` and `cba_firmware_report_items`, bringing the schema
+to 47 tables, 46 contracts and eight migrations across 32 verbs.
+
+The latest preparation is current: every publishing prepare takes the next
+preparation ordinal, selection uses only the highest pending, recorded or
+complete generation, ties are refused, and an active generation frozen on a
+package that is no longer current is superseded (row and artifacts kept, never
+recordable).
+
+Canonical run-relative artifacts are:
+
+- `files/firmware-report/<report-generation>/manifest.json`
+- `files/firmware-report/<report-generation>/items/<ordinal>-<chain-id>.json`
+- `files/firmware-report-results/<report-generation>/<ordinal>-<chain-id>.json`
+- `artifacts/firmware-report-results/<report-generation>/<chain-id>/<result-sha256>/result.json`
+- `artifacts/firmware-report-results/<report-generation>/<results-sha256>/results.json`
+- `artifacts/firmware-report/<report-generation>/<report-sha256>/report.md`
+- `artifacts/firmware-report/<report-generation>/<report-sha256>/report.json`
+
+See `references/briefs/firmware-report-brief.md` and the Stage 4j section of
+`SKILL.md` for the one-worker-per-chain route, and
+`docs/superpowers/specs/2026-11-09-stage4j-firmware-report-design.md` for its
+contract.
+
+The report is source-level only: it describes what the code shows and claims no
+execution. A publication refused by the second pass leaves its content-addressed
+report directory installed with no row referencing it. The Stage 4j lifecycle
+fixtures rebuild a full Stage 4g–4i pipeline and are slow (roughly sixteen
+minutes for the focused Stage 4j selection). A second report generation over the
+same unchanged decision package is refused while one is still active, so a
+corrected image row or a bumped style contract needs a fresh Stage 4i decision
+preparation first. Mutation, paid audit/milestone, Asus golden, second indicator
+snapshot, real hardware/corpus execution, Linux/alternate-interpreter execution,
+the separate firmware skill tree and the monorepo/submodule decision remain
+open; triage stays upsert-only and Stage 4d keeps its orphan-result scan scaling
+limit. The next stage is the overall Stage 4 `firmware-audit` milestone (tplink
+at least 12/19 within $45, with the Asus golden also passing), which inherits
+every one of those open prerequisites.
 
 ## Layout
 

@@ -52,7 +52,7 @@ references/               phase deep-dives, lessons learned, dispatch brief
                           templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
 
-audit.py                  the CLI: 31 verbs, argparse, one cmd_* per verb
+audit.py                  the CLI: 32 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
 audit_core/schema.sql     the audit.db schema
 audit_core/baseline-pre-stage3.sql
@@ -184,7 +184,7 @@ databases need triage of both acquired images to populate the new manifests.
 
 | Module | Lines | Responsibility |
 |---|---|---|
-| `db.py` | 1706 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f–4i review, chain, dive and decision row validation. |
+| `db.py` | 1877 | Validated, bounded access to a run's `audit.db`; schema contracts, migrations, merge-on-replace, image-qualified firmware-unit identity, and Stage 4f–4j review, chain, dive, decision and report row validation. |
 | `coverage.py` | 275 | Coverage accounting: the denominator, not a feeling. Inventory vs analyzed, a reason for every gap, and a gate. |
 | `chains.py` | 246 | Propose cross-group finding pairs that compose into an exploit chain; record composed ones. |
 | `extract.py` | 231 | Extract once, fan out without a cap (R1). |
@@ -214,6 +214,8 @@ databases need triage of both acquired images to populate the new manifests.
 | `firmware_dive.py` | 1372 | Prepare immutable question generations, gate acquisitions/results, reconstruct completion/current overlays and exact decision input. |
 | `firmware_decide.py` | 980 | Parse separately hashed operator policy, verify current graph/dive inputs, prepare global assignments, derive policy projections and publish verified current acquisition packages. |
 | `firmware_decide_results.py` | 916 | Parse bounded hostile decision results, enforce exact chain/precondition/bench ownership and carried state, and atomically import inert script/result bytes. |
+| `firmware_report.py` | 1174 | Own the versioned report style contract, freeze per-chain assignments from one verified decision package, and publish or verify the immutable maintainer report. |
+| `firmware_report_results.py` | 838 | Parse bounded hostile report results, bind them to their exact assignment, lint prose and citations deterministically, and import the content-addressed result manifest atomically. |
 | `sweep.py` | 184 | Sweep a confirmed bug pattern across the corpus. |
 | `skill_lint.py` | 170 | The shipped skill against the economics contract. |
 | `annotations.py` | 123 | An append-only journal: comprehension that survives a restart. |
@@ -227,7 +229,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `text.py` | 66 | Normalization shared by dedup, golden scoring and identity evidence. |
 | `identity.py` | 54 | An asserted identity needs evidence that is not the component's own name. |
 
-### The thirty-one verbs
+### The thirty-two verbs
 
 ```
 init  selftest  preflight  brief  lint-skill            setup and self-check
@@ -236,12 +238,12 @@ extract  coverage  sweep    patterns                    breadth
 dedup    chain    pivot     identify                    quality
 budget   bench    indicators  rerate                  measurement
 qualify  acquire  triage  diff  surface  hunt  fpcheck  dive  decide
-                                                       firmware phases
+firmware-report                                        firmware phases
 ```
 
-### The shared firmware boundary through Stage 4i
+### The shared firmware boundary through Stage 4j
 
-Stages 4b through 4i add firmware behavior to the shared core without pretending that the
+Stages 4b through 4j add firmware behavior to the shared core without pretending that the
 separate `firmware-audit` skill exists. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
 writes file, ELF, and evidenced boot-service rows; it does not infer open ports
@@ -402,7 +404,10 @@ Stage 4d check's retained-orphan result scan scaling. Firmware review is
 implemented as Stage 4f below and merged into local `main` at `303232e` after
 clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
 `30ca3ba`; `dive` is merged locally at `dcfb01e`. Stage 4i `decide` is merged
-locally at `02cb6c0`; its review fixes are merged at `9e4632c`; Stage 4j `report` is next.
+locally at `02cb6c0`; its review fixes are merged at `9e4632c`. Stage 4j
+`firmware-report` is implemented and independently reviewed on branch
+`stage4j-firmware-report` (commits `b496152..HEAD`); its merge into local
+`main` and its final `make all` are pending.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -639,7 +644,8 @@ nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
 the complete fix wave passed scoped re-review. Stage 4g is merged locally but
 unpushed. Stage 4h `dive` and Stage 4i `decide` are merged locally; Stage 4i
-review fixes are merged at `9e4632c`. Stage 4j `report` is next.
+review fixes are merged at `9e4632c`. Stage 4j `firmware-report` is
+implemented and reviewed on its branch, with merge pending.
 Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
@@ -649,9 +655,11 @@ audit, separate firmware skill tree, and monorepo/submodule decision remain open
 Stage 4h is merged into local `main` at `dcfb01e`; nothing is pushed. Six
 additive tables retain dive runs, questions, receipts, observations,
 dependencies and acquisitions. Stage 4h brought the schema to 44 tables and
-43 TableSpec contracts; Stage 4i adds one table/contract; all four earlier
-migrations are unchanged, and the Stage 4i review fixes add two migrations
-(`superseded_at`, `preparation_ordinal`) for six in total. Question/packet
+43 TableSpec contracts; Stage 4i adds one table/contract and Stage 4j adds two
+(`cba_firmware_report_runs`, `cba_firmware_report_items`) for 47 tables and 46
+contracts; all four earlier migrations are unchanged, the Stage 4i review fixes
+add two migrations (`superseded_at`, `preparation_ordinal`) and Stage 4j adds
+two table migrations, for eight in total. Question/packet
 authority, preparation, bounded fail-closed acquisition, strict result
 publication, exact completion/journals/current overlays, Stage 4g consumption,
 bounded CLI and installed worker routing are implemented below.
@@ -1084,11 +1092,112 @@ historical.
 
 An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
 
-Stage 4j `report` is next; the Stage 4i review fixes are merged. Mutation, paid
+The Stage 4i review fixes are merged. Mutation, paid
 audit/milestone, Asus golden, second indicator snapshot, real hardware/corpus,
 Linux/alternate-interpreter execution, separate firmware skill tree and
 monorepo/submodule decision remain open. Triage stays upsert-only; Stage 4d
 retains its orphan-result scan scaling limitation.
+
+### Stage 4j — firmware maintainer reports
+
+Stage 4j is implemented and independently reviewed per task and across the
+whole branch on `stage4j-firmware-report` (commits `b496152..HEAD`). It is not
+merged into local `main`, and its final `make all` has not been run; no harness
+measurement is claimed here beyond the gates named below.
+
+`audit_core/firmware_report.py` owns the versioned style contract, the frozen
+per-chain assignment seeds, the report generation, the manifest and the
+artifact-first lifecycle. `audit_core/firmware_report_results.py` parses one
+bounded worker result, binds it to its exact assignment bytes, applies the
+deterministic prose and citation lint, and imports the content-addressed result
+manifest atomically. The sole input boundary is
+`firmware_decide.verified_package`: no Stage 4g/4h/4i table is queried here, and
+history is never a fallback.
+
+Two additive tables carry the lifecycle. `cba_firmware_report_runs` holds one
+row per image and report generation, keyed by `(image_id, report_generation)`,
+with the decision generation and package digest, the style contract digest, the
+manifest, results, report and index paths and digests, the report bytes and the
+preparation ordinal. `cba_firmware_report_items` holds one row per chain, keyed
+by `(image_id, report_generation, chain_id)` and unique per `ordinal`, with the
+assignment path and digest and the recorded result path and digest. Schema and
+migrations now stand at 47 tables, 46 TableSpec contracts and eight migrations;
+`audit.py` declares 32 verbs.
+
+The style contract is one hashed object: the field bounds, the banned filler,
+absolute, meta and runtime vocabularies, the formatting bans (em dash, repeated
+`!!`/`??`, emoji, raw URLs, absolute POSIX and Windows paths, internal
+`files/`, `artifacts/` and `reports/` prefixes, `cba_` table names), the
+repetition rule (no duplicate normalized sentence; three consecutive sentences
+sharing a three-token prefix are refused), the citation rules, the renderer
+literals and the severity enum. Its digest is bound into the report generation,
+so editing a renderer sentence without bumping `renderer.version` would make an
+already-complete report unverifiable.
+
+```bash
+python3 audit.py firmware-report --run RUN --root ROOT --prepare [--image-id ID] [--json]
+python3 audit.py firmware-report --run RUN --record RESULT [--json]
+python3 audit.py firmware-report --run RUN --root ROOT --check [--image-id ID] [--json]
+```
+
+`--prepare` freezes one assignment per current chain and prints bounded scalars
+only: image, report generation, manifest path, item count and state. `--record`
+imports one DONE worker result; FAILED is never recorded, and a complete
+generation refuses every further record as an error rather than a silent no-op.
+`--check` reconstructs the report purely, installs the immutable `report.md`
+and `report.json`, then repeats the reconstruction and every byte check under
+`BEGIN IMMEDIATE` before marking exactly one recorded run complete; on an
+already-complete run it only verifies and never repairs.
+`firmware_report.verified_report` is the read-only current-report boundary.
+
+The latest preparation is current: every publishing prepare takes the next
+`preparation_ordinal`, selection takes only the highest pending, recorded or
+complete row, a tie is refused, and reads never fall back to an older
+generation. Prepare supersedes an active row frozen on a decision package that
+is no longer current (row and artifacts kept, never recordable) and refuses
+re-preparing a superseded generation.
+
+Canonical run-relative paths are:
+
+- `files/firmware-report/<report-generation>/manifest.json`
+- `files/firmware-report/<report-generation>/items/<ordinal>-<chain-id>.json`
+- `files/firmware-report-results/<report-generation>/<ordinal>-<chain-id>.json` (where a worker writes)
+- `artifacts/firmware-report-results/<report-generation>/<chain-id>/<result-sha256>/result.json`
+- `artifacts/firmware-report-results/<report-generation>/<results-sha256>/results.json`
+- `artifacts/firmware-report/<report-generation>/<report-sha256>/report.md`
+- `artifacts/firmware-report/<report-generation>/<report-sha256>/report.json`
+
+`references/briefs/firmware-report-brief.md` and the `SKILL.md` Stage 4j route
+dispatch one fresh worker per chain: prepare, one writer per manifest item,
+record each DONE, then check. The worker owns result JSON only — explanation
+and the final severity judgment — while deterministic code owns chain
+selection, section ordering, the pre-authentication statement, provisional
+labeling, headings, layout, the result manifest and publication. The binding
+spec and plan are
+`docs/superpowers/specs/2026-11-09-stage4j-firmware-report-design.md` and
+`docs/superpowers/plans/2026-11-09-stage4j-firmware-report.md`; the routing
+derivation is
+`docs/superpowers/derivations/2026-11-09-stage4j-firmware-report-routing.md`.
+
+Known limitations. The report is static and source-level: it describes what the
+code shows and claims no execution, and the renderer states that basis in the
+document. A refused publication (`Report inputs changed before publication`)
+leaves the content-addressed report directory installed as an orphan; nothing
+is committed and no row references it, but the bytes are not removed. The Stage
+4j lifecycle fixtures rebuild a full Stage 4g–4i pipeline and are slow — the
+focused Stage 4j selection takes roughly sixteen minutes. One operator trap: a
+second report generation over the same unchanged Stage 4i package is refused
+while one is still active, so a corrected image row or a bumped style contract
+needs a fresh Stage 4i decision preparation before Stage 4j can prepare again.
+Triage stays upsert-only, and Stage 4d keeps its retained-orphan scan scaling
+limitation.
+
+The real next stage is the overall Stage 4 `firmware-audit` gate (tplink at
+least 12/19 within $45, with the Asus golden also passing). It inherits every
+open prerequisite above: the missing Asus golden, the monorepo/submodule
+decision, the separate firmware skill tree, unmeasured paid audit and milestone
+quality, real hardware and corpus execution, and Linux/alternate-interpreter
+execution.
 
 ### Stage 3's five quality mechanisms
 

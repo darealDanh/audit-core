@@ -463,7 +463,10 @@ and the refusal is an error, not a silent no-op.
 The latest preparation is current. When the decision package changes, prepare
 again: the stale active generation is superseded and can never be recorded,
 while completed history stays immutable and is never returned. Reads never
-fall back to an older generation.
+fall back to an older generation. A second generation over the same unchanged
+decision package is refused while one is still active, so a corrected image row
+or a changed style contract needs a fresh Stage 4i decision preparation before
+this stage can prepare again.
 
 ### Cross-client tool mapping
 

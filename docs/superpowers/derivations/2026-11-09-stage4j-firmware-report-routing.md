@@ -160,3 +160,21 @@ Written before the edits, as the rule requires.
 Reconciled against `git diff -U0` after the edits: the shipped-prose diff
 contains exactly two `firmware-report-brief.md` hunks (the authority sentence
 and the repetition rule), no `SKILL.md` hunk, and no line endings changed.
+
+## 8. Task 10 documentation: intended shipped-prose change
+
+Written before the edit, as the rule requires.
+
+1. `SKILL.md`, Stage 4j, after the "latest preparation is current" paragraph:
+   one added sentence naming the operator trap the code enforces in
+   `firmware_report._preparation_state` — a second report generation over the
+   same unchanged decision package is refused while one is still active
+   (`Another firmware report generation is active`), so a corrected image row
+   or a bumped style contract needs a fresh Stage 4i decision preparation
+   before Stage 4j can prepare again. An operator who hits that refusal
+   otherwise has no documented way out. CRLF preserved.
+
+Reconciled against `git diff -U0` after the edit: the shipped-prose diff
+contains exactly one `SKILL.md` hunk (the four added lines), no
+`firmware-report-brief.md` hunk, and no line endings changed (`eol` reports
+6 CRLF / 285 LF).
