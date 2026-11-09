@@ -13,7 +13,9 @@ def test_style_contract_contains_every_bound_rule_and_renderer_decision():
     assert contract["bounds"] == {
         "assignment_bytes": 8 * 1024 * 1024,
         "catalog_excerpt_bytes": 4096,
+        "citation_ref_bytes": 4096,
         "citations_per_entry": 16,
+        "image_id_bytes": 4096,
         "fix_direction_bytes": [20, 400],
         "impact_paragraphs": [1, 2],
         "manifest_bytes": 8 * 1024 * 1024,

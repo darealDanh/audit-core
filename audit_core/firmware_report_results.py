@@ -26,8 +26,7 @@ class FirmwareReportResultError(ValueError):
 
 RESULT_SCHEMA_VERSION = report.SCHEMA_VERSION
 MAX_RESULT_BYTES = report.MAX_RESULT_BYTES
-MAX_REFERENCE_BYTES = 4096
-MAX_IMAGE_BYTES = 4096
+_STATE_SENTINELS = ("any", "unchanged")
 
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -107,7 +106,7 @@ def _pairs(pairs):
     value = {}
     for key, item in pairs:
         if key in value:
-            _fail(f"duplicate key: {key}")
+            _fail("report JSON contains a duplicate key")
         value[key] = item
     return value
 
@@ -164,10 +163,10 @@ def _encoded(value, label: str) -> bytes:
         raise FirmwareReportResultError(f"{label} requires encodable UTF-8") from exc
 
 
-def _image(value, label: str) -> str:
+def _image(value, label: str, maximum: int) -> str:
     if not isinstance(value, str) or not value or "\0" in value:
         _fail(f"{label} requires nonempty text without NUL")
-    if len(_encoded(value, label)) > MAX_IMAGE_BYTES:
+    if len(_encoded(value, label)) > maximum:
         _fail(f"{label} exceeds its byte bound")
     return value
 
@@ -198,13 +197,14 @@ def _bounded(text: str, label: str, bounds) -> str:
     return text
 
 
-def _citations(value, label: str, maximum: int) -> tuple[str, ...]:
+def _citations(value, label: str, bounds) -> tuple[str, ...]:
+    maximum = bounds["citations_per_entry"]
     if not isinstance(value, list) or not value or len(value) > maximum:
         _fail(f"{label} requires one to {maximum} citations")
     refs = []
     for item in value:
         if (not isinstance(item, str) or not item or "\0" in item
-                or len(_encoded(item, label)) > MAX_REFERENCE_BYTES):
+                or len(_encoded(item, label)) > bounds["citation_ref_bytes"]):
             _fail(f"{label} requires bounded text references")
         refs.append(item)
     if tuple(refs) != tuple(sorted(refs)) or len(set(refs)) != len(refs):
@@ -212,58 +212,58 @@ def _citations(value, label: str, maximum: int) -> tuple[str, ...]:
     return tuple(refs)
 
 
-def _cited(value, label: str, bounds, maximum: int) -> CitedText:
+def _cited(value, label: str, text_bounds, bounds) -> CitedText:
     row = _object(value, ("text", "citation_refs"), label)
-    text = _bounded(_plain(row["text"], label), label, bounds)
-    return CitedText(text, _citations(row["citation_refs"], label, maximum))
+    text = _bounded(_plain(row["text"], label), label, text_bounds)
+    return CitedText(text, _citations(row["citation_refs"], label, bounds))
 
 
-def _entries(value, label: str, count, bounds, maximum: int) -> tuple[CitedText, ...]:
+def _entries(value, label: str, count, text_bounds, bounds) -> tuple[CitedText, ...]:
     low, high = count
     if not isinstance(value, list) or not low <= len(value) <= high:
         _fail(f"{label} requires {low} to {high} entries")
-    return tuple(_cited(item, label, bounds, maximum) for item in value)
+    return tuple(_cited(item, label, text_bounds, bounds) for item in value)
 
 
 def _answer(value, contract) -> ReportAnswer:
     row = _object(value, _ANSWER_KEYS, "report answer")
     bounds = contract["bounds"]
-    maximum = bounds["citations_per_entry"]
     text_bounds = bounds["text_bytes"]
     if row["severity"] not in contract["severity_enum"]:
         _fail("severity is outside the contract enum")
     fix = row["fix_direction"]
     if fix is not None:
-        fix = _cited(fix, "fix_direction", bounds["fix_direction_bytes"], maximum)
+        fix = _cited(fix, "fix_direction", bounds["fix_direction_bytes"], bounds)
     return ReportAnswer(
         _bounded(_plain(row["title_detail"], "title_detail"), "title_detail",
                  bounds["title_bytes"]),
         _entries(row["summary"], "summary", bounds["summary_paragraphs"],
-                 text_bounds, maximum),
+                 text_bounds, bounds),
         _entries(row["root_cause"], "root_cause", bounds["root_cause_paragraphs"],
-                 text_bounds, maximum),
+                 text_bounds, bounds),
         _entries(row["reproduction_steps"], "reproduction_steps",
-                 bounds["reproduction_steps"], text_bounds, maximum),
+                 bounds["reproduction_steps"], text_bounds, bounds),
         _entries(row["impact"], "impact", bounds["impact_paragraphs"],
-                 text_bounds, maximum),
+                 text_bounds, bounds),
         row["severity"],
         _cited(row["severity_justification"], "severity_justification",
-               bounds["severity_justification_bytes"], maximum),
+               bounds["severity_justification_bytes"], bounds),
         fix)
 
 
 def _parse(raw: bytes) -> ReportResult:
+    contract = report._style_contract()
     value = _strict_json(raw, "report result")
     row = _object(value, _RESULT_KEYS, "report result")
     if type(row["schema_version"]) is not int or row["schema_version"] != RESULT_SCHEMA_VERSION:
         _fail("schema_version must equal 1")
     return ReportResult(
         RESULT_SCHEMA_VERSION,
-        _image(row["image_id"], "image_id"),
+        _image(row["image_id"], "image_id", contract["bounds"]["image_id_bytes"]),
         _sha256(row["report_generation"], "report_generation"),
         _identifier(row["chain_id"], "chain_id"),
         _sha256(row["assignment_sha256"], "assignment_sha256"),
-        _answer(row["answer"], report._style_contract()))
+        _answer(row["answer"], contract))
 
 
 def load(path: str | pathlib.Path) -> ReportResult:
@@ -318,6 +318,7 @@ def _safe(value, prefixes) -> str | None:
 
 
 def _states(edges) -> list[str]:
+    """Concrete edge state values; the `any`/`unchanged` sentinels name nothing."""
     values = []
     for edge in edges:
         if not isinstance(edge, dict):
@@ -325,12 +326,18 @@ def _states(edges) -> list[str]:
         for key in ("required_state", "result_state"):
             state = edge.get(key)
             if isinstance(state, dict):
-                values.extend(item for item in state.values() if isinstance(item, str))
+                values.extend(item for item in state.values()
+                              if isinstance(item, str) and item not in _STATE_SENTINELS)
     return values
 
 
-def _seed_anchors(seed, catalog, prefixes) -> tuple[frozenset[str], tuple[str, ...]]:
-    """Identifiers the assignment owns, plus its open precondition IDs."""
+def _seed_anchors(seed) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Seed-scoped anchors: chain ID, member IDs, states and precondition IDs.
+
+    Catalog `owner_id`, `component_path` and `location` stay scoped to the entry
+    that cites them, so naming one chain member never supports a claim about
+    another.
+    """
     chain = _object(seed["chain"], _CHAIN_KEYS, "assignment chain")
     if chain["pre_auth"] not in db.FIRMWARE_CHAIN_PRE_AUTH:
         _fail("assignment chain pre_auth is invalid")
@@ -347,11 +354,6 @@ def _seed_anchors(seed, catalog, prefixes) -> tuple[frozenset[str], tuple[str, .
         anchors.add(identity)
         anchors.add(_identifier(item.get("source_id"), "assignment precondition source_id"))
         preconditions.append(identity)
-    for entry in catalog.values():
-        anchors.add(entry["owner_id"])
-        anchors.update(item for item in (_safe(entry["component_path"], prefixes),
-                                        _safe(entry["location"], prefixes))
-                       if item is not None)
     return frozenset(anchors), tuple(sorted(preconditions))
 
 
@@ -394,8 +396,8 @@ def _tokens(text: str) -> tuple[str, ...]:
 
 def _contains(tokens, phrase) -> bool:
     width = len(phrase)
-    return any(tokens[index:index + width] == phrase
-               for index in range(len(tokens) - width + 1))
+    return bool(phrase) and any(tokens[index:index + width] == phrase
+                                for index in range(len(tokens) - width + 1))
 
 
 def _protected(text: str, anchors) -> set[int]:
@@ -453,10 +455,8 @@ def _text_rules(text: str, item: int, field: str, contract) -> None:
     posix = formatting["absolute_posix_prefix"]
     if re.search(rf"(?<![A-Za-z0-9_]){re.escape(posix)}[A-Za-z0-9._-]", text) is not None:
         _reject(item, field, "absolute-path")
-    windows = re.compile(formatting["windows_drive_pattern"])
-    for word in text.split(" "):
-        if windows.match(word) is not None:
-            _reject(item, field, "absolute-path")
+    if re.search(formatting["windows_drive_pattern"], text) is not None:
+        _reject(item, field, "absolute-path")
 
 
 def _entry_fields(answer: ReportAnswer):
@@ -491,9 +491,9 @@ def _lint(answer: ReportAnswer, item: int, catalog, anchors, contract) -> tuple[
                 _reject(item, field, "citation-not-in-catalog")
         refs.update(entry.citation_refs)
         _text_rules(entry.text, item, field, contract)
-        lowered = entry.text.casefold()
+        entry_tokens = _tokens(entry.text)
         owned = anchors | _entry_anchors(entry, catalog, prefixes)
-        if not any(value.casefold() in lowered for value in owned):
+        if not any(_contains(entry_tokens, _tokens(value)) for value in owned):
             _reject(item, field, "unsupported-entry")
         sequence.extend((field, sentence) for sentence in _sentences(entry.text, owned))
     repetition = contract["repetition"]
@@ -518,10 +518,10 @@ def validate(result: ReportResult, assignment_bytes: bytes) -> ValidatedReportRe
         _fail("validation requires a ReportResult")
     envelope, seed, catalog = _assignment(assignment_bytes)
     contract = report._style_contract()
-    anchors, preconditions = _seed_anchors(
-        seed, catalog, contract["formatting"]["internal_path_prefixes"])
+    anchors, preconditions = _seed_anchors(seed)
     image = _object(seed["image"], _IMAGE_KEYS, "assignment image")
-    if result.image_id != _image(image["image_id"], "assignment image_id"):
+    if result.image_id != _image(image["image_id"], "assignment image_id",
+                                 contract["bounds"]["image_id_bytes"]):
         _fail("result image_id differs from its assignment")
     if result.report_generation != envelope["report_generation"]:
         _fail("result report_generation differs from its assignment")

@@ -125,6 +125,8 @@ def test_internal_artifact_paths_are_rejected(prefix):
     "/etc/passwd is read by the handler in usr/sbin/service once",
     f"{ANCHORED} and writes /tmp/session.state",
     f"{ANCHORED} on C:\\firmware\\service.exe",
+    f"{ANCHORED} (C:\\firmware\\service.exe) once",
+    f"{ANCHORED} on D:/firmware/service.exe",
 ])
 def test_absolute_posix_and_windows_paths_are_rejected(text):
     rejected(with_summary(text), "summary", "absolute-path")
@@ -210,6 +212,40 @@ def test_entries_without_any_cited_anchor_are_rejected(text):
 def test_every_assignment_owned_anchor_satisfies_the_vagueness_rule(anchor, refs):
     assert validate(with_summary(
         f"A remote caller reaches {anchor} and gains shell execution.", refs)).severity
+
+
+def test_catalog_anchors_stay_scoped_to_the_entry_that_cites_them():
+    """Naming surface S-1 cannot support a claim that cites only finding F-1."""
+    rejected(with_summary(
+        "A remote caller reaches S-1 and gains shell execution there.",
+        (FINDING_REF,)), "summary", "unsupported-entry")
+
+
+@pytest.mark.parametrize("text", [
+    "The vendor company ships many images with this routine enabled.",
+    "Anywhere in the request path the argument stays unquoted here.",
+])
+def test_anchor_matching_requires_whole_tokens(text):
+    """Substring containment would let `many` satisfy the `any` state anchor."""
+    rejected(with_summary(text), "summary", "unsupported-entry")
+
+
+def test_state_sentinels_are_not_anchors():
+    assignment_bytes, envelope = envelope_for(seed(
+        edges=[{"ordinal": 1, "required_state": {"authentication": "any"},
+                "result_state": {"posture": "unchanged"}}]))
+    value = result(assignment_sha256=envelope["assignment_sha256"], answer=answer(
+        summary=[cited("The request is accepted in any unchanged posture here.",
+                       (BLOCKER_REF,))]))
+
+    with pytest.raises(results.FirmwareReportResultError,
+                       match="field summary: unsupported-entry"):
+        results.validate(results._parse(canonical(value)), assignment_bytes)
+
+
+def test_token_matching_ignores_an_anchor_without_ascii_tokens():
+    assert results._contains(("a", "b"), ()) is False
+    assert results._contains(("a", "b"), ("b",)) is True
 
 
 def test_unsafe_catalog_paths_cannot_anchor_an_entry():

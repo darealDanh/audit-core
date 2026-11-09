@@ -27,6 +27,8 @@ MAX_ASSIGNMENT_BYTES = 8 * 1024 * 1024
 MAX_REPORT_INDEX_BYTES = 8 * 1024 * 1024
 MAX_RESULT_BYTES = 16 * 1024
 MAX_EXCERPT_BYTES = 4096
+MAX_CITATION_REF_BYTES = 4096
+MAX_IMAGE_ID_BYTES = 4096
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -100,7 +102,9 @@ def _style_contract() -> dict:
         "bounds": {
             "assignment_bytes": MAX_ASSIGNMENT_BYTES,
             "catalog_excerpt_bytes": MAX_EXCERPT_BYTES,
+            "citation_ref_bytes": MAX_CITATION_REF_BYTES,
             "citations_per_entry": 16,
+            "image_id_bytes": MAX_IMAGE_ID_BYTES,
             "fix_direction_bytes": [20, 400],
             "impact_paragraphs": [1, 2],
             "manifest_bytes": MAX_MANIFEST_BYTES,
@@ -153,7 +157,7 @@ def _style_contract() -> dict:
             "raw_url_schemes": ["http://", "https://", "ftp://", "file://"],
             "repeated_punctuation": ["!!", "??"],
             "absolute_posix_prefix": "/",
-            "windows_drive_pattern": "^[A-Za-z]:",
+            "windows_drive_pattern": r"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]",
             "sql_table_prefix": "cba_",
         },
         "repetition": {
