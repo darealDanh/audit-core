@@ -481,3 +481,26 @@ Completion updates `ARCHITECTURE.md`, `progress.md`, `SESSION_HANDOFF.md`, `feat
 14. Focused tests cover every branch and catch deliberate faults.
 15. Independent review finds no Critical or Important issue.
 16. Final reconciled tree passes `make all`; mutation remains opt-in.
+
+## Amendment 2026-11-09: result manifest and completion directory
+
+The "Immutable artifacts" list above contradicts the "Record" lifecycle section about
+`results.json`. The lifecycle section governs, and the implementation follows it:
+
+- `results.json` is installed at record time, content-addressed at
+  `artifacts/firmware-report-results/<generation>/<results-sha256>/results.json`. A
+  zero-chain preparation installs it with an empty `results` array in the same
+  transaction that publishes the recorded run.
+- Each recorded worker result stays at
+  `artifacts/firmware-report-results/<generation>/<chain-id>/<result-sha256>/result.json`.
+- The completion directory `artifacts/firmware-report/<generation>/<report-sha256>/`
+  contains exactly `report.md` and `report.json`.
+
+Additionally, `VerifiedFirmwareReportSection.pre_auth` and the `pre_auth` field of each
+`report.json` section carry the mapped pre-authentication statement from
+`pre_auth_mapping` (for example `established`), not the raw chain enum.
+
+Every displayed value the core copies from upstream authority (image identity, catalog
+component paths and locations, identifiers) is refused when it carries a control
+character (`ord < 0x20`, `0x7F`, or Unicode category `Cc`/`Cf`); such a value is never
+degraded or escaped into the document.

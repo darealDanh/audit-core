@@ -13,6 +13,7 @@ import json
 import pathlib
 import re
 import sqlite3
+import unicodedata
 
 from audit_core import db, firmware_chain, firmware_chain_results
 from audit_core import firmware_decide, firmware_dive, surface
@@ -655,9 +656,25 @@ def _install_check(run, destination, assignments, *, installed):
             firmware_dive._install(results, assignments.results_contents, run)
 
 
+def _guard(value: str) -> str:
+    """One displayed value that cannot carry document structure of its own.
+
+    Worker text is already plain by Task 4's parser, but copied upstream text
+    (image identity, catalog locations, identifiers) is not. A line break or
+    other control character would start a real heading, quote, rule or code
+    block inside canonical bytes, so such a value is refused, never degraded.
+    """
+    _require(isinstance(value, str), "Report display values require text")
+    for char in value:
+        _require(not (ord(char) < 0x20 or ord(char) == 0x7F
+                      or unicodedata.category(char) in ("Cc", "Cf")),
+                 "Report display value contains a control character")
+    return value
+
+
 def _escape(value: str) -> str:
     """One displayed string that cannot introduce Markdown syntax."""
-    text = value.strip(" ")
+    text = _guard(value).strip(" ")
     for char in _ESCAPED_CHARACTERS:
         text = text.replace(char, "\\" + char)
     if text[:1] in ("-", "+"):
@@ -671,7 +688,7 @@ def _escape(value: str) -> str:
 
 def _inline(value: str) -> str:
     """One core-owned identifier as a code span, or as escaped text."""
-    text = value.strip(" ")
+    text = _guard(value).strip(" ")
     return f"`{text}`" if "`" not in text else _escape(text)
 
 
@@ -708,12 +725,18 @@ def _paragraphs(heading, entries, catalog, prefixes) -> list[str]:
     return lines
 
 
-def _pre_auth(value, preconditions, contract) -> str:
-    """The fixed pre-authentication statement one chain is published with."""
+def _pre_auth(value, preconditions, contract, *, inline: bool) -> str:
+    """The fixed pre-authentication statement one chain is published with.
+
+    The Markdown document shows the blocking precondition IDs as code spans;
+    the report index carries the same statement as plain text.
+    """
     _require(value != "unknown" or preconditions,
              "Unknown pre-authentication requires one open precondition")
+    ids = [_inline(item) for item in preconditions] if inline else [
+        _guard(item) for item in preconditions]
     return contract["pre_auth_mapping"][value].format(
-        precondition_ids=", ".join(_inline(item) for item in preconditions))
+        precondition_ids=", ".join(ids))
 
 
 def _section(image, seed, validated, contract) -> list[str]:
@@ -738,7 +761,7 @@ def _section(image, seed, validated, contract) -> list[str]:
                  for number, entry in enumerate(answer.reproduction_steps, 1))
     lines.extend(_paragraphs(impact, answer.impact, catalog, prefixes))
     lines.extend(("", _PRE_AUTH_LINE.format(state=_pre_auth(
-        chain["pre_auth"], validated.open_precondition_ids, contract)),
+        chain["pre_auth"], validated.open_precondition_ids, contract, inline=True)),
         _SEVERITY_LINE.format(
             severity=answer.severity.upper(),
             justification=_cited(answer.severity_justification, catalog, prefixes))))
@@ -784,7 +807,9 @@ def _render(package, assignments, results) -> tuple[bytes, bytes, tuple]:
         lines.extend(_section(image, seed, validated, contract))
         sections.append(VerifiedFirmwareReportSection(
             ordinal, item["chain_id"], validated.severity,
-            seed["chain"]["pre_auth"], validated.citation_refs))
+            _pre_auth(seed["chain"]["pre_auth"],
+                      validated.open_precondition_ids, contract, inline=False),
+            validated.citation_refs))
     if not sections:
         lines.extend(("", _EMPTY_REPORT))
     raw = ("\n".join(lines) + "\n").encode()

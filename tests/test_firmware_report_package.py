@@ -163,7 +163,11 @@ def test_verified_report_returns_the_exact_current_complete_report(complete_case
     assert len(value.sections) == 1
     assert value.sections[0].ordinal == 1
     assert value.sections[0].severity == "high"
-    assert value.sections[0].pre_auth == "unknown"
+    blockers = json.loads(
+        assignments.contents[f"items/1-{value.sections[0].chain_id}.json"]
+    )["seed"]["open_preconditions"]
+    assert value.sections[0].pre_auth == "not established: blocked by " + ", ".join(
+        sorted(item["precondition_id"] for item in blockers))
     assert value.sections[0].citation_refs == tuple(
         sorted(set(value.sections[0].citation_refs)))
     assert not con.in_transaction

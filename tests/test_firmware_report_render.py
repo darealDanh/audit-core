@@ -300,6 +300,42 @@ def test_render_escapes_displayed_worker_text_and_catalog_locations():
         f"(usr/sbin/service:surface.handler\\`rm -rf\\` [`{FINDING_REF}`])")
 
 
+def test_render_refuses_a_control_character_in_a_copied_catalog_location():
+    value = seed()
+    entries = copy.deepcopy(value["evidence_catalog"])
+    for entry in entries:
+        if entry["ref"] == FINDING_REF:
+            entry["location"] = "surface.handler\n# Injected"
+    value["evidence_catalog"] = entries
+
+    with pytest.raises(report.FirmwareReportError, match="control character"):
+        render((value, answer()))
+
+
+def test_render_refuses_a_control_character_in_the_copied_image_identity():
+    image = decide.VerifiedFirmwareImageIdentity(
+        "target", "v\n# Injected", "m", "1.0", "target", IMAGE_SHA)
+    hostile = type("Hostile", (Package,), {"image": image})
+    assignments, values = built((seed(), answer()))
+
+    with pytest.raises(report.FirmwareReportError, match="control character"):
+        report._render(hostile, assignments, values)
+
+    zero = report._Assignments(GENERATION, "d" * 64, (), {}, None, {})
+    with pytest.raises(report.FirmwareReportError, match="control character"):
+        report._render(hostile, zero, {})
+
+
+def test_render_refuses_a_displayed_value_that_is_not_text():
+    value = seed()
+    value["chain"] = {**value["chain"], "member_ids": [None]}
+    assignments, values = built((seed(), answer()))
+    assignments.contents[f"items/1-{CHAIN_ID}.json"] = envelope(value, 1)
+
+    with pytest.raises(report.FirmwareReportError, match="require text"):
+        report._render(Package, assignments, values)
+
+
 def test_render_maps_pre_authentication_exactly_and_labels_provisional_chains():
     established = document((second_seed(rank=1), answer()))
     assert "Pre-authentication path: established." in established
@@ -381,17 +417,21 @@ def test_render_builds_the_exact_canonical_report_index():
         "report_sha256": report._digest(raw),
         "sections": [
             {"ordinal": 1, "chain_id": CHAIN_ID, "severity": "high",
-             "pre_auth": "unknown", "citation_refs": [FINDING_REF]},
+             "pre_auth": "not established: blocked by blocker:B-1",
+             "citation_refs": [FINDING_REF]},
             {"ordinal": 2, "chain_id": SECOND_CHAIN, "severity": "medium",
-             "pre_auth": "yes", "citation_refs": [FINDING_REF, SURFACE_REF]},
+             "pre_auth": "established",
+             "citation_refs": [FINDING_REF, SURFACE_REF]},
         ],
     }
     assert index_raw == canonical(json.loads(index_raw))
     assert sections == (
-        report.VerifiedFirmwareReportSection(1, CHAIN_ID, "high", "unknown",
-                                             (FINDING_REF,)),
-        report.VerifiedFirmwareReportSection(2, SECOND_CHAIN, "medium", "yes",
-                                             (FINDING_REF, SURFACE_REF)),
+        report.VerifiedFirmwareReportSection(
+            1, CHAIN_ID, "high", "not established: blocked by blocker:B-1",
+            (FINDING_REF,)),
+        report.VerifiedFirmwareReportSection(
+            2, SECOND_CHAIN, "medium", "established",
+            (FINDING_REF, SURFACE_REF)),
     )
 
 
