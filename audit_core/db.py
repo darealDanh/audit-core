@@ -1084,8 +1084,6 @@ def _validate_firmware_report_run(row: dict[str, str]) -> None:
         raise DbError("superseded_at is required for a superseded report")
     if not superseded and row.get("superseded_at") is not None:
         raise DbError(f"superseded_at must be NULL for a {status} report")
-    if "prepared_at" in row and row["prepared_at"] is None:
-        raise DbError("prepared_at is required for every report")
     ordered = [(column, row[column]) for column in stamps if row.get(column) is not None]
     for (earlier, before), (later, after) in zip(ordered, ordered[1:]):
         if after < before:

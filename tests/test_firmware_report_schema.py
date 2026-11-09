@@ -147,11 +147,21 @@ def test_report_run_rejects_invalid_counts_states_and_timestamps(con, row, match
     with pytest.raises(db.DbError, match=match):
         db.put(con, RUN_TABLE, row)
 
+
 @pytest.mark.parametrize("row", [RECORDED, COMPLETE])
 def test_report_recorded_variants_require_prepared_at_before_later_timestamps(con, row):
     without_prepared = {key: value for key, value in row.items() if key != "prepared_at"}
-    with pytest.raises(db.DbError, match="prepared_at"):
+    with pytest.raises(db.DbError, match="requires a non-empty value for: prepared_at"):
         db.put(con, RUN_TABLE, without_prepared)
+    with pytest.raises(db.DbError, match="prepared_at requires a non-empty string"):
+        db.put(con, RUN_TABLE, row | {"prepared_at": None})
+
+
+@pytest.mark.parametrize("row", [PENDING, RECORDED])
+def test_report_superseded_rows_require_their_own_supersede_stamp(con, row):
+    with pytest.raises(db.DbError,
+                       match="superseded_at is required for a superseded report"):
+        db.put(con, RUN_TABLE, row | {"status": "superseded"})
 
 
 def test_report_item_ordinal_is_unique_within_generation(con):

@@ -283,6 +283,31 @@ def test_verified_package_rejects_invalid_image_identity(
     assert not con.in_transaction
 
 
+@pytest.mark.parametrize("damage,match", [
+    ("DELETE FROM cba_images WHERE id='target'",
+     "Decision image identity is missing"),
+    ("UPDATE cba_images SET role='diff-reference' WHERE id='target'",
+     "Decision image identity differs from package owner"),
+])
+def test_verified_package_refuses_an_owner_image_lost_or_retyped_mid_check(
+        completed_pipeline, monkeypatch, damage, match):
+    """Catches projecting an owner identity a concurrent writer already removed or retyped."""
+    pipeline, _ = completed_pipeline
+    con, run, root = pipeline[0][:3]
+    complete_row = decide._require_complete_row
+
+    def racing(captured):
+        # The window the guard exists for: authority captured, identity not yet read.
+        con.execute(damage)
+        return complete_row(captured)
+
+    monkeypatch.setattr(decide, "_require_complete_row", racing)
+    before = state(con)
+    with pytest.raises(decide.FirmwareDecideError, match=match):
+        decide.verified_package(con, run, root, image_id="target")
+    assert state(con) == before and not con.in_transaction
+
+
 def test_row_selection_prefers_latest_preparation_over_completion_time(schema_con):
     """Catches selecting by completed_at instead of the most recent prepare."""
     db.put(schema_con, "cba_firmware_decide_runs", COMPLETE | {"preparation_ordinal": 2})
