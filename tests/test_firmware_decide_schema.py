@@ -68,8 +68,8 @@ def test_decide_adds_one_table_and_two_lifecycle_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
     assert len(workspace.apply_schema(run / "audit.db").tables) == 47
     assert len(db.TABLE_SPECS) == 46
-    assert len(db.MIGRATIONS) == 6
-    assert db.MIGRATIONS[-2:] == (
+    assert len(db.MIGRATIONS) == 8
+    assert db.MIGRATIONS[-4:-2] == (
         (TABLE, "superseded_at", "TEXT"),
         (TABLE, "preparation_ordinal", "INTEGER NOT NULL DEFAULT 0"))
 

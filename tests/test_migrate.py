@@ -67,7 +67,7 @@ def test_firmware_tables_upgrade_frozen_baselines_without_changing_old_rows(tmp_
     result = workspace.apply_schema(path)
     assert len(result.tables) == 47
     assert len(db.TABLE_SPECS) == 46
-    assert len(db.MIGRATIONS) == 6
+    assert len(db.MIGRATIONS) == 8
     con = db.connect(path)
     try:
         for table in ("cba_surface_runs", "cba_firmware_surfaces", "cba_unknowns",
@@ -176,13 +176,30 @@ def test_migrate_skips_a_table_that_is_not_there(tmp_path):
     con.close()
 
 
-def test_every_migration_names_a_column_its_table_spec_declares():
-    """The guard that keeps MIGRATIONS and TABLE_SPECS from drifting. A
-    migration for a column no spec declares adds a column `put` will reject;
-    a spec column with no migration is a column an upgraded database lacks."""
-    for table, column, _type in db.MIGRATIONS:
+def test_every_migration_names_a_declared_table_and_column_or_whole_table():
+    """Migration declarations cannot drift from the durable table contracts."""
+    for table, column, declaration in db.MIGRATIONS:
         assert table in db.TABLE_SPECS, table
-        assert column in db.TABLE_SPECS[table].columns, f"{table}.{column}"
+        if column is None:
+            assert declaration is None
+        else:
+            assert column in db.TABLE_SPECS[table].columns, f"{table}.{column}"
+
+def test_stage4j_table_migrations_create_only_empty_report_tables(tmp_path):
+    path = tmp_path / "stage4i.db"
+    con = sqlite3.connect(path)
+    con.executescript(workspace.SCHEMA_PATH.read_text())
+    con.execute("DROP TABLE cba_firmware_report_items")
+    con.execute("DROP TABLE cba_firmware_report_runs")
+    con.execute("INSERT INTO cba_patterns (id,name,regex) VALUES ('kept','Kept','x')")
+    con.commit()
+    assert db.migrate(con) == [
+        "cba_firmware_report_runs", "cba_firmware_report_items"]
+    assert db.migrate(con) == []
+    assert con.execute("SELECT name FROM cba_patterns WHERE id='kept'").fetchone()[0] == "Kept"
+    for table in ("cba_firmware_report_runs", "cba_firmware_report_items"):
+        assert con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    con.close()
 
 
 def test_a_fresh_database_needs_no_migration_for_any_spec_column(tmp_path):
@@ -277,10 +294,15 @@ def test_the_frozen_baseline_is_not_a_second_copy_of_the_schema():
     con = _sqlite3.connect(":memory:")
     con.executescript(workspace.BASELINE_PATH.read_text())
     try:
+        present = {row[0] for row in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
         for table, column, _type in db.MIGRATIONS:
-            assert column not in columns(con, table), (
-                f"{table}.{column} is already in the frozen baseline, so the "
-                f"selftest cross-check can no longer prove migrate() adds it")
+            if column is None:
+                assert table not in present
+            else:
+                assert column not in columns(con, table), (
+                    f"{table}.{column} is already in the frozen baseline, so the "
+                    f"selftest cross-check can no longer prove migrate() adds it")
     finally:
         con.close()
 
@@ -324,7 +346,9 @@ def test_stage4b_migration_preserves_every_value_and_is_idempotent(tmp_path):
         original_service = con.execute("SELECT * FROM cba_services").fetchone()
         binary_columns = db.table_columns(con, "cba_binfacts")
         service_columns = db.table_columns(con, "cba_services")
-        assert db.migrate(con) == ["cba_binfacts.primary_key", "cba_services.primary_key"]
+        assert db.migrate(con) == [
+            "cba_firmware_report_runs", "cba_firmware_report_items",
+            "cba_binfacts.primary_key", "cba_services.primary_key"]
         assert db.primary_key(con, "cba_binfacts") == ("image_id", "path")
         assert db.primary_key(con, "cba_services") == ("image_id", "name")
         binary = con.execute("SELECT " + ", ".join(binary_columns) + " FROM cba_binfacts").fetchone()

@@ -17,7 +17,7 @@ RUN_COLUMNS = (
     "completed_at", "superseded_at")
 RUN_OPTIONAL = (
     "results_path", "results_sha256", "report_path", "report_sha256",
-    "report_bytes", "index_path", "index_sha256", "prepared_at", "recorded_at",
+    "report_bytes", "index_path", "index_sha256", "recorded_at",
     "completed_at", "superseded_at")
 ITEM_COLUMNS = (
     "image_id", "report_generation", "chain_id", "ordinal", "assignment_path",
@@ -79,11 +79,12 @@ def test_report_exact_sql_and_tablespec_contracts(con):
         "WHERE name='report_bytes'").fetchone()[0] == "BLOB"
 
 
-def test_report_adds_two_tables_without_column_migrations(tmp_path):
+def test_report_adds_two_ordered_table_migrations(tmp_path):
     run = workspace.init_run(tmp_path)
     assert len(workspace.apply_schema(run / "audit.db").tables) == 47
     assert len(db.TABLE_SPECS) == 46
-    assert len(db.MIGRATIONS) == 6
+    assert len(db.MIGRATIONS) == 8
+    assert db.MIGRATIONS[-2:] == ((RUN_TABLE, None, None), (ITEM_TABLE, None, None))
     assert db.FIRMWARE_REPORT_STATES == ("pending", "recorded", "complete", "superseded")
     assert db.FIRMWARE_REPORT_SEVERITIES == ("critical", "high", "medium", "low", "informational")
 
@@ -96,16 +97,16 @@ def test_report_upgrade_from_pre_stage4j_creates_empty_tables_and_preserves_rows
     con.execute(f"DROP TABLE {RUN_TABLE}")
     con.execute("INSERT INTO cba_patterns (id,name,regex) VALUES ('p','old','x')")
     con.commit()
+    assert db.migrate(con) == [RUN_TABLE, ITEM_TABLE]
+    assert db.migrate(con) == []
+    assert con.execute(f"SELECT COUNT(*) FROM {RUN_TABLE}").fetchone()[0] == 0
+    assert con.execute(f"SELECT COUNT(*) FROM {ITEM_TABLE}").fetchone()[0] == 0
+    assert con.execute("SELECT name FROM cba_patterns WHERE id='p'").fetchone()[0] == "old"
     con.close()
     result = workspace.apply_schema(path)
     assert {RUN_TABLE, ITEM_TABLE} <= set(result.tables)
     assert result.migrated == []
-    con = db.connect(path)
-    try:
-        assert db.rows(con, RUN_TABLE) == [] and db.rows(con, ITEM_TABLE) == []
-        assert con.execute("SELECT name FROM cba_patterns WHERE id='p'").fetchone()[0] == "old"
-    finally:
-        con.close()
+    db.connect(path).close()
 
 
 @pytest.mark.parametrize("row", [PENDING, RECORDED, COMPLETE, SUPERSEDED_PENDING, SUPERSEDED_RECORDED])
@@ -145,6 +146,12 @@ def test_report_run_rejects_inconsistent_lifecycle_fields(con, row, column):
 def test_report_run_rejects_invalid_counts_states_and_timestamps(con, row, match):
     with pytest.raises(db.DbError, match=match):
         db.put(con, RUN_TABLE, row)
+
+@pytest.mark.parametrize("row", [RECORDED, COMPLETE])
+def test_report_recorded_variants_require_prepared_at_before_later_timestamps(con, row):
+    without_prepared = {key: value for key, value in row.items() if key != "prepared_at"}
+    with pytest.raises(db.DbError, match="prepared_at"):
+        db.put(con, RUN_TABLE, without_prepared)
 
 
 def test_report_item_ordinal_is_unique_within_generation(con):

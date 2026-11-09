@@ -707,7 +707,7 @@ CREATE TABLE IF NOT EXISTS cba_firmware_report_runs (
     report_bytes BLOB,
     index_path TEXT,
     index_sha256 TEXT,
-    prepared_at TEXT DEFAULT (datetime('now')),
+    prepared_at TEXT NOT NULL DEFAULT (datetime('now')),
     recorded_at TEXT,
     completed_at TEXT,
     superseded_at TEXT,

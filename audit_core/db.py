@@ -116,22 +116,19 @@ def firmware_unit_key(image_id: str, path: str) -> str:
     return f"/firmware/{len(image_id)}:{image_id}:{path}"
 
 
-# Columns added to tables that already existed when an earlier stage shipped.
-# `CREATE TABLE IF NOT EXISTS` adds a table; it does nothing to a table that
-# is already there, and SQLite has no `ALTER TABLE ... ADD COLUMN IF NOT
-# EXISTS`. So the list is explicit and ordered, and a reviewer can read
-# exactly what will be run against a user's database.
-#
-# Append to this tuple; never reorder it and never remove an entry. A removed
-# entry is a column that stops being added to the databases that still lack
-# it, and nothing reports that - the column simply is not there.
-MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+# Ordered in-place upgrades for previously shipped databases. A non-NULL
+# column/declaration pair adds one column to an existing table. `(table,
+# None, None)` creates that table from its current schema declaration. Append
+# only: order is durable upgrade history.
+MIGRATIONS: tuple[tuple[str, str | None, str | None], ...] = (
     ("cba_fp_verdicts", "refuting_mechanism", "TEXT"),
     ("cba_fp_verdicts", "enabled_observation", "TEXT"),
     ("cba_patterns", "swept_at", "TEXT"),
     ("cba_patterns", "hit_count", "INTEGER"),
     ("cba_firmware_decide_runs", "superseded_at", "TEXT"),
     ("cba_firmware_decide_runs", "preparation_ordinal", "INTEGER NOT NULL DEFAULT 0"),
+    ("cba_firmware_report_runs", None, None),
+    ("cba_firmware_report_items", None, None),
 )
 
 
@@ -1477,7 +1474,7 @@ TABLE_SPECS: dict[str, TableSpec] = {
         required=("image_id", "report_generation", "preparation_ordinal", "status",
                   "decision_generation", "decision_package_sha256",
                   "style_contract_sha256", "manifest_path", "manifest_sha256",
-                  "item_count", "result_count"),
+                  "item_count", "result_count", "prepared_at"),
         primary_key=("image_id", "report_generation"),
         validate=_validate_firmware_report_run),
     "cba_firmware_report_items": TableSpec(
@@ -1525,6 +1522,14 @@ def _rebuild_firmware_table(con: sqlite3.Connection, table: str) -> None:
                 f"SELECT {selected} FROM {private}", (FIRMWARE_IMAGE_UNSCOPED,))
     con.execute(f"DROP TABLE {private}")
 
+def _create_table(con: sqlite3.Connection, table: str) -> None:
+    """Create one missing durable table from the sole current DDL."""
+    _spec(table)
+    schema = (pathlib.Path(__file__).resolve().parent / "schema.sql").read_text()
+    declaration = next(statement for statement in schema.split(";")
+                       if f"CREATE TABLE IF NOT EXISTS {table} (" in statement)
+    con.execute(declaration)
+
 
 def _rank_firmware_decisions(con: sqlite3.Connection) -> None:
     """Give shipped Stage 4i rows the preparation order selection used to infer.
@@ -1553,25 +1558,29 @@ def _rank_firmware_decisions(con: sqlite3.Connection) -> None:
 
 
 def migrate(con: sqlite3.Connection) -> list[str]:
-    """Add missing columns and rebuild Stage 4b firmware keys atomically.
+    """Apply ordered column, table, and firmware-key migrations atomically.
 
-    Idempotent, and safe against a database that has none of the tables yet:
-    a table that is not there is skipped rather than reported, because that
-    is what `init` sees on a fresh run before schema.sql has been applied.
+    A wholly empty database is skipped because `init` applies schema.sql
+    immediately afterward. Table migrations target only already-shipped
+    databases and create no rows.
     """
     present = {r[0] for r in con.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    shipped = bool(present & set(TABLE_SPECS))
+    table_additions = [table for table, column, _decl in MIGRATIONS
+                       if shipped and column is None and table not in present]
     additions = [(table, column, decl) for table, column, decl in MIGRATIONS
-                 if table in present and column not in table_columns(con, table)]
+                 if column is not None and table in present
+                 and column not in table_columns(con, table)]
     rebuilds = [table for table, old_key in (
         ("cba_binfacts", ("path",)), ("cba_services", ("name",)))
         if table in present and primary_key(con, table) == old_key]
-    if not additions and not rebuilds:
+    if not table_additions and not additions and not rebuilds:
         return []
     applied: list[str] = []
     with con:
         # DDL alone does not start sqlite3's implicit transaction. An explicit
-        # BEGIN makes both renames/creates/copies/drops rollback together.
+        # BEGIN makes creates, additions, and rebuilds roll back together.
         if not con.in_transaction:
             con.execute("BEGIN")
         for table, column, decl in additions:
@@ -1579,6 +1588,9 @@ def migrate(con: sqlite3.Connection) -> list[str]:
             applied.append(f"{table}.{column}")
         if "cba_firmware_decide_runs.preparation_ordinal" in applied:
             _rank_firmware_decisions(con)
+        for table in table_additions:
+            _create_table(con, table)
+            applied.append(table)
         for table in rebuilds:
             _rebuild_firmware_table(con, table)
             applied.append(f"{table}.primary_key")
