@@ -6,6 +6,9 @@ import json
 import pytest
 
 from audit_core import firmware_decide as decide
+from audit_core import firmware_dive as dive
+from audit_core import firmware_dive_questions as dive_questions
+from audit_core import firmware_dive_results as dive_results
 from audit_core import firmware_report as report
 from tests.test_firmware_decide_package import completed_pipeline  # noqa: F401
 from tests.test_firmware_decide_input import decision_case, graph_case, prepared  # noqa: F401
@@ -20,6 +23,28 @@ def package(completed_pipeline):
 def canonical(value):
     return (json.dumps(value, ensure_ascii=False, allow_nan=False,
                        sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def without_storage(value):
+    return {key: item for key, item in dataclasses.asdict(value).items()
+            if key != "artifact_path"}
+
+
+def storage_values(value, found=None):
+    """Every string anywhere in a seed that names run storage."""
+    found = [] if found is None else found
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "artifact_path":
+                found.append(key)
+            storage_values(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            storage_values(item, found)
+    elif isinstance(value, str) and (value.startswith("files/")
+                                     or value.startswith("artifacts/")):
+        found.append(value)
+    return found
 
 
 def test_assignment_seed_has_exact_shape_rank_order_and_upstream_projections(package):
@@ -50,13 +75,17 @@ def test_assignment_seed_has_exact_shape_rank_order_and_upstream_projections(pac
         "limitations": list(assessment.limitations),
     }
     findings = {item.finding_id: item for item in package.technical_input.graph.findings}
-    assert seed["members"] == [dataclasses.asdict(findings[item]) for item in chain.member_ids]
-    assert seed["edges"] == [dataclasses.asdict(item) for item in
+    assert seed["members"] == [without_storage(findings[item]) for item in chain.member_ids]
+    assert seed["edges"] == [without_storage(item) for item in
                               package.technical_input.graph.edges]
     assert seed["open_preconditions"] == [dataclasses.asdict(item) for item in
                                            assessment.open_preconditions]
+    assert all("artifact_path" not in item for item in seed["members"] + seed["edges"])
+    assert all(item["artifact_sha256"] for item in seed["members"] + seed["edges"])
+    assert storage_values(seed) == []
     encoded = canonical(seed).decode()
-    for forbidden in ('"report_generation"', '"assignment_path"', '"result_path"'):
+    for forbidden in ('"report_generation"', '"assignment_path"', '"result_path"',
+                      '"artifact_path"'):
         assert forbidden not in encoded
 
 
@@ -147,3 +176,71 @@ def test_zero_chain_generation_and_manifest_are_canonical(package):
         "style_contract_sha256": report._style_contract_sha256(),
         "item_count": 0, "items": [],
     }
+
+
+def test_catalog_projects_cited_dive_observations_with_effect_predicate(package):
+    effect = dive_results.ResolutionEffect(
+        dive_questions.SubjectRef("chain", package.result.chain_assessments[0].chain_id),
+        "state-assertion", "Handler accepts unauthenticated requests.",
+        "authentication", "pre-auth", None, None, None)
+    observation = dive.CurrentDiveObservation(
+        "a" * 64, "question-1", ("chain:x",), (), "supported", effect,
+        "static-resolved", (), ())
+    assessment = dataclasses.replace(
+        package.result.chain_assessments[0],
+        evidence_refs=("dive:" + "a" * 64 + "#conclusion",
+                       "dive:" + "a" * 64 + "#evidence"))
+    overlay = dataclasses.replace(package.technical_input.dive.overlay,
+                                  observations=(observation,))
+    cited = dataclasses.replace(
+        package,
+        result=dataclasses.replace(package.result, chain_assessments=(assessment,)),
+        technical_input=dataclasses.replace(
+            package.technical_input,
+            dive=dataclasses.replace(package.technical_input.dive, overlay=overlay)))
+    seed, = report._assignment_seeds(cited)
+    catalog = {item["ref"]: item for item in seed["evidence_catalog"]}
+    assert catalog["dive:" + "a" * 64 + "#conclusion"] == {
+        "ref": "dive:" + "a" * 64 + "#conclusion", "kind": "observation",
+        "owner_id": "a" * 64, "component_path": None, "location": None,
+        "field": "conclusion", "evidence_rung": "static-resolved",
+        "excerpt": "supported",
+    }
+    assert catalog["dive:" + "a" * 64 + "#evidence"]["excerpt"] == (
+        "Handler accepts unauthenticated requests.")
+    assert catalog["dive:" + "a" * 64 + "#evidence"]["kind"] == "observation"
+    absent = dataclasses.replace(
+        cited, technical_input=dataclasses.replace(
+            cited.technical_input,
+            dive=dataclasses.replace(cited.technical_input.dive,
+                                     overlay=dataclasses.replace(overlay, observations=()))))
+    with pytest.raises(report.FirmwareReportError, match="absent dive observation"):
+        report._assignment_seeds(absent)
+
+
+def test_catalog_excerpt_is_cut_on_a_character_boundary_at_four_kibibytes(package):
+    long_text = "\u20ac" * 2000
+    findings = tuple(
+        dataclasses.replace(item, root_cause=long_text) if
+        item.finding_id == package.technical_input.graph.chains[0].member_ids[0]
+        else item
+        for item in package.technical_input.graph.findings)
+    oversized = dataclasses.replace(
+        package, technical_input=dataclasses.replace(
+            package.technical_input,
+            graph=dataclasses.replace(package.technical_input.graph,
+                                      findings=findings)))
+    seed, = report._assignment_seeds(oversized)
+    member = package.technical_input.graph.chains[0].member_ids[0]
+    entry = next(item for item in seed["evidence_catalog"]
+                 if item["ref"] == f"finding:{member}#root_cause")
+    assert len(entry["excerpt"].encode()) == 4095
+    assert entry["excerpt"] == long_text[:1365]
+    assert canonical(seed)
+
+
+def test_canonical_refuses_values_that_cannot_be_serialized():
+    with pytest.raises(report.FirmwareReportError, match="canonicalized"):
+        report._canonical({"value": float("nan")})
+    with pytest.raises(report.FirmwareReportError, match="canonicalized"):
+        report._canonical({"value": object()})

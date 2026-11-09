@@ -295,6 +295,16 @@ def _catalog(package, assessment, chain, edges, members):
     return [entries[ref] for ref in sorted(entries)]
 
 
+def _projection(value) -> dict:
+    """One upstream object as seed data, without its run storage path.
+
+    Artifact ownership stays provable through `artifact_sha256`; the
+    run-relative `artifact_path` is storage, which seeds never carry.
+    """
+    return {key: item for key, item in dataclasses.asdict(value).items()
+            if key != "artifact_path"}
+
+
 def _assignment_seeds(package) -> tuple[dict, ...]:
     """One ordered seed per chain assessment, in ascending Stage 4i rank."""
     graph = package.technical_input.graph
@@ -341,8 +351,8 @@ def _assignment_seeds(package) -> tuple[dict, ...]:
                 "rationale": assessment.rationale,
                 "limitations": list(assessment.limitations),
             },
-            "members": [dataclasses.asdict(item) for item in members],
-            "edges": [dataclasses.asdict(item) for item in edges],
+            "members": [_projection(item) for item in members],
+            "edges": [_projection(item) for item in edges],
             "open_preconditions": [dataclasses.asdict(item)
                                    for item in assessment.open_preconditions],
             "evidence_catalog": _catalog(package, assessment, chain, edges, members),
@@ -452,7 +462,7 @@ def _results_path(generation, results_sha256) -> str:
 
 def _frozen(package, assignments) -> dict:
     """The report columns that must equal the current verified authority."""
-    return {
+    frozen = {
         "decision_generation": package.decision_generation,
         "decision_package_sha256": package.package_sha256,
         "style_contract_sha256": _style_contract_sha256(),
@@ -460,6 +470,13 @@ def _frozen(package, assignments) -> dict:
         "manifest_sha256": assignments.manifest_sha256,
         "item_count": len(assignments.items),
     }
+    if not assignments.items:
+        # A zero-item run owns its results manifest from preparation, so its
+        # stored result identity is part of the current authority too.
+        frozen["results_path"] = _results_path(assignments.generation,
+                                               assignments.results_sha256)
+        frozen["results_sha256"] = assignments.results_sha256
+    return frozen
 
 
 def _item_rows(package, assignments) -> tuple[dict, ...]:

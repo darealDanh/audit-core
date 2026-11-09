@@ -24,7 +24,8 @@ def canonical(value):
 
 
 def active_sibling(con, package, *, generation, package_sha256, ordinal,
-                   image_id="target", status="pending"):
+                   image_id="target", status="pending",
+                   prepared_at="2026-11-09 00:00:00", recorded_at=None):
     """One synthetic active report run for the same image."""
     row = {
         "image_id": image_id,
@@ -38,8 +39,14 @@ def active_sibling(con, package, *, generation, package_sha256, ordinal,
         "manifest_sha256": "c" * 64,
         "item_count": 0,
         "result_count": 0,
-        "prepared_at": "2026-11-09 00:00:00",
+        "prepared_at": prepared_at,
     }
+    if status == "recorded":
+        row.update(
+            results_path=f"artifacts/firmware-report-results/{generation}/"
+                         f"{'d' * 64}/results.json",
+            results_sha256="d" * 64,
+            recorded_at=recorded_at or prepared_at)
     db.put(con, "cba_firmware_report_runs", row)
     return row
 
@@ -359,3 +366,90 @@ def test_prepare_publishes_a_zero_chain_report_as_recorded(graph_case, tmp_path)
     assert stored["completed_at"] is None and stored["report_sha256"] is None
     assert rows(con, "cba_firmware_report_items", "empty") == []
     assert report.prepare(con, run, root, image_id="empty") == summary
+
+
+def test_prepare_refuses_a_stored_run_whose_frozen_identity_drifted(
+        completed_pipeline):
+    con, run, root = completed_pipeline[0][0][:3]
+    first = report.prepare(con, run, root, image_id="target")
+    con.execute(
+        "UPDATE cba_firmware_report_runs SET manifest_sha256=? "
+        "WHERE image_id='target' AND report_generation=?",
+        ("e" * 64, first.report_generation))
+    con.commit()
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="differs from current authority"):
+        report.prepare(con, run, root, image_id="target")
+    assert state(con) == before and not con.in_transaction
+
+
+def test_prepare_refuses_a_zero_chain_run_whose_results_identity_drifted(
+        graph_case, tmp_path):
+    con, run, root = empty_pipeline(graph_case, tmp_path)
+    summary = report.prepare(con, run, root, image_id="empty")
+    con.execute(
+        "UPDATE cba_firmware_report_runs SET results_path=? "
+        "WHERE image_id='empty' AND report_generation=?",
+        (f"artifacts/firmware-report-results/{summary.report_generation}/"
+         f"{'f' * 64}/results.json", summary.report_generation))
+    con.commit()
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="differs from current authority"):
+        report.prepare(con, run, root, image_id="empty")
+    assert state(con) == before and not con.in_transaction
+
+
+def test_prepare_refuses_stored_items_that_differ_from_current_authority(
+        completed_pipeline):
+    con, run, root = completed_pipeline[0][0][:3]
+    first = report.prepare(con, run, root, image_id="target")
+    con.execute(
+        "UPDATE cba_firmware_report_items SET result_path='files/elsewhere.json' "
+        "WHERE image_id='target' AND report_generation=?",
+        (first.report_generation,))
+    con.commit()
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="items differ"):
+        report.prepare(con, run, root, image_id="target")
+    assert state(con) == before
+    con.execute("DELETE FROM cba_firmware_report_items WHERE image_id='target'")
+    con.commit()
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="items differ"):
+        report.prepare(con, run, root, image_id="target")
+    assert state(con) == before and not con.in_transaction
+
+
+@pytest.mark.parametrize("status,prepared_at,recorded_at", [
+    ("pending", "2099-01-01 00:00:00", None),
+    ("recorded", "2026-11-09 00:00:00", "2099-01-01 00:00:00"),
+])
+def test_prepare_refuses_superseding_a_run_stamped_after_now(
+        completed_pipeline, status, prepared_at, recorded_at):
+    con, run, root = completed_pipeline[0][0][:3]
+    package = decide.verified_package(con, run, root, image_id="target")
+    active_sibling(con, package, generation="a" * 64, package_sha256="b" * 64,
+                   ordinal=1, status=status, prepared_at=prepared_at,
+                   recorded_at=recorded_at)
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="precedes preparation or recording"):
+        report.prepare(con, run, root, image_id="target")
+    assert state(con) == before and not con.in_transaction
+
+
+def test_prepare_refuses_inputs_that_change_between_both_passes(
+        completed_pipeline, monkeypatch):
+    con, run, root = completed_pipeline[0][0][:3]
+    original_install = report.firmware_dive._install
+    contract = report._style_contract()
+    contract["renderer"] = dict(contract["renderer"], version=2)
+
+    def install_then_change_style(*args, **kwargs):
+        original_install(*args, **kwargs)
+        monkeypatch.setattr(report, "_style_contract", lambda value=contract: value)
+
+    monkeypatch.setattr(report.firmware_dive, "_install", install_then_change_style)
+    before = state(con)
+    with pytest.raises(report.FirmwareReportError, match="changed before publication"):
+        report.prepare(con, run, root, image_id="target")
+    assert state(con) == before and not con.in_transaction
