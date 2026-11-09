@@ -153,25 +153,55 @@ def test_check_refuses_a_missing_or_differing_complete_artifact_without_repair(
     installed = run / summary.report_path
     index = run / summary.index_path
     canonical = installed.read_bytes()
+    forged = b"Firmware assessment report\n"
     before = state(con)
 
+    # Each sub-case restores mode 0600 so the guard under test is the one that
+    # fires, not the umask the recreated file happens to carry.
     installed.unlink()
-    with pytest.raises(report.FirmwareReportError):
+    with pytest.raises(report.FirmwareReportError,
+                       match="Cannot complete firmware report") as missing:
         report.check(con, run, root, image_id="target")
+    assert "directory contains different artifacts" in str(missing.value.__cause__)
     assert not installed.exists()
 
-    installed.write_bytes(b"Firmware assessment report\n")
-    with pytest.raises(report.FirmwareReportError):
+    installed.write_bytes(forged)
+    os.chmod(installed, 0o600)
+    with pytest.raises(report.FirmwareReportError,
+                       match="Cannot complete firmware report") as differing:
         report.check(con, run, root, image_id="target")
-    assert installed.read_bytes() == b"Firmware assessment report\n"
+    assert "artifact bytes differ" in str(differing.value.__cause__)
+    assert installed.read_bytes() == forged
+    assert stat.S_IMODE(installed.stat().st_mode) == 0o600
 
     installed.write_bytes(canonical)
+    os.chmod(installed, 0o600)
     index.write_bytes(b"{}\n")
-    with pytest.raises(report.FirmwareReportError):
+    os.chmod(index, 0o600)
+    with pytest.raises(report.FirmwareReportError,
+                       match="Cannot complete firmware report") as forged_index:
         report.check(con, run, root, image_id="target")
+    assert "artifact bytes differ" in str(forged_index.value.__cause__)
     assert index.read_bytes() == b"{}\n"
 
     assert state(con) == before and not con.in_transaction
+
+
+def test_check_requires_the_unique_highest_preparation(recorded_report):
+    con, run, root, assignments = recorded_report
+    row = stored_run(con, "target", assignments.generation)
+    db.put(con, "cba_firmware_report_runs", {
+        **row, "report_generation": "a" * 64, "status": "superseded",
+        "superseded_at": row["recorded_at"]})
+    before, stored = state(con), artifacts(run)
+
+    with pytest.raises(report.FirmwareReportError,
+                       match="more than one current report preparation"):
+        report.check(con, run, root, image_id="target")
+
+    assert not (run / "artifacts" / "firmware-report").exists()
+    assert state(con) == before and artifacts(run) == stored
+    assert not con.in_transaction
 
 
 def test_check_refuses_a_report_whose_decision_package_is_no_longer_current(
