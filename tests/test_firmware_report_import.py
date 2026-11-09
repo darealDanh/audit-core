@@ -316,6 +316,28 @@ def test_record_refuses_a_superseded_report_preparation(prepared_report, tmp_pat
     assert state(con) == before and not con.in_transaction
 
 
+def test_record_refuses_a_complete_report_preparation(prepared_report, tmp_path):
+    """A complete run is terminal: recording it again is refused, not ignored."""
+    con, run, root, assignments = prepared_report
+    first, second = assignments.items
+    record(con, run, tmp_path, assignments, first, name="one.json")
+    record(con, run, tmp_path, assignments, second, name="two.json")
+    row = stored_run(con, "target", assignments.generation)
+    completion = f"artifacts/firmware-report/{assignments.generation}/{'b' * 64}"
+    db.put(con, "cba_firmware_report_runs", {
+        **row, "status": "complete", "report_path": f"{completion}/report.md",
+        "report_sha256": "b" * 64, "report_bytes": b"Firmware assessment report\n",
+        "index_path": f"{completion}/report.json", "index_sha256": "c" * 64,
+        "completed_at": row["recorded_at"]}, replace=True)
+    before = state(con)
+
+    with pytest.raises(results.FirmwareReportResultError, match="not active"):
+        record(con, run, tmp_path, assignments, second, name="two-again.json")
+
+    assert state(con) == before and not con.in_transaction
+
+
+
 def test_record_refuses_stored_items_that_differ_from_the_preparation(
         prepared_report, tmp_path):
     con, run, root, assignments = prepared_report

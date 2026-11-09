@@ -665,9 +665,9 @@ def _reconstruct(con, run, result: ReportResult) -> _RecordState:
         con, "SELECT * FROM cba_firmware_report_items WHERE image_id=? "
         "AND report_generation=? ORDER BY ordinal", (result.image_id, generation))
     contents, assigned = {}, []
-    for ordinal, item in enumerate(items, 1):
+    for item in items:
         db.TABLE_SPECS["cba_firmware_report_items"].validate(item)
-        name = f"items/{ordinal}-{item['chain_id']}.json"
+        name = f"items/{int(item['ordinal'])}-{item['chain_id']}.json"
         contents[name] = firmware_dive._read(run, item["assignment_path"],
                                              maximum=report.MAX_ASSIGNMENT_BYTES)
         assigned.append((item, contents[name]))
@@ -813,6 +813,13 @@ def record(con: sqlite3.Connection, run_dir: str | pathlib.Path,
                      == first.assignments.results_sha256)
         report._install_check(run, destination, state.assignments,
                               installed=installed)
+        if state.assignments.results_sha256 is not None:
+            # `_install` falls back to a mode-blind check on an existing
+            # destination, so the committing transaction asserts mode itself.
+            firmware_dive._checked_install(
+                report._results_destination(run, state.assignments.generation,
+                                            state.assignments.results_sha256),
+                state.assignments.results_contents, run, exact_mode=0o600)
         summary = _publish(con, state,
                            con.execute("SELECT datetime('now')").fetchone()[0])
         con.commit()
