@@ -134,16 +134,23 @@ function Install-SkillFiles {
     # audit.py + audit_core\ come from the core dir (repo root) and are copied
     # verbatim — they must NOT be substituted.
     Copy-Item -Force (Join-Path $CoreDir 'audit.py') (Join-Path $Dest 'audit.py')
+    # Remove before copying, so a subtree deleted from the surface (e.g.
+    # firmware-audit ships no workflows\) does not linger in a previously
+    # installed tree forever. This matches install.sh's prune loop. The
+    # clone-in-place guard above has already run, so $Dest is never this checkout.
+    foreach ($sub in @('workflows', 'references')) {
+        $dstSub = Join-Path $Dest $sub
+        if (Test-Path $dstSub) { Remove-Item -Recurse -Force $dstSub }
+    }
     foreach ($sub in @('workflows', 'references')) {
         $srcSub = Join-Path $SurfaceDir $sub
         # firmware-audit ships no workflows\; skip gracefully when absent.
         if (-not (Test-Path $srcSub)) { continue }
         $dstSub = Join-Path $Dest $sub
-        # Remove-then-copy, as audit_core already does. `Copy-Item -Recurse` of a
-        # directory into an existing same-named directory NESTS it rather than
-        # merging, which would bury references\briefs\ one level too deep - and
-        # briefs.TEMPLATE_DIR resolves there, so every `audit.py brief` would fail.
-        if (Test-Path $dstSub) { Remove-Item -Recurse -Force $dstSub }
+        # Copy-Item -Recurse of a directory into an existing same-named directory
+        # NESTS it rather than merging, which would bury references\briefs\ one
+        # level too deep - and briefs.TEMPLATE_DIR resolves there, so every
+        # `audit.py brief` would fail. The prune loop above cleared $dstSub.
         New-Item -ItemType Directory -Force -Path $dstSub | Out-Null
         # Recursive, so references\briefs\ is covered too.
         foreach ($f in Get-ChildItem -Path $srcSub -Recurse -File) {

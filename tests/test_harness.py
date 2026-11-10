@@ -86,13 +86,22 @@ def test_real_install_dirs_follow_codex_home(monkeypatch, tmp_path):
 
 
 def test_real_install_dirs_cover_every_client_root():
-    """Four destinations: copilot, claude, ~/.agents and $CODEX_HOME. Missing
-    one means the gate reports 'real install untouched' about a directory it
-    never looked at."""
+    """Eight destinations: copilot, claude and ~/.agents, each for both the
+    codebase-audit and firmware-audit skills, plus $CODEX_HOME for both skills.
+    Missing one means the gate reports 'real install untouched' about a
+    directory it never looked at."""
+    import os
     dirs = [str(d) for d in harness.real_install_dirs()]
-    assert len(dirs) == 4
-    for fragment in (".copilot/skills", ".claude/skills", ".agents/skills"):
-        assert any(fragment in d for d in dirs), fragment
+    home = os.path.expanduser("~")
+    codex = os.environ.get("CODEX_HOME") or os.path.join(home, ".codex")
+    expected = {
+        os.path.join(home, rel) for rel in harness.CLIENT_ROOTS
+    } | {
+        os.path.join(codex, "skills", skill)
+        for skill in ("codebase-audit", "firmware-audit")
+    }
+    assert set(dirs) == expected
+    assert len(dirs) == 8
 
 
 def test_the_install_gate_refuses_a_sandbox_that_is_the_real_home(monkeypatch):

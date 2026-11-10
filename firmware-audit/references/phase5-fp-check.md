@@ -24,7 +24,7 @@ batch_count    = CEILING(total_findings / 10)
 
 ## Subagent Brief
 
-The dispatch brief is a template at `references/briefs/fpcheck-brief.md`,
+The dispatch brief is a template at `references/briefs/firmware-fpcheck-brief.md`,
 rendered per batch by `audit.py brief`. Do not paste its contents into a
 dispatch — render it and send the path (spec rule R6):
 
