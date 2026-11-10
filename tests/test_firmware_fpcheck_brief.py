@@ -115,5 +115,5 @@ def test_skill_routes_firmware_review_separately_from_source_fpcheck():
     assert re.search(r"audit\.py brief --phase firmware-fpcheck\s*\\?\s*--unit batch-0001", skill)
     for name in INPUTS:
         assert f"--var {name}=" in skill
-    assert "[workflows/fpcheck.md](workflows/fpcheck.md)" in skill
+    assert "workflows/" not in skill
     assert "ordinary source-code `fpcheck`" in skill

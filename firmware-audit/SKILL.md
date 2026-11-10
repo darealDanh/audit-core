@@ -101,8 +101,8 @@ prefix and growth and how many turns they leave.
 opened.** A group skipped for budget is a `not_audited(reason='budget')` row.
 That row is excluded from the analyzed total, raises a WARNING from
 `audit.py coverage`, and **fails** `audit.py coverage --gate`: the audit
-phase runs that gate at its exit (`workflows/audit.md` Step 8) and a
-budget skip is one of the three things that fails it. The answer is
+phase runs that gate at its exit and a budget skip is one of the
+three things that fails it. The answer is
 `audit.py checkpoint` and a restart, never a surface left unopened.
 
 ### Model and effort tiering
@@ -300,8 +300,8 @@ This command certifies Stage 4e completion.
 ### Stage 4f firmware fpcheck
 
 For firmware candidate review after both Stage 4e hunt lanes pass, use this
-route. The ordinary source-code `fpcheck` route remains
-[workflows/fpcheck.md](workflows/fpcheck.md); it reviews source findings.
+route. The ordinary source-code `fpcheck` route lives in the
+codebase-audit skill; it reviews source findings.
 Firmware review uses immutable lane-qualified hunt candidates and dedicated
 firmware verdicts, pivots, and reviewed findings. Read
 [references/briefs/firmware-fpcheck-brief.md](references/briefs/firmware-fpcheck-brief.md)
