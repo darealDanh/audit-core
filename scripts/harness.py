@@ -207,15 +207,19 @@ CLIENT_ROOTS = (
     ".claude/skills/codebase-audit",
     ".copilot/skills/codebase-audit",
     ".agents/skills/codebase-audit",
+    ".claude/skills/firmware-audit",
+    ".copilot/skills/firmware-audit",
+    ".agents/skills/firmware-audit",
 )
 
 
 def real_install_dirs() -> list[pathlib.Path]:
     home = pathlib.Path(os.path.expanduser("~"))
     dirs = [home / rel for rel in CLIENT_ROOTS]
-    codex = os.environ.get("CODEX_HOME")
-    dirs.append((pathlib.Path(codex) if codex else home / ".codex")
-                / "skills" / "codebase-audit")
+    codex = pathlib.Path(os.environ["CODEX_HOME"]) if os.environ.get(
+        "CODEX_HOME") else home / ".codex"
+    for skill in ("codebase-audit", "firmware-audit"):
+        dirs.append(codex / "skills" / skill)
     return dirs
 
 
@@ -296,15 +300,18 @@ def gate_install() -> Result:
                           f"__SKILL_DIR__ sentinel",
                           "\n".join("  " + s for s in survivors[:20]))
 
-        # The installed tree must be able to run its own selftest - a copy that
+        # Each installed tree must be able to run its own selftest - a copy that
         # imports but cannot self-check is a copy nobody will notice is broken.
-        installed = home / ".claude" / "skills" / "codebase-audit" / "audit.py"
-        if installed.exists():
-            st = run([PY, str(installed), "selftest"], env=env, cwd=installed.parent)
-            if st.returncode != 0:
-                return Result("install", FAIL,
-                              "the installed tree fails its own selftest",
-                              tail(st.stdout + st.stderr, 20))
+        for skill in ("codebase-audit", "firmware-audit"):
+            installed = home / ".claude" / "skills" / skill / "audit.py"
+            if installed.exists():
+                st = run([PY, str(installed), "selftest"], env=env,
+                         cwd=installed.parent)
+                if st.returncode != 0:
+                    return Result("install", FAIL,
+                                  f"the installed {skill} tree fails its own "
+                                  f"selftest",
+                                  tail(st.stdout + st.stderr, 20))
 
     # Assertion 4.
     after = snapshot(real_dirs)
