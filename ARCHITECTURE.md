@@ -9,11 +9,17 @@ For *how to pick the work back up*, read
 
 ## 1. The thing being built
 
-This repository currently ships **one skill, made of two different kinds of
-material**. Its shared core now also contains the first ten vertical phases
-of the future `firmware-audit` skill (`qualify`, `acquire`, `triage`, `diff`,
-`surface`, `hunt`, `fpcheck`, `chain`, `dive`, and `decide`); the separate firmware skill tree
-does not exist yet.
+This repository now ships **two installed skills over one shared, vendored
+core**: `codebase-audit` (generic source-code review) and `firmware-audit`
+(the firmware pipeline — `qualify`, `acquire`, `triage`, `diff`, `surface`,
+`hunt`, `fpcheck`, `chain`, `dive`, `decide`, and `firmware-report`). The
+firmware verbs still live in the shared `audit.py`/`audit_core`; `firmware-audit`
+is a second installable surface — its own `SKILL.md`, worker briefs and
+launchers — over that identical core, so `codebase-audit`'s behavior and code
+are byte-identical to before the split. Each skill is made of the same **two
+different kinds of material**. The split is implemented on branch
+`split-firmware-audit-skill`; the merge and the final `make all` are pending
+and nothing is pushed.
 
 | Material | What it is | Who executes it |
 |---|---|---|
@@ -48,9 +54,13 @@ network.** `audit_core` is stdlib-only by contract; `pyproject.toml` declares
 SKILL.md                  the skill's entry document (CRLF)
 workflows/                one file per phase: recon, deploy, audit, fpcheck,
                           verify, report, source (+ an archived v1 pipeline)
-references/               phase deep-dives, lessons learned, dispatch brief
-                          templates under references/briefs/
+references/               phase deep-dives, lessons learned, generic dispatch
+                          brief templates under references/briefs/
 claude/commands/          Claude Code launcher stubs
+firmware-audit/           the second installed skill's surface: its own
+                          SKILL.md, the nine firmware worker briefs under
+                          firmware-audit/references/briefs/,
+                          references/phase5-fp-check.md, and Claude launchers
 
 audit.py                  the CLI: 32 verbs, argparse, one cmd_* per verb
 audit_core/               the logic the verbs are thin wrappers over
@@ -59,7 +69,7 @@ audit_core/baseline-pre-stage3.sql
                           a frozen pre-Stage-3 database, used by selftest to
                           prove MIGRATIONS actually repairs an old run
 
-install.sh / install.ps1  per-client installers
+install.sh / install.ps1  per-client installers; --skill codebase-audit|firmware-audit|all (default all)
 scripts/                  the verification harness (§8) - never installed
 tests/                    pytest suite; tests/goldens/ holds adjudicated
                           reference finding sets
@@ -243,12 +253,13 @@ firmware-report                                        firmware phases
 
 ### The shared firmware boundary through Stage 4j
 
-Stages 4b through 4j add firmware behavior to the shared core without pretending that the
-separate `firmware-audit` skill exists. `acquire` records a local image and its
+Stages 4b through 4j add firmware behavior to the shared core. Those verbs now
+surface through the separate, installed `firmware-audit` skill over this
+identical core; `codebase-audit`'s code is unchanged. `acquire` records a local image and its
 SHA-256; it does not fetch or carve. `triage` reads an already-carved rootfs and
 writes file, ELF, and evidenced boot-service rows; it does not infer open ports
 or inspect the kernel and bootloader. Its agent half ships as
-`references/briefs/triage-brief.md`. Every regular file gets an image-scoped
+`firmware-audit/references/briefs/triage-brief.md`. Every regular file gets an image-scoped
 manifest row. Only target and backward-compatible unscoped triage mirror rows
 into `cba_inventory`; acquired targets use image-qualified unit keys while
 legacy-unscoped triage keeps raw keys. Reference triage cannot change the
@@ -274,7 +285,7 @@ Artifact installation precedes the SQL transaction; replacement commits the
 summary and entries together. SQL failure can leave an unreferenced artifact
 generation but preserves the prior durable result.
 
-`references/briefs/diff-brief.md` assigns the semantic half: explain the known
+`firmware-audit/references/briefs/diff-brief.md` assigns the semantic half: explain the known
 vendor fix with evidence from both builds, then sweep the target for surviving
 siblings using existing observation/pattern tables. Changed bytes alone are
 not vulnerabilities.
@@ -360,10 +371,10 @@ durable batch receipt is the direction for eliminating this local-run performanc
 limit without capping evidence or the denominator.
 
 Stage 4d does not fetch/carve/execute firmware, infer listeners, hunt, assign
-severity, emulate, inspect kernel/bootloader, or create the separate skill tree.
+severity, emulate, or inspect the kernel/bootloader.
 
-`hunt` is Stage 4e, a firmware-audit phase still shipped inside
-`codebase-audit`. Preparation and checking require an acquired target, its
+`hunt` is Stage 4e. The firmware verb lives in the shared core and is surfaced
+through the `firmware-audit` skill. Preparation and checking require an acquired target, its
 image-scoped manifest, a complete canonical Stage 4d generation, and the live
 carved root. The exact commands are:
 
@@ -509,9 +520,9 @@ tables are written; generic finding/verdict tables are untouched. Atomic upstrea
 invalidation and the bounded firmware `fpcheck` CLI are implemented. The firmware
 review brief, installed-user routing and full-phase documentation/inventory are
 merged into local `main` at `303232e`; the scoped final re-review was clean.
-The eighth dispatch template, `references/briefs/firmware-fpcheck-brief.md`,
+The eighth dispatch template, `firmware-audit/references/briefs/firmware-fpcheck-brief.md`,
 uses the existing `brief` renderer with eight required path/provenance variables.
-`SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
+`firmware-audit/SKILL.md` routes firmware review through explicit `fpcheck --prepare`, one
 file-backed brief per immutable batch, orchestrator `--record`, and global `--check`.
 Workers preserve lane-qualified identities, compare cross-lane evidence, apply
 shared FP rules, and return strict bounded result-only JSON with mandatory
@@ -535,7 +546,7 @@ unexpected handler exceptions propagate after cleanup. No source-code generic
 verdict behavior or prose workflow name changes.
 Stage 4f does not execute/emulate/exploit firmware, settle runtime/hardware
 blockers, assign severity/CVSS, claim live reachability, compose exploit chains,
-write disclosure reports or create the separate firmware skill tree. Root-cause
+write disclosure reports. (The separate firmware-audit skill is a later packaging change, now on branch `split-firmware-audit-skill`.) Root-cause
 keys remain reviewer judgments; differing keys can visibly under-deduplicate.
 The Asus golden
 remains required for the overall Stage 4
@@ -612,7 +623,7 @@ unexpected exceptions propagate after cleanup.
 
 #### Installed global chain worker interface
 
-`references/briefs/firmware-chain-brief.md` renders through the existing `brief`
+`firmware-audit/references/briefs/firmware-chain-brief.md` renders through the existing `brief`
 mechanism with exactly seven required variables: `run_dir`, `db_path`, `rootfs`,
 `image_id`, `candidate_snapshot_sha256`, `worklist_path`, and `result_path`.
 `--phase firmware-chain --unit global` writes
@@ -650,7 +661,7 @@ local `main` at `e2432dd`; its eight-gate `make all` (9,174 tests; 0/14,811
 unexecuted) was measured on the code-final commit `7844a9b`.
 Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
-audit, separate firmware skill tree, and monorepo/submodule decision remain open.
+audit and monorepo/submodule decision remain open; the separate firmware-audit skill is implemented on branch `split-firmware-audit-skill` (merge / final `make all` pending).
 
 ### Stage 4h — firmware dive evidence settlement
 
@@ -1050,7 +1061,7 @@ policy path. `firmware_decide.verified_package` is the read-only current-package
 boundary for Stage 4j `report`; ordinary SQL rows are history, not current advice.
 
 `audit.py decide` exposes exactly `--prepare`, `--record` or `--check`.
-`references/briefs/firmware-decide-brief.md` and `SKILL.md` route prepare → one
+`firmware-audit/references/briefs/firmware-decide-brief.md` and `firmware-audit/SKILL.md` route prepare → one
 global worker → record DONE → check. JSON preserves exact public scalar values
 and usable paths; human output and expected diagnostics stay escaped, root-redacted
 and bounded. Generic source-code behavior and all Stage 4a–4h history remain
@@ -1096,8 +1107,8 @@ An independent three-reviewer re-review of merge `02cb6c0` found Important defec
 
 The Stage 4i review fixes are merged. Mutation, paid
 audit/milestone, Asus golden, second indicator snapshot, real hardware/corpus,
-Linux/alternate-interpreter execution, separate firmware skill tree and
-monorepo/submodule decision remain open. Triage stays upsert-only; Stage 4d
+Linux/alternate-interpreter execution and
+monorepo/submodule decision remain open; the separate firmware-audit skill is implemented on branch `split-firmware-audit-skill` (merge pending). Triage stays upsert-only; Stage 4d
 retains its orphan-result scan scaling limitation.
 
 ### Stage 4j — firmware maintainer reports
@@ -1170,7 +1181,7 @@ Canonical run-relative paths are:
 - `artifacts/firmware-report/<report-generation>/<report-sha256>/report.md`
 - `artifacts/firmware-report/<report-generation>/<report-sha256>/report.json`
 
-`references/briefs/firmware-report-brief.md` and the `SKILL.md` Stage 4j route
+`firmware-audit/references/briefs/firmware-report-brief.md` and the `firmware-audit/SKILL.md` Stage 4j route
 dispatch one fresh worker per chain: prepare, one writer per manifest item,
 record each DONE, then check. The worker owns result JSON only — explanation
 and the final severity judgment — while deterministic code owns chain
@@ -1198,9 +1209,11 @@ limitation.
 The real next stage is the overall Stage 4 `firmware-audit` gate (tplink at
 least 12/19 within $45, with the Asus golden also passing). It inherits every
 open prerequisite above: the missing Asus golden, the monorepo/submodule
-decision, the separate firmware skill tree, unmeasured paid audit and milestone
+decision, unmeasured paid audit and milestone
 quality, real hardware and corpus execution, and Linux/alternate-interpreter
-execution.
+execution. The firmware-audit skill split (its own installed skill over the
+shared vendored core) is implemented on branch `split-firmware-audit-skill`
+and no longer an open prerequisite; the merge and final `make all` are pending.
 
 ### Stage 3's five quality mechanisms
 

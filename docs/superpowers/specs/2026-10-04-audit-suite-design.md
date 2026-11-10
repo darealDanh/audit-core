@@ -232,6 +232,24 @@ Tools/audit-suite/
 If it must remain a separate repository, the fallback is core as a git submodule
 plus a `sync.sh`; the monorepo is preferred and is assumed below.
 
+### Amendment 2026-11-11 — adopted: flat source, second installable skill (approach B)
+
+The `skills/<name>/` reorganisation above is **not** adopted. The implemented
+layout keeps the firmware verbs in the shared root `audit.py` and `audit_core/`
+(flat source) and ships `firmware-audit` as a **second installable skill over
+that vendored core**. `firmware-audit/` holds only the firmware skill's surface
+— its own `SKILL.md`, the nine firmware worker briefs under
+`firmware-audit/references/briefs/`, `firmware-audit/references/phase5-fp-check.md`
+and Claude launchers — while the root tree stays `codebase-audit`'s surface.
+`install.sh`/`install.ps1` take `--skill codebase-audit|firmware-audit|all`
+(default `all`) and vendor the shared `audit.py` + `audit_core/` into each
+selected skill's install dir; `audit_core/briefs.py` resolves both brief dirs,
+and the install gate covers both skills. The **installed outcome is identical**
+to the §3.1 target — each skill is a self-contained `.../skills/<name>/`
+directory with no runtime reach outside itself — and `codebase-audit`'s
+`audit.py`/`audit_core` are byte-identical to before the split. Implemented on
+branch `split-firmware-audit-skill`; merge and final `make all` pending.
+
 ### 3.2 Install
 
 `install.sh` vendors `core/` and `audit_core/` into each skill directory, then

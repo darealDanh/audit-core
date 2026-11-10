@@ -111,6 +111,7 @@ cd codebase-audit
 ./install.sh claude         # Claude Code CLI only
 ./install.sh codex          # Codex CLI only
 ./install.sh --insiders     # use VS Code Insiders paths
+./install.sh --skill firmware-audit   # install only the firmware-audit skill (default: all)
 ./install.sh --uninstall    # remove selected clients' launchers AND skill dirs
 ```
 
@@ -125,14 +126,17 @@ cd codebase-audit
 .\install.ps1 claude          # Claude Code CLI only
 .\install.ps1 codex           # Codex CLI only
 .\install.ps1 -Insiders       # use VS Code Insiders paths
+.\install.ps1 -Skill firmware-audit   # install only the firmware-audit skill (default: all)
 .\install.ps1 -Uninstall      # remove selected clients' launchers AND skill dirs
 ```
 
 If PowerShell blocks the script, allow it for the session: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`. (`install.sh` also works on Windows under Git Bash / WSL.) On Windows the install roots are the same names under your profile — `%USERPROFILE%\.claude\...`, `%USERPROFILE%\.copilot\...`, and `%USERPROFILE%\.agents\skills\...` for Codex — and the Claude launchers receive a forward-slash `__SKILL_DIR__` path, which Claude Code accepts.
 
+**Two skills, one shared core.** The installer ships two skills over the same vendored core (`audit.py` + `audit_core/`): `codebase-audit` (this generic source-code review skill) and `firmware-audit` (the firmware pipeline). Both are installed by default; pass `--skill codebase-audit|firmware-audit|all` (`-Skill` on PowerShell, default `all`) to select. `firmware-audit`'s surface — its own `SKILL.md`, worker briefs under `firmware-audit/references/briefs/`, and launchers — lives under `firmware-audit/`; `codebase-audit`'s behavior and code are unchanged by the split. Each selected skill installs into its own `.../skills/<skill>/` directory per client.
+
 ### Where things go
 
-Each client gets its **own self-contained copy** of the skill — installing one does not touch the other.
+Each client gets its **own self-contained copy** of each selected skill — installing one does not touch the other, and `codebase-audit` and `firmware-audit` install into separate `.../skills/<skill>/` directories.
 
 | Client | Skill content (`SKILL.md` + `workflows/` + `references/`) | Launcher(s) |
 |---|---|---|
@@ -257,7 +261,7 @@ On Claude Code with **ultracode** on (the Workflow tool available), both the ful
 
 The shared CLI has 32 verbs, including `surface`, `hunt`, firmware
 `fpcheck`, `dive`, `decide` and `firmware-report`. Stage 4d is the fifth firmware phase (`qualify`, `acquire`, `triage`,
-`diff`, `surface`); the separate `firmware-audit` skill tree is still planned. Start with an initialized
+`diff`, `surface`); the `firmware-audit` skill now installs separately over this shared core. Start with an initialized
 run, an acquired `target` image, and its image-scoped triage manifest. In an installed
 copy, use that client's skill directory as the path to `audit.py`.
 
@@ -304,7 +308,7 @@ ownership migration. Triage still upserts observed paths without pruning.
 Worklists live at `RUN/files/surface/<worklist-sha256>/index.json` with sibling
 `batch-0001.json` files. Their canonical UTF-8 JSON excludes host paths and
 timestamps from content identity. Render
-[`references/briefs/surface-brief.md`](references/briefs/surface-brief.md)
+[`firmware-audit/references/briefs/surface-brief.md`](firmware-audit/references/briefs/surface-brief.md)
 through `audit.py brief`, supplying `run_dir`, `db_path`, `rootfs`, `image_id`,
 `manifest_sha256`, `worklist_index`, `batch_path`, and `result_path`; dispatch
 file paths to the worker. Its JSON result must decide every assigned unit
@@ -359,8 +363,8 @@ the remaining milestone/restructure prerequisites.
 ## Firmware candidate hunting (Stage 4e)
 
 Stage 4e adds firmware `hunt` to the shared `codebase-audit` CLI. It is
-firmware-audit functionality on the shared repository; a separately packaged
-`firmware-audit` skill tree and the monorepo/submodule decision remain open.
+firmware-audit functionality on the shared core, now surfaced through the
+separately installed `firmware-audit` skill; the monorepo/submodule decision remains open.
 Prepare requires an acquired target, its image-scoped triage manifest, a
 completed current Stage 4d surface generation, and the live carved root. Both
 independent lanes assign every target regular file exactly once: L-sink traces
@@ -428,8 +432,8 @@ Stage 4f is merged into local `main` at `303232e` after clean scoped re-review;
 `chain`, `dive` and Stage 4i `decide` are also merged; Stage 4i review fixes
 are merged at `9e4632c`; Stage 4j `firmware-report` is merged into local
 `main` at `e2432dd`. Firmware review uses
-the shared CLI; the
-separate `firmware-audit` skill tree remains planned. Ordinary source-code
+the shared CLI; the `firmware-audit` skill now installs separately over this
+shared core. Ordinary source-code
 `fpcheck` keeps its existing workflow and generic verdict commands.
 
 ```bash
@@ -461,7 +465,7 @@ may exceed the requested target size. Clusters and batches cannot exceed 1,000
 candidates. A candidate-free hunt still gets one empty batch and requires an
 empty-result receipt before completion.
 
-Render `references/briefs/firmware-fpcheck-brief.md` with
+Render `firmware-audit/references/briefs/firmware-fpcheck-brief.md` with
 `audit.py brief --phase firmware-fpcheck --unit batch-NNNN`, supplying
 `run_dir`, `db_path`, `rootfs`, `image_id`, `candidate_snapshot_sha256`,
 `worklist_index`, `batch_path`, and `result_path`. Dispatch the brief file path.
@@ -598,12 +602,12 @@ Canonical run-relative artifacts are:
 - `artifacts/firmware-decide/<decision-generation>/<package-sha256>/decision.json`
 - `artifacts/firmware-decide/<decision-generation>/<package-sha256>/bench/<name>`
 
-See `references/briefs/firmware-decide-brief.md` and the Stage 4i section of
-`SKILL.md` for the one-global-worker route, and
+See `firmware-audit/references/briefs/firmware-decide-brief.md` and the Stage 4i section of
+`firmware-audit/SKILL.md` for the one-global-worker route, and
 `docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md` for its
 contract. Mutation, paid audit/milestone, Asus golden, second indicator snapshot,
-real hardware/corpus execution, Linux/alternate-interpreter execution, the
-separate firmware skill tree and monorepo/submodule decision remain open.
+real hardware/corpus execution, Linux/alternate-interpreter execution and the
+monorepo/submodule decision remain open.
 Triage remains upsert-only; Stage 4d retains its orphan-result scan scaling limit.
 
 ## Firmware maintainer reports (Stage 4j)
@@ -672,8 +676,8 @@ Canonical run-relative artifacts are:
 - `artifacts/firmware-report/<report-generation>/<report-sha256>/report.md`
 - `artifacts/firmware-report/<report-generation>/<report-sha256>/report.json`
 
-See `references/briefs/firmware-report-brief.md` and the Stage 4j section of
-`SKILL.md` for the one-worker-per-chain route, and
+See `firmware-audit/references/briefs/firmware-report-brief.md` and the Stage 4j section of
+`firmware-audit/SKILL.md` for the one-worker-per-chain route, and
 `docs/superpowers/specs/2026-11-09-stage4j-firmware-report-design.md` for its
 contract.
 
@@ -685,8 +689,8 @@ minutes for the focused Stage 4j selection). A second report generation over the
 same unchanged decision package is refused while one is still active, so a
 corrected image row or a bumped style contract needs a fresh Stage 4i decision
 preparation first. Mutation, paid audit/milestone, Asus golden, second indicator
-snapshot, real hardware/corpus execution, Linux/alternate-interpreter execution,
-the separate firmware skill tree and the monorepo/submodule decision remain
+snapshot, real hardware/corpus execution, Linux/alternate-interpreter execution
+and the monorepo/submodule decision remain
 open; triage stays upsert-only and Stage 4d keeps its orphan-result scan scaling
 limit. The next stage is the overall Stage 4 `firmware-audit` milestone (tplink
 at least 12/19 within $45, with the Asus golden also passing), which inherits
