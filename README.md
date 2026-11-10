@@ -364,7 +364,7 @@ the remaining milestone/restructure prerequisites.
 
 Stage 4e adds firmware `hunt` to the shared `codebase-audit` CLI. It is
 firmware-audit functionality on the shared core, now surfaced through the
-separately installed `firmware-audit` skill; the monorepo/submodule decision remains open.
+separately installed `firmware-audit` skill, merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`); the monorepo/submodule decision is closed (resolved).
 Prepare requires an acquired target, its image-scoped triage manifest, a
 completed current Stage 4d surface generation, and the live carved root. Both
 independent lanes assign every target regular file exactly once: L-sink traces
@@ -422,9 +422,9 @@ scan scaling. Firmware `fpcheck`, `chain`, `dive` and `decide` are merged
 locally; Stage 4i review fixes are merged at `9e4632c`. Stage 4j
 `firmware-report` is merged into local `main` at `e2432dd` (fast-forward from
 `b496152`), with its eight-gate `make all` measured on the code-final commit
-`7844a9b`; nothing is pushed. The Asus golden and the
-monorepo/submodule decision remain prerequisites for the later overall Stage 4
-milestone and restructure.
+`7844a9b`; nothing is pushed. The Asus golden remains a prerequisite for the later overall Stage 4
+milestone; the monorepo/submodule decision is closed (resolved) and the separate
+firmware-audit skill is merged into local `main` at `8ecdb72`.
 
 ## Firmware static review (Stage 4f)
 
@@ -538,8 +538,7 @@ ASCII characters plus a newline; unexpected programming errors propagate.
 Static review does not fetch, carve, modify, execute, emulate or exploit firmware,
 settle runtime/hardware blockers, inspect new kernel/bootloader surfaces, assign
 final severity/CVSS, claim live reachability, compose chains or write disclosure
-reports. The Asus golden and monorepo/submodule decision remain milestone and
-restructure prerequisites. Deterministic harness success verifies contracts;
+reports. The Asus golden remains a milestone prerequisite; the monorepo/submodule decision is closed (resolved). Deterministic harness success verifies contracts;
 paid semantic quality, recall and audit-cost improvement remain unmeasured.
 `make mutate` remains separate and opt-in.
 
@@ -606,8 +605,8 @@ See `firmware-audit/references/briefs/firmware-decide-brief.md` and the Stage 4i
 `firmware-audit/SKILL.md` for the one-global-worker route, and
 `docs/superpowers/specs/2026-11-04-stage4i-firmware-decide-design.md` for its
 contract. Mutation, paid audit/milestone, Asus golden, second indicator snapshot,
-real hardware/corpus execution, Linux/alternate-interpreter execution and the
-monorepo/submodule decision remain open.
+real hardware/corpus execution and Linux/alternate-interpreter execution remain
+open; the monorepo/submodule decision is closed (resolved).
 Triage remains upsert-only; Stage 4d retains its orphan-result scan scaling limit.
 
 ## Firmware maintainer reports (Stage 4j)
@@ -623,8 +622,9 @@ coverage 0 unexecuted / 14,811 statements, zero allowed; read-only benchmark
 recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall time
 10,811 s. The merge fast-forwarded that measured tree plus the documentation
 commit, the `stage4j-firmware-report` worktree is retired, and nothing is
-pushed. The overall Stage 4 `firmware-audit` milestone is next; it inherits the
-Asus golden and the monorepo/submodule decision as prerequisites.
+pushed. The overall Stage 4 `firmware-audit` milestone gate is next; it inherits the
+Asus golden as its prerequisite, while the monorepo/submodule decision is closed
+(resolved) and the firmware-audit skill split is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`).
 
 Stage 4j adds the `firmware-report` verb, which turns one current completed
 Stage 4i decision package into one immutable maintainer-facing Markdown report.
@@ -689,12 +689,14 @@ minutes for the focused Stage 4j selection). A second report generation over the
 same unchanged decision package is refused while one is still active, so a
 corrected image row or a bumped style contract needs a fresh Stage 4i decision
 preparation first. Mutation, paid audit/milestone, Asus golden, second indicator
-snapshot, real hardware/corpus execution, Linux/alternate-interpreter execution
-and the monorepo/submodule decision remain
-open; triage stays upsert-only and Stage 4d keeps its orphan-result scan scaling
-limit. The next stage is the overall Stage 4 `firmware-audit` milestone (tplink
+snapshot, real hardware/corpus execution and Linux/alternate-interpreter execution
+remain open; the monorepo/submodule decision is closed (resolved); triage stays
+upsert-only and Stage 4d keeps its orphan-result scan scaling
+limit. The next stage is the overall Stage 4 `firmware-audit` milestone gate (tplink
 at least 12/19 within $45, with the Asus golden also passing), which inherits
-every one of those open prerequisites.
+the Asus golden, the paid milestone audit, the mutation sweep, the second
+indicator snapshot, the real corpus/hardware probe, Linux/alternate-interpreter
+execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling.
 
 ## Layout
 

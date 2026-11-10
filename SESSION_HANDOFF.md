@@ -1,10 +1,10 @@
 # Session handoff
 
-**Written:** 2026-11-11 · **Branch:** `main` at `e2432dd` (Stage 4j merged by fast-forward from `b496152`: the code-final commit `7844a9b` plus the documentation commit); the `stage4j-firmware-report` worktree is retired; nothing is pushed. The **firmware-audit skill split** is implemented on branch `split-firmware-audit-skill` (merge / final `make all` pending). On the split branch the `manifest` and `eol` gates pass — 67 features / 18 stages / 24 open items (+1 from closing separate-firmware-skill-tree), 8 CRLF / 302 LF ·
+**Written:** 2026-11-11 · **Branch:** `main` at `8ecdb72` (the **firmware-audit skill split** merged by fast-forward from `9c6f3b9`); the split worktree is retired; nothing is pushed. The firmware-audit skill split is **merged into local `main` at `8ecdb72`**; its final `make all` on code-final head `8ecdb72` passed all eight gates — 9,189 tests (4,518 s); 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 302 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files, 0 sentinel survivors, real install untouched; coverage 0 unexecuted / 14,833 statements; bench recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall 10,079 s. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. Nothing is pushed ·
 **Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and merged into local `main` at `e2432dd`; its full eight-gate `make all` was measured on the code-final commit `7844a9b`. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
 Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
 identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
-The overall Stage 4 `firmware-audit` milestone is the next stage; it inherits the Asus golden and the paid milestone audit as prerequisites. The **firmware-audit skill split** — `firmware-audit` as its own installed skill over the shared vendored core, `codebase-audit` byte-identical — is implemented on branch `split-firmware-audit-skill`; its merge and final `make all` are pending, nothing pushed. The monorepo/submodule question is resolved (submodule + `sync.sh`; spec Amendment 2026-11-10), so the restructure is unblocked. No Stage 4i review-fix prerequisite remains.
+The overall Stage 4 `firmware-audit` milestone gate is the next stage; it inherits the Asus golden, the paid milestone audit, the mutation sweep, the second indicator snapshot, the real corpus/hardware probe, Linux/alternate-interpreter execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling as prerequisites. The **firmware-audit skill split** — `firmware-audit` as its own installed skill over the shared vendored core, `codebase-audit` byte-identical — is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`), nothing pushed. The monorepo/submodule question is closed (resolved; submodule + `sync.sh`; spec Amendment 2026-11-10), so the restructure is unblocked. No Stage 4i review-fix prerequisite remains.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -133,9 +133,9 @@ These are not style preferences. Each one has a specific, known cost.
   repository ships two skills over that spine — `codebase-audit` and the
   separately installed `firmware-audit` (its own `SKILL.md`, briefs and
   launchers under `firmware-audit/`); `codebase-audit`'s code is unchanged. The
-  split is implemented on branch `split-firmware-audit-skill` (merge / final
-  `make all` pending). The monorepo/submodule decision remains open and blocks
-  the later restructure.
+  split is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`);
+  its final `make all` passed all eight gates. The monorepo/submodule decision
+  is closed (resolved), unblocking the later restructure.
 - **Image isolation is implemented:** firmware facts now use `(image_id,
   path/name)` keys. Target triage mirrors inventory with
   `db.firmware_unit_key(image_id, path)`; legacy-unscoped triage retains raw
@@ -236,9 +236,9 @@ These are not style preferences. Each one has a specific, known cost.
   at `e2432dd`.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
-  and Stage 4d retained-orphan scan scaling persist. The Asus golden and
-  monorepo/submodule decision remain prerequisites for the overall Stage 4
-  milestone/restructure.
+  and Stage 4d retained-orphan scan scaling persist. The Asus golden remains a
+  prerequisite for the overall Stage 4
+  milestone; the monorepo/submodule decision is closed (resolved).
 - **Stage 4g review gate:** independent whole-branch review found two Important
   cross-layer invariant defects. Commit `661c3c9` unified `other-specific` link
   acceptance across semantic validation/persistence and rejected unresolved
@@ -1017,11 +1017,11 @@ benchmark database; it ran no new audit and did not change the deferral.
 Stages 0 through 3c and Stages 4a–4j are merged to local `main`; Stage 4i is
 included at `02cb6c0`, its review fixes at `9e4632c`, and Stage 4j
 `firmware-report` at `e2432dd` (fast-forward from `b496152` of the code-final
-tree `7844a9b` plus the documentation commit; worktree retired). The overall Stage 4 `firmware-audit` milestone is
-the next stage, inheriting the Asus golden, the monorepo/submodule decision,
+tree `7844a9b` plus the documentation commit; worktree retired). The overall Stage 4 `firmware-audit` milestone gate is
+the next stage, inheriting the Asus golden,
 the paid milestone audit, the mutation
-sweep, the second indicator snapshot, the real corpus/hardware probe and
-Linux/alternate-interpreter execution. The firmware-audit skill split is implemented on branch `split-firmware-audit-skill` (merge / final `make all` pending). Nothing is pushed. Stage 4c adds
+sweep, the second indicator snapshot, the real corpus/hardware probe,
+Linux/alternate-interpreter execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling. The firmware-audit skill split is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`); the monorepo/submodule decision is closed (resolved). Nothing is pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the
@@ -1519,15 +1519,14 @@ local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
 Stage 4h `dive` is merged locally at `dcfb01e`; Stage 4i `decide` is merged at
 `02cb6c0`, with review fixes merged at `9e4632c`. Stage 4j
 `firmware-report` is merged at `e2432dd`. These
-phases were built at zero audit cost. The overall Stage 4 milestone is next.
-The firmware-audit skill split is implemented on branch `split-firmware-audit-skill` (merge / final `make all` pending).
+phases were built at zero audit cost. The overall Stage 4 milestone gate is next.
+The firmware-audit skill split is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`); the monorepo/submodule decision is closed (resolved).
 
 ### Stage 4 milestone work
 
 The milestone gate requires **two** targets: tplink >= 12/19 at <= $45 *and*
 the asus golden passing, to guard against overfitting. The asus golden does not
-exist yet. Spec §10 remains undecided and blocks the monorepo/submodule
-restructure, not the next firmware phases.
+exist yet. The monorepo/submodule decision (spec §10) is closed (resolved), so the restructure is unblocked.
 
 Stage 3b measured severity: `severity 5/9 agree`, 4 under-rated, `weighted
 recall 0.382` against `recall 9/19`. Stage 4's target is a **recall** problem,
