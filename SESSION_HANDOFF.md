@@ -1,10 +1,10 @@
 # Session handoff
 
-**Written:** 2026-11-10 · **Branch:** `stage4j-firmware-report` (Stage 4j implemented, reviewed and fully verified, `b496152..HEAD`); local `main` still at `9e4632c`; Stage 4j merge is the controller's next step; nothing is pushed ·
-**Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and a full `make all` on `7844a9b` passed all eight gates; it is **not merged**. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
+**Written:** 2026-11-10 · **Branch:** `main` at `e2432dd` (Stage 4j merged by fast-forward from `b496152`: the code-final commit `7844a9b` plus the documentation commit); the `stage4j-firmware-report` worktree is retired; nothing is pushed ·
+**Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and merged into local `main` at `e2432dd`; its full eight-gate `make all` was measured on the code-final commit `7844a9b`. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
 Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
 identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
-Stage 4j's merge into local `main` is the remaining work; after that the overall Stage 4 `firmware-audit` milestone is next. No Stage 4i review-fix prerequisite remains.
+The overall Stage 4 `firmware-audit` milestone is the next stage; it inherits the Asus golden, the monorepo/submodule decision, the separate firmware skill tree and the paid milestone audit as prerequisites. No Stage 4i review-fix prerequisite remains.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -22,12 +22,13 @@ Stage 4i is merged locally at `02cb6c0`. Its review fixes passed all eight
 gates, including the final post-documentation `make all`, and are merged into local `main` at `9e4632c` (fast-forward);
 the Stage 4i worktrees are retired.
 
-Stage 4j `firmware-report` is implemented and reviewed on
-`stage4j-firmware-report` (commits `b496152..HEAD`, 18 commits). Modules
+Stage 4j `firmware-report` is merged into local `main` at `e2432dd`, a
+fast-forward from `b496152` (20 commits, `b496152..e2432dd`) of the code-final
+tree `7844a9b` plus the documentation commit. Modules
 `audit_core/firmware_report.py` and `audit_core/firmware_report_results.py`,
 tables `cba_firmware_report_runs` and `cba_firmware_report_items`, the
 `firmware-report` CLI verb, `references/briefs/firmware-report-brief.md` and
-the `SKILL.md` Stage 4j route are in place. Measured on the branch:
+the `SKILL.md` Stage 4j route are in place. Measured on the code-final commit:
 `audit.py selftest` reports 32 verbs, 47 tables / 46 contracts and 8
 migrations, the `manifest` and `eol` gates pass (67 features / 18 stages /
 23 open items; 6 CRLF / 285 LF), and the full `make all` on `7844a9b` passed
@@ -35,10 +36,10 @@ all eight gates: 9,174 tests passed (4,924 s), lint clean, 128 installed
 markdown files with 0 sentinel survivors and the real install untouched,
 coverage 0 unexecuted / 14,811 statements with zero allowed, and a read-only
 benchmark of recall 9/19 over 45 findings, precision 39/40, $73.15 per match,
-in 10,811 s of wall time. The merge into local `main` has not been run and
-nothing is pushed.
+in 10,811 s of wall time. The feature worktree is retired and nothing is
+pushed.
 
-Next: merge Stage 4j into local `main`. Then the overall Stage 4
+Next: the overall Stage 4
 `firmware-audit` milestone (tplink
 ≥ 12/19 at ≤ $45 with the Asus golden passing). Preserve the
 one-row-per-image-and-generation lifecycles, exact current upstream ownership,
@@ -106,11 +107,14 @@ These are not style preferences. Each one has a specific, known cost.
 
 ## 2. State you are inheriting
 
-- **Branch:** work is on `stage4j-firmware-report` (`b496152..HEAD`); local
-  `main` is still at `9e4632c`, with Stage 4i review fixes through `92562c4`
+- **Branch:** work is on `main` at `e2432dd`, where Stage 4j
+  `firmware-report` was merged by fast-forward from `b496152` (code-final
+  commit `7844a9b` plus the documentation commit); local `main` previously
+  carried Stage 4i review fixes through `92562c4` at `9e4632c`,
   fast-forwarded after the final post-documentation `make all`. Stages 4d–4i are
   already merged locally at `6eba6d6`, `8119af1`, `303232e`, `30ca3ba`,
-  `dcfb01e` and `02cb6c0`, respectively. Stage 4j is not merged. Nothing has
+  `dcfb01e` and `02cb6c0`, respectively. The `stage4j-firmware-report`
+  worktree is retired. Nothing has
   been pushed.
 - **Stage 4f design and plan are approved:** `b4f6e0f` and `61177ce` were
   committed on the feature branch and are now in local `main`; its five-table schema foundation and row
@@ -224,8 +228,8 @@ These are not style preferences. Each one has a specific, known cost.
   behavior remains compatible. Static chains do not prove runtime reachability,
   severity, exploitability or semantic causality beyond retained evidence.
   Stages 4g–4i are merged locally and unpushed; Stage 4i review fixes are
-  merged at `9e4632c`; Stage 4j `firmware-report` is implemented and reviewed
-  on its branch and awaits merge.
+  merged at `9e4632c`; Stage 4j `firmware-report` is merged into local `main`
+  at `e2432dd`.
   Stage 4e remains
   firmware functionality in the shared repository. Triage's upsert-only manifests
   and Stage 4d retained-orphan scan scaling persist. The Asus golden and
@@ -329,10 +333,12 @@ An independent three-reviewer re-review of merge `02cb6c0` found Important defec
 
 ### Current Stage 4j implementation and verification
 
-Implemented and independently reviewed — per task and across the whole branch —
-on `stage4j-firmware-report` (`b496152..HEAD`, 18 commits). Not merged and not
-pushed; the merge into local `main` is the controller's next step. A full
-`make all` on `7844a9b` passed all eight gates.
+Implemented, independently reviewed — per task and across the whole branch —
+and merged into local `main` at `e2432dd`: a fast-forward from `b496152`
+(20 commits, `b496152..e2432dd`) of the code-final tree `7844a9b` plus the
+documentation commit. The `stage4j-firmware-report` worktree is retired and
+nothing is pushed. A full `make all`, measured on the code-final commit
+`7844a9b`, passed all eight gates.
 
 `audit_core/firmware_report.py` owns the hashed style contract, the frozen
 per-chain assignments, the report generation, the manifest, the renderer and
@@ -351,7 +357,7 @@ explanation and the final severity judgment. The latest preparation is current,
 ties are refused, a stale active generation is superseded, and
 `firmware_report.verified_report` never repairs.
 
-Measured on this branch: `python3 audit.py selftest` (32 verbs declared, all
+Measured on the code-final commit `7844a9b`: `python3 audit.py selftest` (32 verbs declared, all
 dispatchable; 47 tables in schema.sql, 46 under contract; 8 migrations applied
 to both baselines), `python3 scripts/harness.py --only manifest`
 (67 features / 18 stages / 23 open items) and `--only eol` (6 CRLF files,
@@ -1005,11 +1011,10 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 ## 4. What to do next
 
-Stages 0 through 3c and Stages 4a–4i are merged to local `main`; Stage 4i is
-included at `02cb6c0` and its review fixes at `9e4632c`. Stage 4j
-`firmware-report` is implemented and reviewed on `stage4j-firmware-report`
-(`b496152..HEAD`); merge it and run the full `make all`, then record the
-measured counts. After that the overall Stage 4 `firmware-audit` milestone is
+Stages 0 through 3c and Stages 4a–4j are merged to local `main`; Stage 4i is
+included at `02cb6c0`, its review fixes at `9e4632c`, and Stage 4j
+`firmware-report` at `e2432dd` (fast-forward from `b496152` of the code-final
+tree `7844a9b` plus the documentation commit; worktree retired). The overall Stage 4 `firmware-audit` milestone is
 the next stage, inheriting the Asus golden, the monorepo/submodule decision,
 the separate firmware skill tree, the paid milestone audit, the mutation
 sweep, the second indicator snapshot, the real corpus/hardware probe and
@@ -1510,8 +1515,7 @@ local `main`; Stage 4e merged `hunt` at `8119af1`; Stage 4f merged firmware
 `fpcheck` at `303232e`; Stage 4g merged firmware `chain` at `30ca3ba`.
 Stage 4h `dive` is merged locally at `dcfb01e`; Stage 4i `decide` is merged at
 `02cb6c0`, with review fixes merged at `9e4632c`. Stage 4j
-`firmware-report` is implemented and reviewed on `stage4j-firmware-report`
-and awaits merge. These
+`firmware-report` is merged at `e2432dd`. These
 phases were built at zero audit cost. The overall Stage 4 milestone is next.
 The separate firmware skill tree does not exist yet.
 

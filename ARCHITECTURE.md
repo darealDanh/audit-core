@@ -405,9 +405,10 @@ implemented as Stage 4f below and merged into local `main` at `303232e` after
 clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
 `30ca3ba`; `dive` is merged locally at `dcfb01e`. Stage 4i `decide` is merged
 locally at `02cb6c0`; its review fixes are merged at `9e4632c`. Stage 4j
-`firmware-report` is implemented and independently reviewed on branch
-`stage4j-firmware-report` (commits `b496152..HEAD`); its full `make all` on
-`7844a9b` passed all eight gates, and its merge into local `main` is pending.
+`firmware-report` is merged into local `main` at `e2432dd` (fast-forward from
+`b496152`); its eight-gate `make all` was measured on the code-final commit
+`7844a9b`, and the merge fast-forwarded that tree plus the documentation
+commit. The feature worktree is retired and nothing is pushed.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -644,9 +645,9 @@ nonmaterialized dispositions. Commit `7dad245` requires a reciprocal blocked
 disposition and blocker reference and adds independent completion-gate coverage;
 the complete fix wave passed scoped re-review. Stage 4g is merged locally but
 unpushed. Stage 4h `dive` and Stage 4i `decide` are merged locally; Stage 4i
-review fixes are merged at `9e4632c`. Stage 4j `firmware-report` is
-implemented, reviewed and verified by an eight-gate `make all` on `7844a9b`
-(9,174 tests; 0/14,811 unexecuted) on its branch, with merge pending.
+review fixes are merged at `9e4632c`. Stage 4j `firmware-report` is merged into
+local `main` at `e2432dd`; its eight-gate `make all` (9,174 tests; 0/14,811
+unexecuted) was measured on the code-final commit `7844a9b`.
 Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.
@@ -1101,10 +1102,11 @@ retains its orphan-result scan scaling limitation.
 
 ### Stage 4j — firmware maintainer reports
 
-Stage 4j is implemented and independently reviewed per task and across the
-whole branch on `stage4j-firmware-report` (commits `b496152..HEAD`). It is not
-merged into local `main`, and its final `make all` has not been run; no harness
-measurement is claimed here beyond the gates named below.
+Stage 4j is implemented, independently reviewed per task and across the whole
+branch, and merged into local `main` at `e2432dd` — a fast-forward from
+`b496152` of the code-final tree `7844a9b` plus the documentation commit. The
+`stage4j-firmware-report` worktree is retired and nothing is pushed. The full
+eight-gate `make all` recorded for this stage was measured on `7844a9b`.
 
 `audit_core/firmware_report.py` owns the versioned style contract, the frozen
 per-chain assignment seeds, the report generation, the manifest and the
