@@ -34,9 +34,17 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
     assert (target / "audit_core" / "__init__.py").is_file()
     assert (target / "audit_core" / "schema.sql").is_file()
     assert (target / "audit_core" / "hunt_results.py").is_file()
-    assert (target / "references" / "briefs" / "hunt-brief.md").is_file()
-    assert (target / "references" / "briefs" / "firmware-dive-brief.md").is_file()
-    assert (target / "references" / "briefs" / "firmware-decide-brief.md").is_file()
+    # Post-split: codebase-audit ships only the generic briefs; the nine
+    # firmware briefs moved to the firmware-audit skill (installed separately).
+    for generic in ("audit-brief.md", "recon-brief.md", "fpcheck-brief.md"):
+        assert (target / "references" / "briefs" / generic).is_file(), generic
+    for firmware in ("hunt-brief.md", "surface-brief.md", "diff-brief.md",
+                     "triage-brief.md", "firmware-fpcheck-brief.md",
+                     "firmware-chain-brief.md", "firmware-dive-brief.md",
+                     "firmware-decide-brief.md", "firmware-report-brief.md"):
+        assert not (target / "references" / "briefs" / firmware).is_file(), (
+            "firmware briefs moved to the firmware-audit skill; codebase-audit "
+            "must no longer ship them")
     for module in ("firmware_dive.py", "firmware_dive_questions.py",
                    "firmware_dive_acquisition.py", "firmware_dive_results.py",
                    "firmware_decide.py", "firmware_decide_results.py"):
@@ -46,128 +54,6 @@ def test_install_sh_copies_the_tool_and_selftest_passes(tmp_path):
                        capture_output=True, text=True)
     assert s.returncode == 0, s.stderr
     assert "audit_core" in s.stdout
-
-
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-def test_installed_hunt_brief_resolves_schema_and_renders_from_installed_tree(tmp_path):
-    home = tmp_path / "home"
-    home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
-           "CODEX_HOME": str(home / ".codex")}
-    install = subprocess.run(
-        ["bash", str(ROOT / "install.sh"), "claude"],
-        capture_output=True, text=True, env=env, cwd=str(ROOT),
-    )
-    assert install.returncode == 0, install.stdout + install.stderr
-    target = home / ".claude" / "skills" / "codebase-audit"
-    template = target / "references" / "briefs" / "hunt-brief.md"
-    template_text = template.read_text()
-    assert "__SKILL_DIR__" not in template_text
-    assert str(target) in template_text
-    assert (target / "audit_core" / "hunt_results.py").is_file()
-
-    run = tmp_path / "run"
-    generation = run / "files" / "hunt" / ("a" * 64) / "l-dark"
-    variables = {
-        "run_dir": str(run), "db_path": str(run / "audit.db"),
-        "rootfs": str(tmp_path / "rootfs"), "image_id": "target",
-        "lane": "l-dark", "manifest_sha256": "b" * 64,
-        "surface_snapshot_sha256": "c" * 64,
-        "worklist_index": str(generation / "index.json"),
-        "batch_path": str(generation / "batch-0001.json"),
-        "result_path": str(run / "files" / "result.json"),
-    }
-    command = [sys.executable, str(target / "audit.py"), "brief", "--phase",
-               "hunt", "--unit", "l-dark-batch-0001", "--run", str(run)]
-    for name, value in variables.items():
-        command.extend(["--var", f"{name}={value}"])
-    rendered = subprocess.run(command, capture_output=True, text=True)
-    assert rendered.returncode == 0, rendered.stderr
-    output = run / "briefs" / "hunt-l-dark-batch-0001-brief.md"
-    assert rendered.stdout == f"{output}\n"
-    text = output.read_text()
-    assert str(target / "audit_core" / "hunt_results.py") in text
-    assert "__SKILL_DIR__" not in text
-    assert str(target) in text
-    assert not re.search(r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_]*\}", text)
-
-
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.parametrize("client", ("claude", "codex"))
-def test_installed_firmware_review_resolves_rules_and_renders(tmp_path, client):
-    home = tmp_path / "home"
-    home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
-           "CODEX_HOME": str(home / ".codex")}
-    installed = subprocess.run(["bash", str(ROOT / "install.sh"), client],
-                               capture_output=True, text=True, env=env, cwd=ROOT)
-    assert installed.returncode == 0, installed.stdout + installed.stderr
-    roots = [home / ".claude"] if client == "claude" else [home / ".agents", home / ".codex"]
-    for directory in roots:
-        target = directory / "skills" / "codebase-audit"
-        run = directory / "run"
-        variables = dict(run_dir=str(run), db_path=str(run / "audit.db"),
-                         rootfs=str(tmp_path / "rootfs"), image_id="router-target",
-                         candidate_snapshot_sha256="a" * 64,
-                         worklist_index=str(run / "files" / "index.json"),
-                         batch_path=str(run / "files" / "batch-0001.json"),
-                         result_path=str(run / "files" / "review.json"))
-        command = [sys.executable, str(target / "audit.py"), "brief", "--phase",
-                   "firmware-fpcheck", "--unit", "batch-0001", "--run", str(run)]
-        for name, value in variables.items():
-            command.extend(["--var", f"{name}={value}"])
-        result = subprocess.run(command, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-        output = run / "briefs" / "firmware-fpcheck-batch-0001-brief.md"
-        assert result.stdout == f"{output}\n"
-        text = output.read_text()
-        assert "__SKILL_DIR__" not in text
-        assert str(target / "audit_core" / "firmware_fpcheck_results.py") in text
-        rules = target / "references" / "phase5-fp-check.md"
-        assert str(rules) in text
-        assert rules.is_file()
-        assert (target / "audit_core" / "firmware_fpcheck_results.py").is_file()
-        assert "firmware-fpcheck-brief.md" in (target / "SKILL.md").read_text()
-        assert not re.search(r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_]*\}", text)
-
-
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-@pytest.mark.parametrize("client", ("claude", "codex"))
-def test_installed_firmware_chain_renders_global_brief_and_route(tmp_path, client):
-    home = tmp_path / "home"
-    home.mkdir()
-    env = {**os.environ, "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
-           "CODEX_HOME": str(home / ".codex")}
-    installed = subprocess.run(["bash", str(ROOT / "install.sh"), client],
-                               capture_output=True, text=True, env=env, cwd=ROOT)
-    assert installed.returncode == 0, installed.stdout + installed.stderr
-    roots = [home / ".claude"] if client == "claude" else [home / ".agents", home / ".codex"]
-    for directory in roots:
-        target = directory / "skills" / "codebase-audit"
-        run = directory / "run"
-        variables = dict(run_dir=str(run), db_path=str(run / "audit.db"),
-                         rootfs=str(tmp_path / "rootfs"), image_id="router-target",
-                         candidate_snapshot_sha256="a" * 64,
-                         worklist_path=str(run / "files" / "worklist.json"),
-                         result_path=str(run / "files" / "chain-result.json"))
-        command = [sys.executable, str(target / "audit.py"), "brief", "--phase",
-                   "firmware-chain", "--unit", "global", "--run", str(run)]
-        for name, value in variables.items():
-            command.extend(["--var", f"{name}={value}"])
-        result = subprocess.run(command, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-        output = run / "briefs" / "firmware-chain-global-brief.md"
-        assert result.stdout == f"{output}\n"
-        text = output.read_text()
-        assert "__SKILL_DIR__" not in text
-        for module in ("firmware_chain_results.py", "firmware_chain.py"):
-            assert str(target / "audit_core" / module) in text
-            assert (target / "audit_core" / module).is_file()
-        skill = (target / "SKILL.md").read_text()
-        assert "firmware-chain-brief.md" in skill
-        assert "Stage 4g firmware chain" in skill
-        assert f"python3 {target}/audit.py chain --run" in skill
-        assert not re.search(r"(?<!\$)\{[A-Za-z_][A-Za-z0-9_]*\}", text)
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
