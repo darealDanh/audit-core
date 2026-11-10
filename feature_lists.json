@@ -1731,7 +1731,9 @@
       "docs": [
         "docs/superpowers/specs/2026-10-04-audit-suite-design.md"
       ],
-      "note": "The design assumes the monorepo; the submodule-plus-sync.sh fallback is specified in sections 3.1 and 8. The decision blocks the Stage 4 restructure, not the firmware phases."
+      "note": "The design assumes the monorepo; the submodule-plus-sync.sh fallback is specified in sections 3.1 and 8. The decision blocks the Stage 4 restructure, not the firmware phases.",
+      "status": "closed",
+      "resolution": "Submodule + sync.sh, not the monorepo (spec Amendment 2026-11-10). grey-audit stays a separate repository (36 commits of independent history, no shared remote); the core is consumed additively via install.sh --copy today and as a submodule under the restructure. Reversible via a later git subtree import. Unblocks the Stage 4 restructure."
     },
     {
       "id": "qualify-not-discoverable",

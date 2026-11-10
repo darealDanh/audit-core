@@ -701,3 +701,16 @@ and each stage is a git tag pinnable with `install.sh --copy`.
 Whether `grey-audit` joins the monorepo or stays a separate repository consuming
 the core as a submodule. The design assumes the monorepo; the fallback is
 specified in §3.1 and §8.
+
+### Amendment 2026-11-10 — resolved: submodule, not monorepo
+
+`grey-audit` stays a separate repository and consumes the core as a git
+submodule plus `sync.sh`, the §3.1/§8 fallback; the monorepo is not adopted.
+Evidence: `~/Documents/skills/grey-audit` is a standalone repository with 36
+commits of independent history and no shared remote, so a monorepo migration
+would rewrite real history for a benefit — single history, atomic cross-skill
+commits — that is not needed while `firmware-audit` and `grey-audit` evolve
+independently and `install.sh --copy` already vendors the core additively. This
+resolves §10 and unblocks the Stage 4 restructure. It is reversible: a later
+lockstep need is a one-way `git subtree` import into a monorepo. §9's shared-spine
+decision is unchanged.
