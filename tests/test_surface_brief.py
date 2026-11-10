@@ -51,7 +51,7 @@ def test_surface_dispatch_renders_every_input_without_inlining_files(variables):
     path = pathlib.Path(variables["run_dir"]) / "briefs" / "surface-batch-0001-brief.md"
     assert result.stdout == f"{path}\n"
     rendered = path.read_text()
-    template = (briefs.TEMPLATE_DIR / "surface-brief.md").read_text()
+    template = briefs.template_path("surface").read_text()
     assert set(PLACEHOLDER.findall(template)) == set(INPUTS)
     assert rendered == briefs.render(template, variables)
     assert rendered == render_surface(variables)
@@ -64,7 +64,7 @@ def test_surface_dispatch_renders_every_input_without_inlining_files(variables):
 @pytest.mark.parametrize("missing", INPUTS)
 def test_surface_dispatch_requires_each_input(variables, missing):
     """An unbound path or provenance value must fail rendering, never invite guessing."""
-    template = (briefs.TEMPLATE_DIR / "surface-brief.md").read_text()
+    template = briefs.template_path("surface").read_text()
     del variables[missing]
     with pytest.raises(briefs.BriefError, match=missing):
         briefs.render(template, variables)

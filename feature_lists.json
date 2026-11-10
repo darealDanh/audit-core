@@ -167,7 +167,7 @@
         "audit_core/skill_lint.py",
         "audit_core/briefs.py",
         "audit.py",
-        "references/briefs/firmware-report-brief.md",
+        "firmware-audit/references/briefs/firmware-report-brief.md",
         "SKILL.md"
       ],
       "tests": [
@@ -230,7 +230,7 @@
         "audit_core/skill_lint.py",
         "audit_core/briefs.py",
         "audit.py",
-        "references/briefs/firmware-decide-brief.md",
+        "firmware-audit/references/briefs/firmware-decide-brief.md",
         "SKILL.md"
       ],
       "tests": [
@@ -475,8 +475,8 @@
         "audit_core/firmware_chain_results.py",
         "audit_core/firmware_dive.py",
         "audit_core/firmware_dive_acquisition.py",
-        "references/briefs/firmware-dive-brief.md",
-        "references/briefs/firmware-chain-brief.md",
+        "firmware-audit/references/briefs/firmware-dive-brief.md",
+        "firmware-audit/references/briefs/firmware-chain-brief.md",
         "SKILL.md"
       ],
       "tests": [
@@ -543,7 +543,7 @@
         "SESSION_HANDOFF.md",
         "docs/superpowers/specs/2026-10-25-stage4g-firmware-chain-design.md",
         "docs/superpowers/plans/2026-10-25-stage4g-firmware-chain.md",
-        "references/briefs/firmware-chain-brief.md"
+        "firmware-audit/references/briefs/firmware-chain-brief.md"
       ],
       "notes": "Merged into local main at 30ca3ba; not pushed. One verified complete Stage 4f snapshot produces an immutable global worklist. Exact dispositions cover every finding and permit reusable chain membership. Typed adjacent edges bind semantic capability/link identity, producer/consumer-owned retained evidence and mechanically continuous lifecycle/posture/authentication state; explicit device boundaries need evidence on both sides. Stage 4d unknowns and new blockers remain settleable; blocker-side affected nonmaterialized findings require reciprocal blocked dispositions and references; pivots are context-only. Canonical artifact-first import and final reconstruction are snapshot/image-isolated, deterministic and atomically invalidated when Stage 4f evidence changes. The ninth installed brief assigns one strongest global worker while preserving generic source-code chain behavior. Static-chained evidence does not prove runtime reachability, severity, exploitability or semantic causality beyond retained evidence. Whole-branch review's two Important invariant findings were fixed in 661c3c9 and scoped re-review was clean; final review's blocker reciprocity finding was fixed in 7dad245 and the complete fix wave passed scoped re-review. Stage 4h dive and Stage 4i decide are merged locally; Stage 4j firmware-report is merged into local main at e2432dd; triage upsert-only snapshots and Stage 4d orphan-scan scaling persist."
     },
@@ -604,7 +604,7 @@
         "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md",
         "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md",
         "README.md",
-        "references/briefs/firmware-fpcheck-brief.md",
+        "firmware-audit/references/briefs/firmware-fpcheck-brief.md",
         "docs/superpowers/derivations/2026-10-23-stage4f-firmware-fpcheck-brief.md",
         "references/phase5-fp-check.md"
       ],
@@ -1336,7 +1336,7 @@
         "tests/test_firmware_schema.py"
       ],
       "docs": [
-        "references/briefs/triage-brief.md",
+        "firmware-audit/references/briefs/triage-brief.md",
         "docs/superpowers/specs/2026-10-08-stage4b-acquire-triage-design.md"
       ],
       "notes": "Turns an already-carved rootfs into file, ELF and boot-service rows. Empty and unacknowledged zero-ELF trees fail before any write; symlinks and nonregular entries are excluded; direct scandir traversal propagates scan, classification, and stat errors and rejects inconsistent directory classifications; regular files sort by relative path; prepared file, ELF, service, and coverage rows publish atomically. Failed fresh/retriage preserves all four publication tables. Acquired-target inventory uses db.firmware_unit_key while legacy-unscoped stays raw; retriage remains upsert-only. Ports remain agent-asserted and require evidence."
@@ -1366,7 +1366,7 @@
         "tests/test_brief_templates.py"
       ],
       "docs": [
-        "references/briefs/diff-brief.md",
+        "firmware-audit/references/briefs/diff-brief.md",
         "docs/superpowers/specs/2026-10-12-stage4c-firmware-diff-design.md",
         "docs/superpowers/plans/2026-10-12-stage4c-firmware-diff.md",
         "docs/superpowers/derivations/2026-10-12-stage4c-diff-brief.md"
@@ -1409,7 +1409,7 @@
         "tests/test_brief_templates.py"
       ],
       "docs": [
-        "references/briefs/surface-brief.md",
+        "firmware-audit/references/briefs/surface-brief.md",
         "docs/superpowers/specs/2026-10-14-stage4d-surface-design.md",
         "docs/superpowers/plans/2026-10-14-stage4d-surface.md",
         "docs/superpowers/derivations/2026-10-14-stage4d-surface-brief.md",
@@ -1536,7 +1536,7 @@
         "tests/test_install.py"
       ],
       "docs": [
-        "references/briefs/firmware-fpcheck-brief.md",
+        "firmware-audit/references/briefs/firmware-fpcheck-brief.md",
         "docs/superpowers/derivations/2026-10-23-stage4f-firmware-fpcheck-brief.md",
         "references/phase5-fp-check.md",
         "ARCHITECTURE.md",
@@ -1576,7 +1576,7 @@
         "tests/test_harness.py"
       ],
       "docs": [
-        "references/briefs/hunt-brief.md",
+        "firmware-audit/references/briefs/hunt-brief.md",
         "docs/superpowers/specs/2026-10-19-stage4e-firmware-hunt-design.md",
         "docs/superpowers/plans/2026-10-19-stage4e-firmware-hunt.md",
         "README.md",

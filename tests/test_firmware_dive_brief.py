@@ -6,7 +6,7 @@ from audit_core import briefs
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TEMPLATE = ROOT / "references" / "briefs" / "firmware-dive-brief.md"
+TEMPLATE = briefs.template_path("firmware-dive")
 VARIABLES = {
     "run_dir", "rootfs", "image_id", "dive_generation", "question_id",
     "packet_path", "journal_index_path", "result_path",

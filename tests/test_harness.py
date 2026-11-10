@@ -172,7 +172,7 @@ def test_manifest_records_stage4e_hunt_implementation_and_contracts():
         "tests/test_hunt_prepare.py", "tests/test_hunt_results.py",
         "tests/test_hunt_import.py", "tests/test_hunt_gate.py",
         "tests/test_cli_stage4e.py", "tests/test_hunt_brief.py",
-        "references/briefs/hunt-brief.md",
+        "firmware-audit/references/briefs/hunt-brief.md",
         "docs/superpowers/specs/2026-10-19-stage4e-firmware-hunt-design.md",
         "docs/superpowers/plans/2026-10-19-stage4e-firmware-hunt.md",
     ):
@@ -205,7 +205,7 @@ def test_manifest_records_stage4f_review_implementation_and_contracts():
         "tests/test_firmware_fpcheck_gate.py", "tests/test_cli_stage4f.py",
         "tests/test_firmware_fpcheck_brief.py", "tests/test_hunt_gate.py",
         "tests/test_install.py", "tests/test_harness.py",
-        "references/briefs/firmware-fpcheck-brief.md",
+        "firmware-audit/references/briefs/firmware-fpcheck-brief.md",
         "docs/superpowers/specs/2026-10-21-stage4f-firmware-fpcheck-design.md",
         "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md",
     ):

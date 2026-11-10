@@ -22,4 +22,5 @@ references/phase0-source-detection.md
 references/phase2-feature-mapping.md
 references/phase4-deep-audit.md
 references/phase5-fp-check.md
+firmware-audit/references/phase5-fp-check.md
 workflows/_audit-pipeline-v1-archive.md

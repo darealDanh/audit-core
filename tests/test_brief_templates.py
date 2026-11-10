@@ -5,7 +5,7 @@ import pytest
 
 from audit_core import briefs
 
-TEMPLATES = sorted(briefs.TEMPLATE_DIR.glob("*-brief.md"))
+TEMPLATES = briefs.iter_brief_templates()
 PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 RETURN_CONTRACT = "rows=<n> artifact="

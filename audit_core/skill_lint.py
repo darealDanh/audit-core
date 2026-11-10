@@ -156,9 +156,12 @@ def lint(root: str | pathlib.Path, known_verbs: set[str]) -> list[Finding]:
                 "registers a bug pattern without naming `audit.py sweep`; a "
                 "pattern that is never swept is the tplink miss exactly"))
 
-    briefs = root / "references" / "briefs"
-    if briefs.is_dir():
-        for path in sorted(briefs.glob("*-brief.md")):
+    brief_dirs = [root / "references" / "briefs",
+                  root / "firmware-audit" / "references" / "briefs"]
+    for briefs_dir in brief_dirs:
+        if not briefs_dir.is_dir():
+            continue
+        for path in sorted(briefs_dir.glob("*-brief.md")):
             contract = {
                 "firmware-dive-brief.md": DIVE_RETURN_CONTRACT,
                 "firmware-decide-brief.md": DECIDE_RETURN_CONTRACT,

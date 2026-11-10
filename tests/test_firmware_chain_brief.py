@@ -9,7 +9,7 @@ import pytest
 from audit_core import briefs
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TEMPLATE = briefs.TEMPLATE_DIR / "firmware-chain-brief.md"
+TEMPLATE = briefs.template_path("firmware-chain")
 INPUTS = ("run_dir", "db_path", "rootfs", "image_id",
           "candidate_snapshot_sha256", "worklist_path", "result_path")
 PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")

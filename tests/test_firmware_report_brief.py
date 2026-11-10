@@ -13,7 +13,7 @@ from audit_core import firmware_report_results as results
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TEMPLATE = ROOT / "references" / "briefs" / "firmware-report-brief.md"
+TEMPLATE = briefs.template_path("firmware-report")
 VARIABLES = {"run_dir", "image_id", "report_generation", "assignment_path",
              "result_path"}
 RETURN_LINE = ("firmware-report <DONE|FAILED> chain=<id> artifact=<path> "
@@ -150,8 +150,10 @@ def test_installed_template_renders_through_write_brief(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
-def test_installed_tree_carries_the_report_template_and_modules(tmp_path):
-    """A brief that is not installed renders nothing on the operator's box."""
+def test_installed_codebase_audit_tree_no_longer_carries_the_firmware_report_brief(tmp_path):
+    """Post-split, firmware briefs ship under the firmware-audit skill, not
+    codebase-audit. The shared audit_core modules still vendor into every
+    installed tree."""
     home = tmp_path / "home"
     home.mkdir()
     env = {**os.environ, "HOME": str(home),
@@ -162,8 +164,8 @@ def test_installed_tree_carries_the_report_template_and_modules(tmp_path):
     assert run.returncode == 0, run.stdout + run.stderr
     target = home / ".claude" / "skills" / "codebase-audit"
     installed = target / "references" / "briefs" / "firmware-report-brief.md"
-    assert installed.is_file()
-    assert "__SKILL_DIR__" not in installed.read_text()
-    assert str(target) in installed.read_text()
+    assert not installed.is_file(), (
+        "firmware briefs moved to the firmware-audit skill; codebase-audit must "
+        "no longer ship them")
     for module in ("firmware_report.py", "firmware_report_results.py"):
         assert (target / "audit_core" / module).is_file()

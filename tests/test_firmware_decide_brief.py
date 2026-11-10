@@ -12,7 +12,7 @@ from audit_core import firmware_decide_results as results
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-TEMPLATE = ROOT / "references" / "briefs" / "firmware-decide-brief.md"
+TEMPLATE = briefs.template_path("firmware-decide")
 VARIABLES = {"run_dir", "image_id", "decision_generation", "worklist_path", "result_path"}
 
 

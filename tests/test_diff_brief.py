@@ -61,7 +61,7 @@ def test_diff_assignment_requires_each_declared_input(variables, missing):
     del variables[missing]
     with pytest.raises(briefs.BriefError, match=missing):
         # Avoid write_brief's output-directory side effect on an invalid brief.
-        briefs.render((briefs.TEMPLATE_DIR / "diff-brief.md").read_text(),
+        briefs.render(briefs.template_path("diff").read_text(),
                       variables)
 
 
