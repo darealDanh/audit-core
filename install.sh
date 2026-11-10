@@ -1,46 +1,64 @@
 #!/usr/bin/env bash
-# install.sh — Install the codebase-audit skill for GitHub Copilot Chat,
-# Claude Code CLI, and/or OpenAI Codex CLI.
+# install.sh — Install the codebase-audit and/or firmware-audit skills for
+# GitHub Copilot Chat, Claude Code CLI, and/or OpenAI Codex CLI.
 #
-# Design: each client gets its OWN self-contained copy of the skill.
-#   - Copilot install root: ~/.copilot/skills/codebase-audit/
-#   - Claude install root:  ~/.claude/skills/codebase-audit/
-#       launchers:          ~/.claude/commands/codebase-audit.md
-#                           ~/.claude/commands/codebase-audit/*.md
-#   - Codex install root:   ~/.agents/skills/codebase-audit/
+# Design: each (skill, client) pair gets its OWN self-contained copy. For a
+# skill <s>:
+#   - Copilot install root: ~/.copilot/skills/<s>/
+#   - Claude install root:  ~/.claude/skills/<s>/
+#       launchers:          ~/.claude/commands/<s>.md
+#                           ~/.claude/commands/<s>/*.md
+#   - Codex install roots:  ~/.agents/skills/<s>/ and
+#                           ${CODEX_HOME:-~/.codex}/skills/<s>/
 #
-# Copilot and Codex auto-discover the skill from their skills dir — no launcher
-# files. The skill content (SKILL.md, workflows/, references/) and the Claude
-# launchers all contain the literal string __SKILL_DIR__; install.sh
-# sed-substitutes it with the client's own SKILL_DIR on copy, so every
-# `python3 __SKILL_DIR__/audit.py ...` command in the installed skill resolves
-# to that client's own copy. Installing one client does not touch the others.
+# The operator-facing surface (SKILL.md, references/, workflows/ if any, and the
+# Claude launchers) comes from the skill's surface dir — the repo root for
+# codebase-audit, <root>/firmware-audit/ for firmware-audit. The shared audit.py
+# + audit_core/ always come from the repo root (the core dir), so both skills
+# vendor an identical core. The surface files carry the literal string
+# __SKILL_DIR__; install.sh sed-substitutes it with that install's own SKILL_DIR
+# on copy, so every `python3 __SKILL_DIR__/audit.py ...` command resolves to that
+# skill's own copy. audit.py / audit_core are copied verbatim (never
+# substituted). Installing one (skill, client) pair does not touch the others.
 #
 # Usage:
-#   ./install.sh                  # install for all clients
-#   ./install.sh copilot          # only Copilot Chat
-#   ./install.sh claude           # only Claude Code CLI
-#   ./install.sh codex            # only Codex CLI
-#   ./install.sh --insiders       # use VS Code Insiders paths
-#   ./install.sh --uninstall      # remove the selected clients' launchers
-#                                 # AND their skill install dirs
+#   ./install.sh                          # all skills, all clients
+#   ./install.sh copilot                  # only Copilot Chat
+#   ./install.sh claude                   # only Claude Code CLI
+#   ./install.sh codex                    # only Codex CLI
+#   ./install.sh --skill firmware-audit   # only the firmware-audit skill
+#   ./install.sh --skill codebase-audit   # only the codebase-audit skill
+#   ./install.sh --skill all              # both skills (default)
+#   ./install.sh --insiders               # use VS Code Insiders paths
+#   ./install.sh --uninstall              # remove the selected skills' launchers
+#                                         # AND their skill install dirs
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-SKILL_NAME="codebase-audit"
+# SCRIPT_DIR is the repo-root checkout: the core dir (audit.py + audit_core/) and
+# the codebase-audit surface dir. CORE_DIR names it where intent is "the core".
+CORE_DIR="${SCRIPT_DIR}"
 
 # ---- args ----
 TARGETS=()
+SKILLS=()
 INSIDERS=0
 UNINSTALL=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     copilot|claude|codex|all) TARGETS+=("$1"); shift ;;
+    --skill)
+      [[ $# -ge 2 ]] || { echo "ERROR: --skill needs a value (codebase-audit | firmware-audit | all)" >&2; exit 1; }
+      case "$2" in
+        codebase-audit|firmware-audit|all) SKILLS+=("$2") ;;
+        *) echo "ERROR: unknown skill: $2 (use codebase-audit | firmware-audit | all)" >&2; exit 1 ;;
+      esac
+      shift 2 ;;
     --insiders) INSIDERS=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,""); print} /^set /{exit}' "$0"; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -49,17 +67,12 @@ if [[ ${#TARGETS[@]} -eq 0 ]] || [[ " ${TARGETS[*]} " == *" all "* ]]; then
   TARGETS=(copilot claude codex)
 fi
 
-# ---- per-client paths ----
-COPILOT_SKILL_DIR="${HOME}/.copilot/skills/${SKILL_NAME}"
-CLAUDE_SKILL_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
+if [[ ${#SKILLS[@]} -eq 0 ]] || [[ " ${SKILLS[*]} " == *" all "* ]]; then
+  SKILLS=(codebase-audit firmware-audit)
+fi
+
+# ---- per-client paths (the command dir is skill-independent) ----
 CLAUDE_COMMANDS_DIR="${HOME}/.claude/commands"
-# Codex discovers user-authored skills from ~/.agents/skills, but a sibling
-# skill installs to $CODEX_HOME/skills instead; install to both since it is
-# not knowable from here which one a given Codex build reads.
-CODEX_SKILL_DIRS=(
-  "${HOME}/.agents/skills/${SKILL_NAME}"
-  "${CODEX_HOME:-${HOME}/.codex}/skills/${SKILL_NAME}"
-)
 
 detect_copilot_prompts_dir() {
   local code_dir
@@ -82,22 +95,35 @@ detect_copilot_prompts_dir() {
 COPILOT_PROMPTS_DIR="$(detect_copilot_prompts_dir)"
 
 # ---- sanity ----
-if [[ ! -f "${SCRIPT_DIR}/SKILL.md" ]]; then
+if [[ ! -f "${CORE_DIR}/SKILL.md" ]]; then
   echo "ERROR: SKILL.md not found next to install.sh." >&2
   exit 1
 fi
 
+# Resolve the surface dir (SKILL.md, references/, workflows/, launchers) for a
+# skill. codebase-audit's surface IS the repo root; firmware-audit's surface is
+# the firmware-audit/ subtree. The core (audit.py + audit_core/) is always
+# CORE_DIR regardless.
+surface_dir_for() {
+  case "$1" in
+    firmware-audit) echo "${CORE_DIR}/firmware-audit" ;;
+    *)              echo "${CORE_DIR}" ;;
+  esac
+}
+
 # ---- helpers ----
 
-# Copy SKILL.md + workflows/ + references/ from SCRIPT_DIR into $1.
-# Refuses outright if the target IS SCRIPT_DIR (e.g. the repo was cloned
-# directly into the install location): see the error text below.
+# install_skill_files <surface_dir> <core_dir> <dest>
+# Copy the surface (SKILL.md + workflows/ + references/) from <surface_dir> and
+# the shared audit.py + audit_core/ from <core_dir> into <dest>, substituting
+# __SKILL_DIR__ in the surface as it goes. Refuses outright if <dest> IS the
+# repo-root checkout (<core_dir>) — see the error text below.
 install_skill_files() {
-  local target="$1"
+  local surface_dir="$1" core_dir="$2" target="$3"
   mkdir -p "${target}"
   local abs_target sub src rel dst
   abs_target="$(cd "${target}" && pwd -P)"
-  if [[ "${SCRIPT_DIR}" == "${abs_target}" ]]; then
+  if [[ "${core_dir}" == "${abs_target}" ]]; then
     echo "ERROR: the source directory IS the install directory:" >&2
     echo "         ${abs_target}" >&2
     echo "       The skill content cannot be substituted in place. Substituting" >&2
@@ -116,8 +142,10 @@ install_skill_files() {
   # commands, so they go through the same substitution as the Claude launchers.
   # A plain `cp` here ships the sentinel literally and every audit.py command in
   # the installed skill fails with "can't open file '.../__SKILL_DIR__/audit.py'".
-  substitute_file "${SCRIPT_DIR}/SKILL.md" "${target}/SKILL.md" "${abs_target}"
-  cp -f "${SCRIPT_DIR}/audit.py" "${target}/audit.py"
+  substitute_file "${surface_dir}/SKILL.md" "${target}/SKILL.md" "${abs_target}"
+  # audit.py + audit_core/ come from the core dir (repo root) and are copied
+  # verbatim — they must NOT be substituted.
+  cp -f "${core_dir}/audit.py" "${target}/audit.py"
   # Remove before copying, so a file deleted from the repo does not linger in
   # an installed tree forever. install.ps1 already does this; this is the
   # matching behaviour. The clone-in-place guard above has already run, so
@@ -126,22 +154,24 @@ install_skill_files() {
     rm -rf "${target:?}/${sub}"
   done
   for sub in workflows references; do
-    [[ -d "${SCRIPT_DIR}/${sub}" ]] || continue
+    # firmware-audit ships no workflows/; skip gracefully when the surface
+    # lacks the subtree.
+    [[ -d "${surface_dir}/${sub}" ]] || continue
     # Recursive, so references/briefs/ is covered too.
     while IFS= read -r src; do
-      rel="${src#${SCRIPT_DIR}/${sub}/}"
+      rel="${src#${surface_dir}/${sub}/}"
       dst="${target}/${sub}/${rel}"
       mkdir -p "$(dirname "${dst}")"
       case "${src}" in
         *.md|*.txt) substitute_file "${src}" "${dst}" "${abs_target}" ;;
         *)          cp -f "${src}" "${dst}" ;;
       esac
-    done < <(find "${SCRIPT_DIR}/${sub}" -type f -print)
+    done < <(find "${surface_dir}/${sub}" -type f -print)
   done
   # audit_core carries .py and .sql; copy the package wholesale minus caches.
   rm -rf "${target}/audit_core"
   mkdir -p "${target}/audit_core"
-  cp -Rf "${SCRIPT_DIR}/audit_core/." "${target}/audit_core/"
+  cp -Rf "${core_dir}/audit_core/." "${target}/audit_core/"
   find "${target}/audit_core" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
   # The install is not complete until the tool runs from where it landed.
@@ -172,44 +202,52 @@ copy_template() {
   echo "  -> $2"
 }
 
+# install_copilot <skill> <surface_dir> <copilot_skill_dir>
 install_copilot() {
-  echo "[copilot]"
-  echo "  skill dir:     ${COPILOT_SKILL_DIR}"
-  install_skill_files "${COPILOT_SKILL_DIR}"
+  local skill="$1" surface_dir="$2" copilot_dir="$3"
+  echo "[copilot] ${skill}"
+  echo "  skill dir:     ${copilot_dir}"
+  install_skill_files "${surface_dir}" "${CORE_DIR}" "${copilot_dir}"
   # Silently remove any legacy launcher left by older installs so it can't
-  # produce a duplicate `/codebase-audit` autocomplete entry.
-  rm -f "${COPILOT_PROMPTS_DIR}/${SKILL_NAME}.prompt.md"
+  # produce a duplicate `/${skill}` autocomplete entry.
+  rm -f "${COPILOT_PROMPTS_DIR}/${skill}.prompt.md"
 }
 
+# install_claude <skill> <surface_dir> <claude_skill_dir>
 install_claude() {
-  echo "[claude]"
-  echo "  skill dir:     ${CLAUDE_SKILL_DIR}"
+  local skill="$1" surface_dir="$2" claude_dir="$3" f
+  echo "[claude] ${skill}"
+  echo "  skill dir:     ${claude_dir}"
   echo "  commands dir:  ${CLAUDE_COMMANDS_DIR}"
-  install_skill_files "${CLAUDE_SKILL_DIR}"
+  install_skill_files "${surface_dir}" "${CORE_DIR}" "${claude_dir}"
   # Top-level command
-  if [[ -f "${SCRIPT_DIR}/claude/commands/${SKILL_NAME}.md" ]]; then
+  if [[ -f "${surface_dir}/claude/commands/${skill}.md" ]]; then
     copy_template \
-      "${SCRIPT_DIR}/claude/commands/${SKILL_NAME}.md" \
-      "${CLAUDE_COMMANDS_DIR}/${SKILL_NAME}.md" \
-      "${CLAUDE_SKILL_DIR}"
+      "${surface_dir}/claude/commands/${skill}.md" \
+      "${CLAUDE_COMMANDS_DIR}/${skill}.md" \
+      "${claude_dir}"
   fi
   # Namespaced sub-commands
-  if [[ -d "${SCRIPT_DIR}/claude/commands/${SKILL_NAME}" ]]; then
-    for f in "${SCRIPT_DIR}/claude/commands/${SKILL_NAME}/"*.md; do
+  if [[ -d "${surface_dir}/claude/commands/${skill}" ]]; then
+    for f in "${surface_dir}/claude/commands/${skill}/"*.md; do
       [[ -e "$f" ]] || continue
       copy_template "$f" \
-        "${CLAUDE_COMMANDS_DIR}/${SKILL_NAME}/$(basename "$f")" \
-        "${CLAUDE_SKILL_DIR}"
+        "${CLAUDE_COMMANDS_DIR}/${skill}/$(basename "$f")" \
+        "${claude_dir}"
     done
   fi
 }
 
+# install_codex <skill> <surface_dir> <codex_skill_dir...>
 install_codex() {
-  echo "[codex]"
+  local skill="$1" surface_dir="$2"
+  shift 2
+  echo "[codex] ${skill}"
   # Codex auto-discovers the skill by its SKILL.md description — no launcher.
-  for d in "${CODEX_SKILL_DIRS[@]}"; do
+  local d
+  for d in "$@"; do
     echo "  skill dir:     ${d}"
-    install_skill_files "${d}"
+    install_skill_files "${surface_dir}" "${CORE_DIR}" "${d}"
   done
 }
 
@@ -217,7 +255,7 @@ uninstall_skill_dir() {
   local target="$1"
   local abs_target
   abs_target="$(cd "${target}" 2>/dev/null && pwd -P || echo /nonexistent)"
-  if [[ -d "${target}" && "${SCRIPT_DIR}" != "${abs_target}" ]]; then
+  if [[ -d "${target}" && "${CORE_DIR}" != "${abs_target}" ]]; then
     echo "  removing ${target}"
     rm -rf "${target}"
   else
@@ -225,73 +263,104 @@ uninstall_skill_dir() {
   fi
 }
 
+# uninstall_copilot <skill> <copilot_skill_dir>
 uninstall_copilot() {
-  echo "[copilot] uninstalling"
-  rm -f "${COPILOT_PROMPTS_DIR}/${SKILL_NAME}.prompt.md"
-  uninstall_skill_dir "${COPILOT_SKILL_DIR}"
+  local skill="$1" copilot_dir="$2"
+  echo "[copilot] ${skill} uninstalling"
+  rm -f "${COPILOT_PROMPTS_DIR}/${skill}.prompt.md"
+  uninstall_skill_dir "${copilot_dir}"
 }
 
+# uninstall_claude <skill> <claude_skill_dir>
 uninstall_claude() {
-  echo "[claude] uninstalling"
-  rm -f "${CLAUDE_COMMANDS_DIR}/${SKILL_NAME}.md"
-  rm -rf "${CLAUDE_COMMANDS_DIR}/${SKILL_NAME}"
-  uninstall_skill_dir "${CLAUDE_SKILL_DIR}"
+  local skill="$1" claude_dir="$2"
+  echo "[claude] ${skill} uninstalling"
+  rm -f "${CLAUDE_COMMANDS_DIR}/${skill}.md"
+  rm -rf "${CLAUDE_COMMANDS_DIR}/${skill}"
+  uninstall_skill_dir "${claude_dir}"
 }
 
+# uninstall_codex <skill> <codex_skill_dir...>
 uninstall_codex() {
-  echo "[codex] uninstalling"
-  for d in "${CODEX_SKILL_DIRS[@]}"; do
+  local skill="$1"
+  shift
+  echo "[codex] ${skill} uninstalling"
+  local d
+  for d in "$@"; do
     uninstall_skill_dir "${d}"
   done
 }
 
 # ---- run ----
+echo "Skills:  ${SKILLS[*]}"
 echo "Targets: ${TARGETS[*]}"
 echo
 
-if [[ "${UNINSTALL}" == "1" ]]; then
+for skill in "${SKILLS[@]}"; do
+  surface_dir="$(surface_dir_for "${skill}")"
+  copilot_skill_dir="${HOME}/.copilot/skills/${skill}"
+  claude_skill_dir="${HOME}/.claude/skills/${skill}"
+  codex_skill_dirs=(
+    "${HOME}/.agents/skills/${skill}"
+    "${CODEX_HOME:-${HOME}/.codex}/skills/${skill}"
+  )
+
+  if [[ "${UNINSTALL}" == "1" ]]; then
+    for t in "${TARGETS[@]}"; do
+      case "$t" in
+        copilot) uninstall_copilot "${skill}" "${copilot_skill_dir}" ;;
+        claude)  uninstall_claude "${skill}" "${claude_skill_dir}" ;;
+        codex)   uninstall_codex "${skill}" "${codex_skill_dirs[@]}" ;;
+      esac
+    done
+    continue
+  fi
+
   for t in "${TARGETS[@]}"; do
     case "$t" in
-      copilot) uninstall_copilot ;;
-      claude)  uninstall_claude ;;
-      codex)   uninstall_codex ;;
+      copilot) install_copilot "${skill}" "${surface_dir}" "${copilot_skill_dir}" ;;
+      claude)  install_claude "${skill}" "${surface_dir}" "${claude_skill_dir}" ;;
+      codex)   install_codex "${skill}" "${surface_dir}" "${codex_skill_dirs[@]}" ;;
     esac
   done
+done
+
+if [[ "${UNINSTALL}" == "1" ]]; then
   echo
   echo "Uninstalled."
   exit 0
 fi
 
-for t in "${TARGETS[@]}"; do
-  case "$t" in
-    copilot) install_copilot ;;
-    claude)  install_claude ;;
-    codex)   install_codex ;;
-  esac
-done
-
 echo
 echo "Done."
-if [[ " ${TARGETS[*]} " == *" copilot "* ]]; then
-  echo
-  echo "Copilot Chat (VS Code): reload window, then type '/codebase-audit'."
-  echo "  For a specific phase: '/codebase-audit recon' (or deploy / audit /"
-  echo "  fpcheck / verify <ids> / report)."
-fi
-if [[ " ${TARGETS[*]} " == *" claude "* ]]; then
-  echo
-  echo "Claude Code CLI: '/codebase-audit', '/codebase-audit:recon', :deploy, :audit,"
-  echo "  :fpcheck, :verify <ids>, :report"
-  echo "  (Claude also auto-loads the skill from ~/.claude/skills/${SKILL_NAME}/ based"
-  echo "   on description triggers, e.g. 'audit this app'.)"
-fi
-if [[ " ${TARGETS[*]} " == *" codex "* ]]; then
-  echo
-  echo "Codex CLI: restart Codex (or run '/skills'), then invoke with '\$${SKILL_NAME}'."
-  echo "  For a specific phase, pass it as an argument: '\$${SKILL_NAME} recon' (or deploy /"
-  echo "  audit / fpcheck / verify <ids> / report). Codex also auto-loads the skill from"
-  echo "  either of these dirs, based on description triggers:"
-  for d in "${CODEX_SKILL_DIRS[@]}"; do
-    echo "    ${d}/"
-  done
-fi
+for skill in "${SKILLS[@]}"; do
+  case "${skill}" in
+    firmware-audit) phases="qualify (or acquire / triage / diff / surface / hunt / fpcheck / chain / dive / decide / firmware-report)" ;;
+    *)              phases="recon (or deploy / audit / fpcheck / verify <ids> / report)" ;;
+  esac
+  codex_skill_dirs=(
+    "${HOME}/.agents/skills/${skill}"
+    "${CODEX_HOME:-${HOME}/.codex}/skills/${skill}"
+  )
+  if [[ " ${TARGETS[*]} " == *" copilot "* ]]; then
+    echo
+    echo "Copilot Chat (VS Code) [${skill}]: reload window, then type '/${skill}'."
+    echo "  For a specific phase: '/${skill} ${phases}'."
+  fi
+  if [[ " ${TARGETS[*]} " == *" claude "* ]]; then
+    echo
+    echo "Claude Code CLI [${skill}]: '/${skill}', then phase subcommands, e.g."
+    echo "  '/${skill}:${phases%% *}'."
+    echo "  (Claude also auto-loads the skill from ~/.claude/skills/${skill}/ based"
+    echo "   on description triggers.)"
+  fi
+  if [[ " ${TARGETS[*]} " == *" codex "* ]]; then
+    echo
+    echo "Codex CLI [${skill}]: restart Codex (or run '/skills'), then invoke with '\$${skill}'."
+    echo "  For a specific phase, pass it as an argument: '\$${skill} ${phases}'."
+    echo "  Codex also auto-loads the skill from either of these dirs:"
+    for d in "${codex_skill_dirs[@]}"; do
+      echo "    ${d}/"
+    done
+  fi
+done
