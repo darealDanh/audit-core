@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-09 · **Branch:** `stage4j-firmware-report` (Stage 4j implemented and reviewed, commits `b496152..HEAD`); local `main` still at `9e4632c`; merge and final `make all` pending; not pushed ·
-**Current verification:** Stage 4j was independently reviewed per task and across the whole branch; the review fixes are applied. Measured on this branch: `audit.py selftest` reports **32 verbs declared, all dispatchable**, **47 tables in schema.sql / 46 under contract**, and **8 migrations** applied to both baselines; the `manifest` gate passes (**67 features / 18 stages / 23 open items**), the `eol` gate passes (**6 CRLF / 285 LF** files), `audit.py lint-skill` is clean, and the focused Stage 4j selection (`tests/test_firmware_report_*.py` plus `tests/test_cli_stage4j.py`) passes **479 tests** in about 13 minutes. No full `make all`, coverage or benchmark run has been made on this branch, so no full-suite, coverage or benchmark count is claimed for Stage 4j. The last measured full harness was Stage 4i's on `9e4632c` (8/8 gates; 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 0/13,174 unexecuted statements; recall 9/19 over 45 findings, precision 39/40, $73.15 per match) and is historical. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-10 · **Branch:** `stage4j-firmware-report` (Stage 4j implemented, reviewed and fully verified, commits `b496152..HEAD`); local `main` still at `9e4632c`; merge is the controller's next step; not pushed ·
+**Current verification:** Stage 4j was independently reviewed per task and across the whole branch; the review fixes are applied. Measured on this branch: `audit.py selftest` reports **32 verbs declared, all dispatchable**, **47 tables in schema.sql / 46 under contract**, and **8 migrations** applied to both baselines; the `manifest` gate passes (**67 features / 18 stages / 23 open items**), the `eol` gate passes (**6 CRLF / 285 LF** files), and `audit.py lint-skill` is clean. Full `make all` on `7844a9b` passed all eight gates: **9,174 tests passed** (4,924 s); lint clean; **128 installed markdown files**, 0 sentinel survivors, the real install untouched; coverage **0 unexecuted / 14,811 statements**, zero allowed; read-only benchmark **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**; wall time 10,811 s. The branch is **not merged** and nothing is pushed. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -25,9 +25,9 @@ benchmark-gated before it ships.
 at `02cb6c0`, from `stage4i-firmware-decide` through `8a0b2a3`). Stage 4i review
 fixes through `92562c4` are merged into local `main` at `9e4632c` (fast-forward) after the final
 post-documentation `make all` passed all eight gates; nothing is pushed. **Stage 4j
-`firmware-report` is implemented and reviewed on branch `stage4j-firmware-report`
-(commits `b496152..HEAD`) and is not merged**; its merge and final `make all` are
-pending. Stage 4i adds one lifecycle row per
+`firmware-report` is implemented, reviewed and fully verified on branch `stage4j-firmware-report`
+(commits `b496152..HEAD`) and is not merged**; its `make all` on `7844a9b` passed
+all eight gates and the merge is the controller's next step. Stage 4i adds one lifecycle row per
 image and decision generation, separately hashed policy, exact current
 graph/dive authority, immutable
 global prepare/import/package publication, the bounded three-mode CLI, and one
@@ -61,7 +61,7 @@ Stage 5 has not started.
 | 4g | `chain` — global static firmware evidence graphs | through `30ca3ba` | local `main` | **merged locally** (`30ca3ba`); final scoped re-review clean; merged-tree 8/8 gates, no audit run; not pushed |
 | 4h | `dive` — runtime evidence settlement | through `dcfb01e` | local `main` | **merged locally**; exact settlement/overlay, Stage 4g consumption, bounded CLI and installed worker routing complete; merged-tree 8/8 gates; not pushed |
 | 4i | `decide` — immutable firmware acquisition decisions | through `8a0b2a3` | feature branch | **merged** (`02cb6c0`); review fixes through `92562c4` on `stage4i-review-fixes`: `make all` 8/8 gates, 8,682 tests, 0/13,174 unexecuted; final post-doc `make all` 8/8; fast-forwarded to `9e4632c`; not pushed |
-| 4j | `firmware-report` — immutable maintainer reports | 18 (`b496152..HEAD`) | 42 files | **implemented and reviewed on `stage4j-firmware-report`**; per-task and whole-branch reviews closed; merge and final `make all` pending; not pushed |
+| 4j | `firmware-report` — immutable maintainer reports | 18 (`b496152..HEAD`) | 42 files | **implemented and reviewed on `stage4j-firmware-report`**; per-task and whole-branch reviews closed; `make all` on `7844a9b` 8/8 gates, 9,174 tests, 0/14,811 unexecuted; **not merged**, merge is next; not pushed |
 | 4 | `firmware-audit` + monorepo (remaining firmware phases) | — | — | planned; Asus golden and monorepo decision remain prerequisites for milestone/restructure |
 | 5 | Backport the core to `grey-audit` | — | — | not started |
 
@@ -1411,9 +1411,9 @@ measurements; native runtime and paid semantic quality remain unmeasured.
 Stage 4j turns one current completed Stage 4i decision package into one
 immutable maintainer-facing Markdown report. It is implemented and
 independently reviewed — per task and across the whole branch — on
-`stage4j-firmware-report` (18 commits, `b496152..HEAD`). It is **not merged**
-into local `main`, and the final `make all` has **not** been run, so no test,
-coverage or benchmark number is claimed for it.
+`stage4j-firmware-report` (18 commits, `b496152..HEAD`). A full `make all` on
+`7844a9b` passed all eight gates. It is **not merged** into local `main` and
+nothing is pushed; the merge is the controller's next step.
 
 What shipped on the branch:
 
@@ -1457,13 +1457,15 @@ Stage 4i package is refused while one is still active, so a corrected image row
 or a bumped style contract needs a fresh Stage 4i decision preparation first;
 the `SKILL.md` Stage 4j route states this.
 
-Measured on this branch only: `audit.py selftest` (32 verbs, 47/46 tables,
-8 migrations), `scripts/harness.py --only manifest` (67 features / 18 stages /
-23 open items) and `--only eol` (6 CRLF / 285 LF), `audit.py lint-skill`
-(clean), and the focused Stage 4j selection
-(`tests/test_firmware_report_*.py` plus `tests/test_cli_stage4j.py`): **479
-passed** in 13 minutes. That selection is not the full suite; the whole test,
-coverage, install and bench picture is pending the merge-time `make all`.
+Measured on this branch: `audit.py selftest` (32 verbs, 47 tables / 46
+contracts, 8 migrations), `scripts/harness.py --only manifest` (67 features /
+18 stages / 23 open items) and `--only eol` (6 CRLF / 285 LF), and
+`audit.py lint-skill` (clean). Full `make all` on `7844a9b` passed all eight
+gates: **9,174 tests passed** (4,924 s); lint clean; **128 installed markdown
+files**, 0 sentinel survivors and the real install untouched; coverage
+**0 unexecuted / 14,811 statements**, zero allowed; read-only benchmark
+**recall 9/19 over 45 findings, precision 39/40, $73.15 per match**. Wall time
+10,811 s.
 
 
 ## 3. What was deliberately not done
@@ -1740,11 +1742,11 @@ Everything below is zero-audit-cost. The five items that used to head this list
 (leading indicators, severity agreement, coverage in `bench`, re-rating, the
 parked defects) shipped as Stage 3b and are recorded in §2.
 
-1. **Merge Stage 4j `firmware-report` and run the final `make all`.**
-   The branch `stage4j-firmware-report` (`b496152..HEAD`) is implemented and
-   reviewed per task and across the whole branch. Its merge into local `main`
-   and the full eight-gate harness on the reconciled tree are the only
-   remaining Stage 4j work; the measured counts must then be recorded here.
+1. **Merge Stage 4j `firmware-report` into local `main`.**
+   The branch `stage4j-firmware-report` (`b496152..HEAD`) is implemented,
+   reviewed per task and across the whole branch, and verified by a full
+   eight-gate `make all` on `7844a9b` (9,174 tests; 0/14,811 unexecuted). The
+   merge is the only remaining Stage 4j work; nothing is pushed.
 2. **Drive the overall Stage 4 `firmware-audit` milestone.** This is the real
    next stage: the gate stays tplink ≥ 12/19 at ≤ $45, *and* the Asus golden
    must pass. It inherits every open prerequisite — the missing Asus golden,

@@ -1,10 +1,10 @@
 # Session handoff
 
-**Written:** 2026-11-09 · **Branch:** `stage4j-firmware-report` (Stage 4j implemented and reviewed, `b496152..HEAD`); local `main` still at `9e4632c`; Stage 4j merge and final `make all` pending; not pushed ·
-**Status:** Stage 4j firmware `firmware-report` is implemented and independently reviewed per task and across the whole branch; it is **not merged**. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
+**Written:** 2026-11-10 · **Branch:** `stage4j-firmware-report` (Stage 4j implemented, reviewed and fully verified, `b496152..HEAD`); local `main` still at `9e4632c`; Stage 4j merge is the controller's next step; nothing is pushed ·
+**Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and a full `make all` on `7844a9b` passed all eight gates; it is **not merged**. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
 Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
 identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
-Stage 4j's merge and final `make all` are the remaining work; after that the overall Stage 4 `firmware-audit` milestone is next. No Stage 4i review-fix prerequisite remains.
+Stage 4j's merge into local `main` is the remaining work; after that the overall Stage 4 `firmware-audit` milestone is next. No Stage 4i review-fix prerequisite remains.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -29,13 +29,17 @@ tables `cba_firmware_report_runs` and `cba_firmware_report_items`, the
 `firmware-report` CLI verb, `references/briefs/firmware-report-brief.md` and
 the `SKILL.md` Stage 4j route are in place. Measured on the branch:
 `audit.py selftest` reports 32 verbs, 47 tables / 46 contracts and 8
-migrations, the `manifest` and `eol` gates pass (6 CRLF / 285 LF), and the
-focused Stage 4j selection passes 479 tests in about 13 minutes. The
-merge into local `main` and the final `make all` have not been run, so no
-full-suite, coverage or benchmark result is claimed for Stage 4j.
+migrations, the `manifest` and `eol` gates pass (67 features / 18 stages /
+23 open items; 6 CRLF / 285 LF), and the full `make all` on `7844a9b` passed
+all eight gates: 9,174 tests passed (4,924 s), lint clean, 128 installed
+markdown files with 0 sentinel survivors and the real install untouched,
+coverage 0 unexecuted / 14,811 statements with zero allowed, and a read-only
+benchmark of recall 9/19 over 45 findings, precision 39/40, $73.15 per match,
+in 10,811 s of wall time. The merge into local `main` has not been run and
+nothing is pushed.
 
-Next: merge Stage 4j and run `make all` on the reconciled tree, recording the
-measured counts. Then the overall Stage 4 `firmware-audit` milestone (tplink
+Next: merge Stage 4j into local `main`. Then the overall Stage 4
+`firmware-audit` milestone (tplink
 ≥ 12/19 at ≤ $45 with the Asus golden passing). Preserve the
 one-row-per-image-and-generation lifecycles, exact current upstream ownership,
 latest-preparation selection with no history fallback, atomic immutable
@@ -326,9 +330,9 @@ An independent three-reviewer re-review of merge `02cb6c0` found Important defec
 ### Current Stage 4j implementation and verification
 
 Implemented and independently reviewed — per task and across the whole branch —
-on `stage4j-firmware-report` (`b496152..HEAD`, 18 commits). Not merged; the
-final `make all` has not run, so no test, coverage or benchmark count is
-claimed for it.
+on `stage4j-firmware-report` (`b496152..HEAD`, 18 commits). Not merged and not
+pushed; the merge into local `main` is the controller's next step. A full
+`make all` on `7844a9b` passed all eight gates.
 
 `audit_core/firmware_report.py` owns the hashed style contract, the frozen
 per-chain assignments, the report generation, the manifest, the renderer and
@@ -351,10 +355,12 @@ Measured on this branch: `python3 audit.py selftest` (32 verbs declared, all
 dispatchable; 47 tables in schema.sql, 46 under contract; 8 migrations applied
 to both baselines), `python3 scripts/harness.py --only manifest`
 (67 features / 18 stages / 23 open items) and `--only eol` (6 CRLF files,
-285 LF), `python3 audit.py lint-skill` (clean), and
-`pytest tests/test_firmware_report_*.py tests/test_cli_stage4j.py`
-(479 passed, about 13 minutes). Everything else is pending the merge-time
-`make all`.
+285 LF), and `python3 audit.py lint-skill` (clean). Full `make all` on
+`7844a9b` passed all eight gates: **9,174 tests passed** (4,924 s); lint clean;
+the sandbox install writes **128 markdown files** with **0 sentinel survivors**
+and the real install untouched; coverage **0 unexecuted / 14,811 statements**,
+zero allowed; read-only benchmark **recall 9/19 over 45 findings, precision
+39/40, $73.15 per match**. Total wall time 10,811 s.
 
 Known limitations: source-level only, no runtime claim; a publication refused
 by the second pass leaves an orphan content-addressed report directory; the

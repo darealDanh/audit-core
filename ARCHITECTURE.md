@@ -406,8 +406,8 @@ clean scoped final re-review. Stage 4g `chain` is merged into local `main` at
 `30ca3ba`; `dive` is merged locally at `dcfb01e`. Stage 4i `decide` is merged
 locally at `02cb6c0`; its review fixes are merged at `9e4632c`. Stage 4j
 `firmware-report` is implemented and independently reviewed on branch
-`stage4j-firmware-report` (commits `b496152..HEAD`); its merge into local
-`main` and its final `make all` are pending.
+`stage4j-firmware-report` (commits `b496152..HEAD`); its full `make all` on
+`7844a9b` passed all eight gates, and its merge into local `main` is pending.
 
 ### Stage 4f — dedicated firmware static review
 
@@ -645,7 +645,8 @@ disposition and blocker reference and adds independent completion-gate coverage;
 the complete fix wave passed scoped re-review. Stage 4g is merged locally but
 unpushed. Stage 4h `dive` and Stage 4i `decide` are merged locally; Stage 4i
 review fixes are merged at `9e4632c`. Stage 4j `firmware-report` is
-implemented and reviewed on its branch, with merge pending.
+implemented, reviewed and verified by an eight-gate `make all` on `7844a9b`
+(9,174 tests; 0/14,811 unexecuted) on its branch, with merge pending.
 Triage's upsert-only snapshots and Stage 4d's retained-
 orphan scan scaling remain inherited limitations. The Asus golden, paid milestone
 audit, separate firmware skill tree, and monorepo/submodule decision remain open.

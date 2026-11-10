@@ -416,8 +416,8 @@ firmware, exploit candidates, or promote them into generic findings. It
 inherits triage's upsert-only manifest behavior and Stage 4d's retained-orphan
 scan scaling. Firmware `fpcheck`, `chain`, `dive` and `decide` are merged
 locally; Stage 4i review fixes are merged at `9e4632c`. Stage 4j
-`firmware-report` is implemented and reviewed on branch
-`stage4j-firmware-report`, with merge pending. The Asus golden and the
+`firmware-report` is implemented, reviewed and verified by a full eight-gate
+`make all` on `7844a9b`, and is not merged. The Asus golden and the
 monorepo/submodule decision remain prerequisites for the later overall Stage 4
 milestone and restructure.
 
@@ -608,8 +608,14 @@ Triage remains upsert-only; Stage 4d retains its orphan-result scan scaling limi
 ## Firmware maintainer reports (Stage 4j)
 
 Stage 4j is implemented and independently reviewed — per task and across the
-whole branch — on `stage4j-firmware-report` (commits `b496152..HEAD`). It is
-not merged into local `main`, and its final `make all` has not been run.
+whole branch — on `stage4j-firmware-report` (commits `b496152..HEAD`). Its
+full `make all` on `7844a9b` passed all eight gates: 9,174 tests passed
+(4,924 s); 32 verbs; 47 tables / 46 contracts; 8 migrations; lint clean;
+6 CRLF / 285 LF files; 67 features / 18 stages / 23 open items; 128 installed
+markdown files with 0 sentinel survivors and the real install untouched;
+coverage 0 unexecuted / 14,811 statements, zero allowed; read-only benchmark
+recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall time
+10,811 s. It is not merged into local `main` and nothing is pushed.
 
 Stage 4j adds the `firmware-report` verb, which turns one current completed
 Stage 4i decision package into one immutable maintainer-facing Markdown report.
