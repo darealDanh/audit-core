@@ -107,7 +107,7 @@ def test_firmware_return_has_exactly_one_result_line(variables):
 
 
 def test_skill_routes_firmware_review_separately_from_source_fpcheck():
-    skill = (ROOT / "SKILL.md").read_text()
+    skill = (ROOT / "firmware-audit" / "SKILL.md").read_text()
     assert "Stage 4f firmware fpcheck" in skill
     assert "references/briefs/firmware-fpcheck-brief.md" in skill
     for mode in ("--prepare", "--record ${RESULT_PATH}", "--check"):

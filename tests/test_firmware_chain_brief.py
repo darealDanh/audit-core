@@ -109,7 +109,7 @@ def test_chain_return_counts_dispositions_and_has_exact_one_line(variables):
 
 
 def test_skill_routes_one_global_firmware_worker_separately_from_generic_chains():
-    skill = (ROOT / "SKILL.md").read_text()
+    skill = (ROOT / "firmware-audit" / "SKILL.md").read_text()
     assert "### Stage 4g firmware chain" in skill
     route = skill.split("### Stage 4g firmware chain", 1)[1].split("\n### ", 1)[0]
     assert "references/briefs/firmware-chain-brief.md" in route

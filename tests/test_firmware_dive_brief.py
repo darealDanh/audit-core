@@ -50,7 +50,7 @@ def test_dive_brief_denies_worker_authority_and_environment_inflation():
 
 
 def test_skill_routes_each_frozen_question_through_fresh_worker():
-    source = (ROOT / "SKILL.md").read_text()
+    source = (ROOT / "firmware-audit" / "SKILL.md").read_text()
     for required in (
         "Stage 4h firmware dive", "firmware-dive-brief.md",
         "audit.py dive --run", "--prepare", "--probe", "--capture", "--record", "--check",

@@ -45,7 +45,7 @@ def test_decide_brief_denies_authority_and_keeps_scripts_inert():
 
 
 def test_skill_routes_one_global_decision_worker():
-    source = (ROOT / "SKILL.md").read_text().lower()
+    source = (ROOT / "firmware-audit" / "SKILL.md").read_text().lower()
     for required in ("stage 4i firmware decision", "firmware-decide-brief.md",
                      "audit.py decide --run", "--prepare", "--record", "--check",
                      "one fresh strongest", "partial", "proposed scripts"):
@@ -159,7 +159,7 @@ def test_brief_reads_worklist_incrementally_and_refuses_changed_generation():
 
 
 def route():
-    source = (ROOT / "SKILL.md").read_text()
+    source = (ROOT / "firmware-audit" / "SKILL.md").read_text()
     start = source.index("### Stage 4i firmware decision")
     return source[start:source.index("\n### ", start + 1)]
 

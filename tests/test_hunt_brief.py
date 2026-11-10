@@ -122,7 +122,7 @@ def test_hunt_return_is_the_exact_one_line_contract(variables):
 
 
 def test_skill_router_exposes_firmware_hunt_without_inline_dispatch_content():
-    skill = (ROOT / "SKILL.md").read_bytes().decode("utf-8")
+    skill = (ROOT / "firmware-audit" / "SKILL.md").read_bytes().decode("utf-8")
     assert "Stage 4e firmware hunt" in skill
     assert "hunt-brief.md" in skill
     assert "python3 __SKILL_DIR__/audit.py hunt --run ${AUDIT_DIR} --root ${ROOTFS}" in skill

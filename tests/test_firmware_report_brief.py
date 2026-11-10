@@ -106,7 +106,7 @@ def test_report_brief_denies_authority():
 
 
 def _skill_section() -> str:
-    source = (ROOT / "SKILL.md").read_text()
+    source = (ROOT / "firmware-audit" / "SKILL.md").read_text()
     start = source.index("### Stage 4j firmware report")
     end = source.index("### ", start + 4)
     return source[start:end]
