@@ -203,3 +203,46 @@ def test_fpcheck_brief_keeps_every_method_step():
     assert "confidence threshold" in text.lower()
     assert "devil's advocate" in text.lower()
     assert "take the pivot" in text.lower()
+
+
+def test_template_path_resolves_root_phase():
+    """A generic phase lives in the root references/briefs dir."""
+    path = briefs.template_path("audit")
+    assert path == briefs.TEMPLATE_DIR / "audit-brief.md"
+    assert path.is_file()
+
+
+def test_template_path_searches_later_dirs(tmp_path, monkeypatch):
+    """A phase absent from root resolves in a later brief dir once it exists."""
+    firmware_dir = tmp_path / "firmware-audit" / "references" / "briefs"
+    firmware_dir.mkdir(parents=True)
+    tpl = firmware_dir / "synthetic-later-brief.md"
+    tpl.write_text("x")
+    monkeypatch.setattr(briefs, "BRIEF_DIRS",
+                        (briefs.TEMPLATE_DIR, firmware_dir))
+    assert briefs.template_path("synthetic-later") == tpl
+
+
+def test_template_path_unknown_phase_raises():
+    with pytest.raises(briefs.BriefError):
+        briefs.template_path("no-such-phase")
+
+
+def test_iter_brief_templates_unions_existing_dirs(tmp_path, monkeypatch):
+    firmware_dir = tmp_path / "firmware-audit" / "references" / "briefs"
+    firmware_dir.mkdir(parents=True)
+    tpl = firmware_dir / "firmware-report-brief.md"
+    tpl.write_text("x")
+    monkeypatch.setattr(briefs, "BRIEF_DIRS",
+                        (briefs.TEMPLATE_DIR, firmware_dir))
+    found = briefs.iter_brief_templates()
+    assert tpl in found
+    assert briefs.TEMPLATE_DIR / "audit-brief.md" in found
+
+
+def test_iter_brief_templates_tolerates_missing_dir(tmp_path, monkeypatch):
+    missing = tmp_path / "does-not-exist" / "briefs"
+    monkeypatch.setattr(briefs, "BRIEF_DIRS",
+                        (briefs.TEMPLATE_DIR, missing))
+    found = briefs.iter_brief_templates()
+    assert briefs.TEMPLATE_DIR / "audit-brief.md" in found

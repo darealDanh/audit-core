@@ -13,6 +13,15 @@ import re
 
 TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent.parent / "references" / "briefs"
 
+# Ordered brief-directory search path. Root generic briefs first, then the
+# firmware skill's own briefs (which may not exist yet - existence-guarded by
+# the resolver and the enumerator).
+_FIRMWARE_BRIEF_DIR = (pathlib.Path(__file__).resolve().parent.parent
+                       / "firmware-audit" / "references" / "briefs")
+BRIEF_DIRS: tuple[pathlib.Path, ...] = tuple(
+    d for d in (TEMPLATE_DIR, _FIRMWARE_BRIEF_DIR) if d is TEMPLATE_DIR or d.is_dir()
+)
+
 # A placeholder is {name} where name is an identifier. This deliberately does
 # not match ${HOME}, {} or {"json": ...}.
 _PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -63,16 +72,38 @@ def render(template_text: str,
     return out
 
 
+def template_path(phase: str) -> pathlib.Path:
+    """First existing `<dir>/<phase>-brief.md` across BRIEF_DIRS, else raise."""
+    for d in BRIEF_DIRS:
+        candidate = d / f"{phase}-brief.md"
+        if candidate.is_file():
+            return candidate
+    searched = ", ".join(str(d) for d in BRIEF_DIRS)
+    raise BriefError(f"no brief template for phase {phase!r} in {searched}")
+
+
+def iter_brief_templates() -> list[pathlib.Path]:
+    """Every `*-brief.md` across existing BRIEF_DIRS (missing dirs tolerated)."""
+    out: list[pathlib.Path] = []
+    for d in BRIEF_DIRS:
+        if d.is_dir():
+            out.extend(sorted(d.glob("*-brief.md")))
+    return out
+
+
 def write_brief(phase: str,
                 unit: str,
                 run_dir: str | pathlib.Path,
                 variables: dict[str, str],
                 template_dir: str | pathlib.Path | None = None,
                 allow_empty: bool = False) -> pathlib.Path:
-    tpl_dir = pathlib.Path(template_dir) if template_dir else TEMPLATE_DIR
-    template = tpl_dir / f"{phase}-brief.md"
-    if not template.is_file():
-        raise BriefError(f"no brief template for phase {phase!r} at {template}")
+    if template_dir is not None:
+        template = pathlib.Path(template_dir) / f"{phase}-brief.md"
+        if not template.is_file():
+            raise BriefError(
+                f"no brief template for phase {phase!r} at {template}")
+    else:
+        template = template_path(phase)
     out_dir = pathlib.Path(run_dir) / "briefs"
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{phase}-{unit}-brief.md"
