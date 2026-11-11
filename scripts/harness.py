@@ -89,9 +89,48 @@ def tail(text: str, lines: int = 25) -> str:
 
 # ---------------------------------------------------------------- gate: tests
 
+# Set by main() to the gates actually selected for this run, so `tests` can
+# tell "the operator asked for the suite alone" from "the suite is about to
+# run anyway under `coverage`".
+SELECTED: list[str] = []
+
+
+def suite_runs_under_coverage() -> bool:
+    """Will `coverage` run the whole suite in this invocation?
+
+    The coverage gate runs every test and records the runner's exit code, so
+    running `tests` first as well pays for a second full suite - historically
+    the two gates were 99.9% of `make all`. Below 3.12 the coverage gate
+    SKIPs and measures nothing, so `tests` stays the real gate there.
+    """
+    return "coverage" in SELECTED and sys.version_info >= (3, 12)
+
+
+def parallel_args() -> list[str]:
+    """`pytest-xdist` flags, or nothing when it is not installed.
+
+    xdist is a dev dependency, so a contributor can have pytest without it.
+    Passing `-n` then fails with "unrecognized arguments" and the suite never
+    runs, which is a worse outcome than running it serially.
+
+    `--dist load` distributes per test rather than per file: measured over
+    the real suite it beats `loadfile` 1,373s to 1,637s, because the four
+    largest files hold 39% of the tests and pin one worker each.
+    """
+    try:
+        import xdist                                          # noqa: F401,PLC0415
+    except ImportError:
+        return []
+    return ["-n", "auto", "--dist", "load"]
+
+
 def gate_tests() -> Result:
     """The pytest suite. The only gate that covers audit_core's behaviour."""
-    proc = run([PY, "-m", "pytest", "-q"])
+    if suite_runs_under_coverage():
+        return Result("tests", SKIP,
+                      "the coverage gate runs this same suite and fails on a "
+                      "non-zero pytest rc; not paying for it twice")
+    proc = run([PY, "-m", "pytest", "-q", *parallel_args()])
     out = proc.stdout + proc.stderr
     last = tail(out, 1) or "no output"
     if proc.returncode != 0:
@@ -475,7 +514,7 @@ def gate_coverage() -> Result:
         proc = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "coverage_probe.py"),
              "--package", "audit_core", "--tests", "tests",
-             "--json-out", str(out)],
+             "--jobs", "auto", "--json-out", str(out)],
             cwd=ROOT, capture_output=True, text=True)
         if proc.returncode != 0 or not out.exists():
             return Result("coverage", FAIL,
@@ -484,9 +523,12 @@ def gate_coverage() -> Result:
         data = json.loads(out.read_text())
 
     if data["pytest_rc"] != 0:
+        # This gate is also the suite's result, so it has to name what failed
+        # rather than send the reader off to re-run the tests themselves.
         return Result("coverage", FAIL,
-                      "the suite did not pass, so the measurement is from a "
-                      f"partial run (pytest rc {data['pytest_rc']})")
+                      tail(data.get("output", ""), 1) or
+                      f"the suite failed (pytest rc {data['pytest_rc']})",
+                      detail=tail(data.get("output", ""), 40))
 
     report = SimpleNamespace(modules=[SimpleNamespace(**m)
                                       for m in data["modules"]])
@@ -494,9 +536,14 @@ def gate_coverage() -> Result:
         (ROOT / "scripts" / "coverage-allowlist.txt").read_text())
     result = allowlist.compare(report, entries, ROOT / "audit_core")
 
+    # This gate is now also the suite's result, so its summary has to carry
+    # the test count: it is the only place the run reports one, and the
+    # completion contract records it.
+    suite = tail(data.get("output", ""), 1)
     summary = (f"{data['total_unexecuted']} unexecuted / "
                f"{data['total_executable']} statements, "
-               f"{len(result.permitted)} allowed")
+               f"{len(result.permitted)} allowed"
+               + (f" / {suite}" if suite else ""))
     if result.ok:
         return Result("coverage", PASS, summary)
 
@@ -641,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         selected = (DEFAULT + ALL_EXTRA) if args.all else list(DEFAULT)
     selected = [g for g in selected if g not in set(args.skip)]
+    SELECTED[:] = selected
 
     results: list[Result] = []
     for name in selected:

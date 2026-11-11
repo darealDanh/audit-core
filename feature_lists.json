@@ -1008,7 +1008,8 @@
       "modules": [
         "scripts/harness.py",
         "Makefile",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "pyproject.toml"
       ],
       "tests": [
         "tests/test_harness.py"
@@ -1220,7 +1221,8 @@
       "status": "shipped",
       "stage": "stage3c",
       "modules": [
-        "scripts/coverage_probe.py"
+        "scripts/coverage_probe.py",
+        "scripts/coverage_plugin.py"
       ],
       "tests": [
         "tests/test_coverage_probe.py"

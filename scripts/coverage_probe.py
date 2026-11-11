@@ -35,7 +35,11 @@ import dataclasses
 import json
 import os
 import pathlib
+import subprocess
 import sys
+import tempfile
+
+import coverage_plugin
 
 SUPPORTED = sys.version_info >= (3, 12)
 
@@ -51,6 +55,9 @@ class ModuleReport:
 class ProbeReport:
     modules: tuple[ModuleReport, ...]
     pytest_rc: int
+    # Only the parallel path captures the runner's output; the in-process
+    # path leaves pytest's own stdout alone.
+    output: str = ""
 
     @property
     def total_executable(self) -> int:
@@ -133,6 +140,12 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
         sys.monitoring.restart_events()
         sys.monitoring.free_tool_id(tool)
 
+    return ProbeReport(modules=_module_reports(package, hit), pytest_rc=rc)
+
+
+def _module_reports(package: pathlib.Path,
+                    hit: dict[str, set[int]]) -> tuple[ModuleReport, ...]:
+    """Turn a filename -> executed-lines map into one report per module."""
     reports = []
     for path in sorted(package.glob("*.py")):
         statements = executable_statements(path)
@@ -141,7 +154,77 @@ def measure(package: pathlib.Path, pytest_args: list[str]) -> ProbeReport:
             name=path.name,
             executable=len(statements),
             unexecuted=tuple(sorted(statements - executed))))
-    return ProbeReport(modules=tuple(reports), pytest_rc=rc)
+    return tuple(reports)
+
+
+def _xdist_available() -> bool:
+    """xdist is a dev dependency; without it the suite still has to run."""
+    try:
+        import xdist                                          # noqa: F401,PLC0415
+    except ImportError:
+        return False
+    return True
+
+
+def measure_parallel(package: pathlib.Path, pytest_args: list[str],
+                     jobs: str = "auto") -> ProbeReport:
+    """Measure while the suite runs in `pytest-xdist` workers.
+
+    `measure` monitors in-process and therefore only sees tests that run in
+    this process; xdist runs them in subprocesses. So the monitoring moves
+    into the workers (`scripts/coverage_plugin.py`) and this function unions
+    the fragments they write. Line coverage is a union, so the split is
+    exact rather than an approximation.
+
+    A worker that dies without writing a fragment would silently subtract
+    its lines from the union and report them as unexecuted, so a non-zero
+    pytest rc is carried out to the caller, which must refuse to publish a
+    number from a partial run.
+    """
+    package = pathlib.Path(package).resolve()
+    scripts_dir = pathlib.Path(__file__).resolve().parent
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fragments = pathlib.Path(tmp) / "fragments"
+        fragments.mkdir()
+        env = {
+            **os.environ,
+            coverage_plugin.PACKAGE_ENV: str(package),
+            coverage_plugin.FRAGMENTS_ENV: str(fragments),
+            # The workers load the plugin by module name, so `scripts/` has
+            # to be importable in them, not just here.
+            "PYTHONPATH": os.pathsep.join(
+                [str(scripts_dir), os.environ.get("PYTHONPATH", "")]).rstrip(
+                    os.pathsep),
+        }
+        # `--dist load` spreads per test, not per file: the four largest test
+        # files hold 39% of the suite and would each pin one worker.
+        # Without xdist the plugin still measures correctly - it just runs in
+        # the one process - so fall back rather than fail on `-n`.
+        dist = (["-n", jobs, "--dist", "load"] if _xdist_available() else [])
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", *pytest_args, "-q", "--no-header",
+             "-p", "no:cacheprovider", "-p", "coverage_plugin", *dist],
+            cwd=package.parent, env=env, capture_output=True, text=True)
+        rc = proc.returncode
+        output = proc.stdout + proc.stderr
+
+        hit: dict[str, set[int]] = collections.defaultdict(set)
+        found = False
+        for fragment in sorted(fragments.glob("*.json")):
+            found = True
+            for name, lines in json.loads(fragment.read_text()).items():
+                hit[name].update(lines)
+
+    if not found and rc == 0:
+        raise RuntimeError(
+            "no coverage fragments were written, so nothing was measured. "
+            "The plugin did not load in the workers - check that "
+            f"{scripts_dir} is importable and pytest-xdist is installed.\n"
+            + output[-2000:])
+
+    return ProbeReport(modules=_module_reports(package, hit), pytest_rc=rc,
+                       output=output)
 
 
 def main() -> int:
@@ -168,10 +251,17 @@ def main() -> int:
     parser.add_argument("--package", type=pathlib.Path, required=True, help="Package to measure")
     parser.add_argument("--tests", type=str, required=True, help="Test directory or pytest argument")
     parser.add_argument("--json-out", type=pathlib.Path, help="Write JSON output to file")
+    parser.add_argument("--jobs", default=None, metavar="N",
+                        help="run the suite in N pytest-xdist workers "
+                             "('auto' for one per core). Omit to measure "
+                             "in-process, which is serial.")
     args = parser.parse_args()
 
     try:
-        report = measure(args.package, [args.tests])
+        if args.jobs:
+            report = measure_parallel(args.package, [args.tests], args.jobs)
+        else:
+            report = measure(args.package, [args.tests])
 
         if args.json_out:
             output = {
@@ -185,7 +275,10 @@ def main() -> int:
                         "unexecuted": m.unexecuted,
                     }
                     for m in report.modules
-                ]
+                ],
+                # The gate names the failing tests from this rather than
+                # making the reader re-run the suite to find out.
+                "output": report.output[-4000:],
             }
             args.json_out.write_text(json.dumps(output))
         else:

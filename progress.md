@@ -1,7 +1,7 @@
 # Project progress
 
 **Last updated:** 2026-11-11 · **Branch:** `main` at `8ecdb72` (the **firmware-audit skill split** merged by fast-forward from `9c6f3b9`); the split worktree is retired; not pushed. The firmware-audit skill split — `firmware-audit` as its own installed skill over the shared vendored core, `codebase-audit` byte-identical — is **merged into local `main` at `8ecdb72`**, nothing pushed. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. ·
-**Current verification:** The final `make all` on code-final head `8ecdb72` passed all eight gates with these measured values: `audit.py selftest` reports **32 verbs declared, all dispatchable**, **47 tables in schema.sql / 46 under contract**, and **8 migrations** applied to both baselines; the `manifest` gate passes (**67 features / 18 stages / 24 open items**), the `eol` gate passes (**8 CRLF / 302 LF** files), and `audit.py lint-skill` is clean. Full `make all` passed all eight gates: **9,189 tests passed** (4,518 s); lint clean; **148 installed markdown files**, 0 sentinel survivors, the real install untouched; coverage **0 unexecuted / 14,833 statements**, zero allowed; read-only benchmark **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**; wall time 10,079 s. Nothing is pushed. **Paid milestone benchmark: deferred on cost — see §7**
+**Current verification:** The current `make all` runs on the **parallelised harness** and passes **7 gates with 1 skipped (`tests`)**: `audit.py selftest` reports **32 verbs declared, all dispatchable**, **47 tables in schema.sql / 46 under contract**, and **8 migrations** applied to both baselines; the `manifest` gate passes (**67 features / 18 stages / 24 open items**), the `eol` gate passes (**8 CRLF / 303 LF** files), and `audit.py lint-skill` is clean. The suite now runs **once per invocation**: on Python 3.12+ `tests` SKIPs and the coverage gate runs the same suite — **9,194 tests** — distributed with pytest-xdist (`-n auto --dist load`), reporting the test count and any failing test names; below 3.12 the coverage gate SKIPs and `tests` runs the suite itself. Measured: **148 installed markdown files**, 0 sentinel survivors, the real install untouched; coverage **0 unexecuted / 14,833 statements**, zero allowed, in **1,644 s** against 6,476 s serial — the identical result, which is the parity proof; read-only benchmark **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**; **wall 1,654 s (27m34s)** against **10,079 s (2h48m)** on the same machine, a **6.1x** reduction. Nothing is pushed. **Paid milestone benchmark: deferred on cost — see §7**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -1567,13 +1567,13 @@ make json      # one JSON object, for CI and for agents
 
 | Gate | Proves |
 |---|---|
-| `tests` | The full pytest suite; current measured totals are in `SESSION_HANDOFF.md` |
+| `tests` | The full pytest suite; SKIPs on Python 3.12+ when `coverage` is selected, because that gate runs the same suite. Current measured totals are in `SESSION_HANDOFF.md` |
 | `selftest` | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs a frozen pre-Stage-3 database |
 | `lint` | Shipped prose against the economics contract |
-| `eol` | The six-file CRLF set against `scripts/eol-manifest.txt` |
+| `eol` | The CRLF set (currently 8 files) against `scripts/eol-manifest.txt`, alongside 303 LF files |
 | `manifest` | `feature_lists.json` against the tree it describes |
 | `install` | A sandboxed `install.sh`, no surviving `__SKILL_DIR__`, real install untouched |
-| `coverage` | Every unexecuted `audit_core` statement is in `scripts/coverage-allowlist.txt` with a reason (SKIPs below Python 3.12) |
+| `coverage` | Every unexecuted `audit_core` statement is in `scripts/coverage-allowlist.txt` with a reason (SKIPs below Python 3.12). Runs the suite once under pytest-xdist (`-n auto --dist load`) and reports the test count and any failing test names |
 | `bench` | Recall, precision, cost per match (opt-in; SKIPs without the corpus) |
 | `mutate` | Every surviving mutant of `audit_core` is allowlisted (opt-in, ~1h, NOT in `make all`) |
 
@@ -1585,6 +1585,30 @@ mattered.
 
 `.github/workflows/ci.yml` runs the same gates on Python 3.10, 3.12 and 3.13.
 There is no separate CI script that can drift out of step with the harness.
+
+**The suite runs once per invocation, in parallel.** `make all` used to run the
+whole suite twice — once for `tests`, once instrumented for `coverage`. On
+Python 3.12+ `gate_tests` now SKIPs whenever `coverage` is selected, since the
+coverage gate runs the same suite and already fails on a non-zero pytest rc;
+below 3.12 the coverage gate SKIPs and `tests` runs the suite instead. That one
+run is distributed with pytest-xdist (`-n auto --dist load`), with
+`scripts/coverage_plugin.py` measuring `sys.monitoring` coverage inside each
+xdist worker and the parent unioning the fragments; `coverage_probe.measure()`
+remains the serial in-process fallback when xdist is absent. Measured effect:
+wall **1,654 s (27m34s)** against **10,079 s (2h48m)**, a **6.1x** reduction,
+with the coverage gate down from 6,476 s to 1,644 s and returning the identical
+0 / 14,833 result. The suite alone fell from 4,960 s to 1,373 s; `--dist load`
+beat `--dist loadfile` (1,637 s) because the four largest test files hold 39%
+of the suite and pin one worker each. On 18 cores the run averages only ~4
+busy ones: it is syscall-bound, not CPU-bound, so further gains have to come
+from the per-test workspace cost, not from more workers.
+
+pytest-xdist is a dev-only dependency (`pyproject.toml` dev extra
+`["pytest>=8", "pytest-xdist>=3"]`); shipped `dependencies` stays `[]`, so the
+installed skill remains stdlib-only. CI **deliberately does not install xdist**,
+keeping that job the detector for an accidental third-party import in
+`audit_core`; it uses the serial fallback and on 3.12+ still benefits from the
+single run.
 
 ---
 

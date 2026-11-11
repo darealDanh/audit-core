@@ -16,7 +16,9 @@ HARNESS := $(PYTHON) scripts/harness.py
 .DEFAULT_GOAL := check
 .PHONY: check all list test selftest lint eol install-smoke bench mutate json clean help
 
-## check: the pre-merge gate - tests, selftest, lint, eol, install (no bench)
+## check: the pre-merge gate - tests, selftest, lint, eol, manifest, install,
+## coverage (no bench). On 3.12+ the suite runs once, under `coverage`, which
+## reports the test result too; `tests` skips rather than running it twice.
 check:
 	@$(HARNESS)
 

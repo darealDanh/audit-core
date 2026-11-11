@@ -18,12 +18,17 @@ is a second installable surface — its own `SKILL.md`, worker briefs and
 launchers — over that identical core, so `codebase-audit`'s behavior and code
 are byte-identical to before the split. Each skill is made of the same **two
 different kinds of material**. The split is merged into local `main` at
-`8ecdb72` (fast-forward from `9c6f3b9`); the final `make all` on code-final head
-`8ecdb72` passed all eight gates — 9,189 tests (4,518 s); 32 verbs; 47 tables /
-46 contracts; 8 migrations; 8 CRLF / 302 LF; 67 features / 18 stages / 24 open
+`8ecdb72` (fast-forward from `9c6f3b9`). The current `make all`, measured on the
+parallelised harness, passes **7 gates with `tests` skipped** — the suite
+**9,194 tests** runs exactly **once per invocation**, under the
+coverage gate, which also reports the test result; 32 verbs; 47 tables /
+46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open
 items; 148 installed markdown files, 0 sentinel survivors, real install
-untouched; coverage 0 unexecuted / 14,833 statements; bench recall 9/19 over 45
-findings, precision 39/40, $73.15 per match; wall 10,079 s. Nothing is pushed.
+untouched; coverage 0 unexecuted / 14,833 statements, 0 allowed (1,644 s, down
+from 6,476 s and byte-identical to the serial measurement); bench recall 9/19
+over 45 findings, precision 39/40, $73.15 per match; wall **1,654 s (27m34s)**,
+against 10,079 s (2h48m) on the same machine — a **6.1x** reduction. Nothing is
+pushed.
 
 | Material | What it is | Who executes it |
 |---|---|---|
@@ -1288,13 +1293,13 @@ edits.
 
 | Gate | Default | What it proves |
 |---|---|---|
-| `tests` | yes | The pytest suite; current measured counts are in `SESSION_HANDOFF.md`. |
+| `tests` | yes | The pytest suite — **SKIPs on Python 3.12+ when `coverage` is selected**, because the coverage gate runs the same suite and fails on a non-zero pytest rc. Below 3.12 (where `coverage` SKIPs) it runs the suite itself. Current measured counts are in `SESSION_HANDOFF.md`. |
 | `selftest` | yes | Verbs vs parser, `TABLE_SPECS` vs `schema.sql`, `MIGRATIONS` vs the frozen baseline — each comparing two structures built independently. |
 | `lint` | yes | Shipped prose against the economics contract. |
 | `eol` | yes | The CRLF/LF split above, across tracked *and* newly added files. |
 | `manifest` | yes | `feature_lists.json` against the tree it describes: every path exists, every verb is dispatchable, every status is in the enum. |
 | `install` | yes | A sandboxed `install.sh` run, no surviving `__SKILL_DIR__`, and the real install's mtime unmoved. |
-| `coverage` | yes | Every `audit_core` statement a test executes, or is named in `scripts/coverage-allowlist.txt` with a reason and a content digest. |
+| `coverage` | yes | Every `audit_core` statement a test executes, or is named in `scripts/coverage-allowlist.txt` with a reason and a content digest. Runs the suite under pytest-xdist (`-n auto --dist load`) and reports the test count and any failing test names. |
 | `bench` | opt-in | Recall, precision and cost against the tplink golden set. SKIPs when the corpus is absent. |
 
 ```bash
@@ -1312,6 +1317,31 @@ operator's real working skill at `~/.claude/skills/codebase-audit/`. The gate
 builds a throwaway `HOME`, **refuses to proceed if that HOME resolves to the
 real one**, and asserts afterwards that all four real destinations' mtimes did
 not move. A recipe that forgets one `env` assignment does the damage silently.
+
+### The suite runs once, in parallel
+
+`make all` used to run the whole pytest suite twice: once for `tests` and once
+again, instrumented, for `coverage`. On Python 3.12+ `gate_tests` now **SKIPs
+whenever `coverage` is selected**, because the coverage gate runs the same suite
+and already fails on a non-zero pytest rc; below 3.12 the coverage gate SKIPs
+instead and `tests` runs the suite. Either way the suite executes exactly once
+per invocation.
+
+That single run is distributed with pytest-xdist (`-n auto --dist load`);
+`parallel_args()` returns the xdist flags, or `[]` when xdist is absent, and
+`coverage_probe.measure_parallel()` drives it. Because `sys.monitoring`
+instruments only the process it runs in, each xdist worker loads
+`scripts/coverage_plugin.py`, measures line coverage in its own process and
+writes a JSON fragment; the parent unions the fragments. The serial in-process
+`coverage_probe.measure()` is unchanged, including its nesting contract and
+`sys.monitoring` tool-ID budget, and is the fallback when xdist is missing.
+
+pytest-xdist is a **dev-only** dependency (`pyproject.toml`'s dev extra is
+`["pytest>=8", "pytest-xdist>=3"]`); the shipped `dependencies` list stays `[]`
+and the installed skill remains standard-library only. CI deliberately does
+**not** install xdist, so that job stays the detector for an accidental
+third-party import in `audit_core`; it uses the serial fallback and on 3.12+
+still benefits from the single run.
 
 ### Stage 3c: two instruments for what the tests do not see
 

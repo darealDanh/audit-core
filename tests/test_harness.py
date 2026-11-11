@@ -10,8 +10,10 @@ operator's working skill install.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -219,3 +221,63 @@ def test_manifest_records_stage4f_review_implementation_and_contracts():
         "docs/superpowers/plans/2026-10-21-stage4f-firmware-fpcheck.md",
     ):
         assert path in paths
+
+
+def test_tests_gate_skips_only_when_coverage_will_run_the_suite(monkeypatch):
+    """The suite must run exactly once per invocation, and always at least once.
+
+    `coverage` runs every test and fails on a non-zero pytest rc, so running
+    `tests` as well paid for a second full suite - the two were 99.9% of
+    `make all`. Skipping is only safe while `coverage` is actually selected
+    AND able to run; if either stops holding, this gate is the one that runs
+    the tests, and a skip here would mean nothing ran them at all.
+    """
+    invoked = []
+    monkeypatch.setattr(harness, "run",
+                        lambda *a, **kw: invoked.append(a) or (_ for _ in ()).throw(
+                            AssertionError("suite should not have run")))
+
+    monkeypatch.setattr(harness, "SELECTED", ["tests", "coverage"])
+    assert harness.gate_tests().status == harness.SKIP
+    assert invoked == []
+
+    # Coverage not selected: nothing else runs the suite, so this gate must.
+    monkeypatch.setattr(harness, "SELECTED", ["tests"])
+    assert harness.suite_runs_under_coverage() is False
+
+
+def test_tests_gate_runs_the_suite_when_coverage_cannot_measure(monkeypatch):
+    """Below 3.12 the coverage gate SKIPs and measures nothing. The suite
+    still has to run, or `make check` would pass without executing a test."""
+    monkeypatch.setattr(harness, "SELECTED", ["tests", "coverage"])
+    monkeypatch.setattr(harness.sys, "version_info", (3, 11, 0))
+    assert harness.suite_runs_under_coverage() is False
+
+
+def test_coverage_summary_reports_the_test_count(monkeypatch, tmp_path):
+    """With `tests` skipped, this gate is the only place the run says how
+    many tests passed - and the completion contract records that number."""
+    def fake_run(cmd, **kwargs):
+        out = pathlib.Path(cmd[cmd.index("--json-out") + 1])
+        out.write_text(json.dumps({
+            "pytest_rc": 0, "total_executable": 10, "total_unexecuted": 0,
+            "modules": [], "output": "9999 passed in 1234.5s (0:20:34)"}))
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(harness.subprocess, "run", fake_run)
+    result = harness.gate_coverage()
+    assert "9999 passed" in result.summary
+    assert "0 unexecuted / 10 statements" in result.summary
+
+
+def test_parallel_args_fall_back_to_serial_without_xdist(monkeypatch):
+    """CI installs pytest and nothing else, so that an accidental
+    third-party import in audit_core still fails there. The harness must
+    therefore run the suite serially when xdist is absent, rather than
+    passing `-n` and dying on "unrecognized arguments"."""
+    monkeypatch.setitem(sys.modules, "xdist", None)   # import -> ImportError
+    assert harness.parallel_args() == []
+
+    monkeypatch.undo()
+    import xdist                                       # noqa: F401
+    assert harness.parallel_args() == ["-n", "auto", "--dist", "load"]

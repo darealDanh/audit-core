@@ -1,6 +1,6 @@
 # Session handoff
 
-**Written:** 2026-11-11 · **Branch:** `main` at `8ecdb72` (the **firmware-audit skill split** merged by fast-forward from `9c6f3b9`); the split worktree is retired; nothing is pushed. The firmware-audit skill split is **merged into local `main` at `8ecdb72`**; its final `make all` on code-final head `8ecdb72` passed all eight gates — 9,189 tests (4,518 s); 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 302 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files, 0 sentinel survivors, real install untouched; coverage 0 unexecuted / 14,833 statements; bench recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall 10,079 s. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. Nothing is pushed ·
+**Written:** 2026-11-12 · **Branch:** `main`, with the **harness parallelisation** committed on top of the firmware-audit skill split merge `8ecdb72` (itself a fast-forward from `9c6f3b9`); the split worktree is retired; nothing is pushed. The current `make all` runs on the **parallelised harness**: 7 gates pass and `tests` SKIPs, because on Python 3.12+ the coverage gate runs the same suite once and reports its result — 9,194 tests; 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files, 0 sentinel survivors, real install untouched; coverage 0 unexecuted / 14,833 statements, 0 allowed (1,644 s, against 6,476 s serial — an identical result, which is the parity proof); bench recall 9/19 over 45 findings, precision 39/40, $73.15 per match; **wall 1,654 s (27m34s), against 10,079 s (2h48m) on the same machine — 6.1x**. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. Nothing is pushed ·
 **Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and merged into local `main` at `e2432dd`; its full eight-gate `make all` was measured on the code-final commit `7844a9b`. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
 Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
 identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
@@ -384,8 +384,44 @@ Stage 4i decision preparation first.
 
 ```bash
 cd /Users/danhnguyen/Documents/Offsec/Tools/codebase-audit
-make all          # all eight gates
+make all          # eight gates; `tests` SKIPs on 3.12+ because coverage runs the suite
 ```
+
+Current measured gate summary (parallelised harness; 7 passed, 1 skipped):
+
+```
+SKIP  tests      the coverage gate runs this same suite...
+PASS  selftest   verbs  32 declared, all dispatchable / tables 47 in schema.sql, 46 under contract / migrations 8 plus current schema applied to both baselines
+PASS  lint       skill lint: clean
+PASS  eol        8 CRLF files, 303 LF
+PASS  manifest   67 features, 18 stages, 24 open items, all paths and verbs resolve
+PASS  install    148 markdown files installed, 0 sentinel survivors, real install untouched
+PASS  coverage   0 unexecuted / 14833 statements, 0 allowed / 9194 passed in 1643.27s (0:27:23)
+PASS  bench      recall 9/19, 45 findings, precision 39/40, $73.15 per match
+```
+
+Wall time is **1,654 s (27m34s)**, against **10,079 s (2h48m)** for the same
+work on the same machine before the harness was parallelised — a **6.1x**
+reduction. The coverage gate alone fell from 6,476 s to 1,644 s and returned
+**the identical 0 / 14,833 result**, which is the parity proof. The suite now
+runs **once per invocation**: on Python 3.12+ `tests` SKIPs and the coverage
+gate runs the suite (reporting the test count and any failing test names);
+below 3.12 the coverage gate SKIPs and `tests` runs it. The run is distributed
+with pytest-xdist (`-n auto --dist load`), each worker measuring its own
+`sys.monitoring` coverage via `scripts/coverage_plugin.py` and the parent
+unioning the fragments.
+
+Supporting measurements on 18 logical cores: the serial suite took 4,960 s,
+1,637 s with `--dist loadfile` and 1,373 s with `--dist load` (9,192 passed,
+zero failures). The suite is syscall-bound (user 51m / sys 46m over 23m wall),
+which is why 18 workers average about four busy cores.
+
+pytest-xdist is a dev-only dependency (`pyproject.toml` dev extra
+`["pytest>=8", "pytest-xdist>=3"]`); the shipped `dependencies` list stays `[]`
+so the installed skill is still stdlib-only. **CI deliberately does not install
+xdist**, so that job remains the detector for an accidental third-party import
+in `audit_core`; it uses the serial fallback and on 3.12+ still benefits from
+the single run.
 
 Historical Stage 4d gate summary (2026-10-16, after Stage 4d documentation
 reconciliation; these values do not measure the Stage 4e branch):

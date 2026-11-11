@@ -40,6 +40,13 @@ jobs:
 
       # audit_core is stdlib-only by contract; pytest is the sole dev
       # dependency. Installing anything else here would hide a violation.
+      #
+      # pytest-xdist is deliberately NOT installed, even though the harness
+      # uses it locally: adding it would put execnet in the environment, and
+      # this job is the only place an accidental third-party import in
+      # audit_core is caught. The harness falls back to a serial run when
+      # xdist is absent, and on 3.12+ that run happens once, under the
+      # coverage gate, rather than twice.
       - name: Install the one dev dependency
         run: python -m pip install --upgrade pip 'pytest>=8'
 

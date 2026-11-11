@@ -1,5 +1,6 @@
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -198,3 +199,44 @@ def test_cli_json_output(tmp_path):
     assert m_module is not None
     assert m_module["executable"] == 2
     assert m_module["unexecuted"] == []
+
+
+@pytest.mark.skipif(not coverage_probe.SUPPORTED, reason="needs sys.monitoring (3.12+)")
+def test_parallel_measurement_unions_what_separate_workers_executed(tmp_path):
+    """Each worker sees only the lines its own tests ran.
+
+    `measure` monitors in-process, so under xdist it would record nothing and
+    report a fully-covered package as entirely unexecuted. The fragments the
+    workers write must therefore be unioned, not sampled: here each of the
+    three functions is reached from a different test file, so any worker's
+    fragment alone would report the other two as dead statements.
+
+    tmp_path is avoided for the package itself because on macOS it lives
+    under the /var -> /private/var symlink, where the resolved package prefix
+    never matches `co_filename` and every line reads as unexecuted.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent / ".probe_parallel"
+    pkg, tests = root / "pkg", root / "tests"
+    try:
+        tests.mkdir(parents=True)
+        pkg.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "m.py").write_text(
+            "def one():\n    return 1\n"
+            "def two():\n    return 2\n"
+            "def never():\n    return 3\n")
+        for name in ("one", "two"):
+            (tests / f"test_{name}.py").write_text(
+                f"import sys; sys.path.insert(0, {str(root)!r})\n"
+                f"from pkg import m\n"
+                f"def test_{name}():\n    assert m.{name}()\n")
+
+        report = coverage_probe.measure_parallel(pkg, [str(tests)], "2")
+
+        assert report.pytest_rc == 0
+        module = next(m for m in report.modules if m.name == "m.py")
+        # Only never()'s body: both one() and two() were reached, each from a
+        # different worker. A missing union would also list 2 and/or 4.
+        assert module.unexecuted == (6,)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
