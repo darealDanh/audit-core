@@ -76,6 +76,17 @@ is bounded by nothing. This is the one rule where the cost argument and the
 quality argument are the same argument: work that stays in the orchestrator
 is serial, and serial work is why surfaces went unopened.
 
+`audit.py extract` snapshots files; it has no decompiler backend. When the
+image carries binaries that need pseudocode, xrefs, imports or struct
+recovery, use the session-side `autorev` MCP tools (`analyze_function`,
+`get_disassembly`, `list_strings`, `find_xrefs_to`, ...) if the client has
+them connected — `audit.py preflight --server autorev=<command>` names the
+server for the strict relaunch. R1 still binds: call them **inside a
+subagent**, have it write the result to a file under `${AUDIT_DIR}/files/`,
+and return the path. Pseudocode returned into the orchestrator is the exact
+cost that rule exists to prevent. The MCP resolves every caller to one shared
+IDA session, so binary extraction stays serial even when the rest fans out.
+
 The orchestrator's own reads are bounded too. `audit.py rows` caps at 200
 rows; `audit.py status` and `audit.py coverage` return aggregate counts
 rather than rows; comprehension comes from `audit.py note`, which returns
