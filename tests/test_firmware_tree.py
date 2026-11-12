@@ -92,8 +92,7 @@ def test_scan_empty_tree_returns_complete_empty_tuple(tmp_path):
 
 
 @pytest.mark.parametrize("operation", [
-    "lstat", "stat", "open-first", "open-kind", "open-hash",
-    "read-first", "read-kind", "read-hash"])
+    "lstat", "stat", "open-first", "open-kind", "read-first", "read-kind"])
 def test_file_io_failure_after_readable_siblings_aborts_with_path(tmp_path, monkeypatch, operation):
     # Breaks: swallowing an I/O race as non-ELF/file or returning partial facts.
     root = tree(tmp_path)
@@ -101,7 +100,7 @@ def test_file_io_failure_after_readable_siblings_aborts_with_path(tmp_path, monk
     method = "open" if operation.startswith(("open-", "read-")) else operation
     original = getattr(pathlib.Path, method)
     seen = 0
-    fail_at = {"first": 1, "kind": 2, "hash": 3}.get(operation.split("-")[-1], 1)
+    fail_at = {"first": 1, "kind": 2}.get(operation.split("-")[-1], 1)
 
     class ReadFailure:
         def __init__(self, handle):

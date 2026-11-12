@@ -18,17 +18,16 @@ is a second installable surface — its own `SKILL.md`, worker briefs and
 launchers — over that identical core, so `codebase-audit`'s behavior and code
 are byte-identical to before the split. Each skill is made of the same **two
 different kinds of material**. The split is merged into local `main` at
-`8ecdb72` (fast-forward from `9c6f3b9`). The current `make all`, measured on the
-parallelised harness, passes **7 gates with `tests` skipped** — the suite
-**9,194 tests** runs exactly **once per invocation**, under the
-coverage gate, which also reports the test result; 32 verbs; 47 tables /
-46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open
-items; 148 installed markdown files, 0 sentinel survivors, real install
-untouched; coverage 0 unexecuted / 14,833 statements, 0 allowed (1,644 s, down
-from 6,476 s and byte-identical to the serial measurement); bench recall 9/19
-over 45 findings, precision 39/40, $73.15 per match; wall **1,654 s (27m34s)**,
-against 10,079 s (2h48m) on the same machine — a **6.1x** reduction. Nothing is
-pushed.
+`8ecdb72` (fast-forward from `9c6f3b9`). A pre-documentation `make all` on the
+current runtime-hardened tree passed **7 gates with `tests` skipped**: the suite
+ran once under coverage (**9,194 tests**); 32 verbs; 47 tables / 46 contracts;
+8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open items;
+148 installed markdown files, 0 sentinel survivors, real install untouched;
+coverage 0 unexecuted / 14,835 statements, 0 allowed in 1,493 s; benchmark
+recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall **1,502 s
+(25m02s)**. That is 152 s faster than the prior 1,654 s parallel result and
+6.7x faster than the 10,079 s serial baseline. This reconciliation records the
+remaining nested-verifier bottleneck as the 25th open item. Nothing is pushed.
 
 | Material | What it is | Who executes it |
 |---|---|---|
@@ -214,11 +213,11 @@ databases need triage of both acquired images to populate the new manifests.
 | `indicators.py` | 264 | The four deterministic leading indicators and their dated snapshots. |
 | `rerate.py` | 191 | Advisory report of findings whose severity disagrees with their own evidence. Stores nothing. |
 | `qualify.py` | 369 | The hard GO/NO-GO gate for a firmware target: three filters (not strip-mined, RCE-rich, still supported), each failing closed, scored against `_intel/target-scores.csv`. |
-| `elf.py` | 265 | Pure, bounded ELF facts; strict I/O mode lets the shared scanner fail closed on read races. |
+| `elf.py` | 269 | Pure, bounded ELF facts; strict I/O mode lets the shared scanner fail closed on read races, and an optional digest consumes every file byte during the same pass. |
 | `acquire.py` | 89 | Record local firmware provenance; atomically invalidate changed-image manifests and dependent target surface state. |
 | `triage.py` | 207 | Inventory an already-carved rootfs, attach ELF facts, and record boot services with source-line evidence. |
 | `firmware_diff.py` | 223 | Compare stored image-scoped manifests by path and SHA-256, persist all changed paths atomically, and install deterministic content-addressed JSON. |
-| `firmware_tree.py` | 101 | Shared fail-closed regular-file traversal, hashing, classification, and retained ELF facts for triage and surface. |
+| `firmware_tree.py` | 96 | Shared fail-closed regular-file traversal, single-pass hashing/classification, and retained ELF facts for triage and surface. |
 | `surface.py` | 583 | Exact-root verification, deterministic content-addressed batches, image-owned generation invalidation, and the sole completion transition. |
 | `surface_results.py` | 459 | Strict bounded parsing, qualified coverage ownership, conservative raw-row refusal, and atomic batch-owned import. |
 | `hunt.py` | 462 | Bind two complete lane worklists to verified surface evidence, invalidate image-owned hunt state, gate receipts and full-denominator coverage, and expose immutable read-only completed-hunt snapshots. |
@@ -227,7 +226,7 @@ databases need triage of both acquired images to populate the new manifests.
 | `firmware_fpcheck_results.py` | 531 | Parse bounded review results, validate assignments and ownership without writes, atomically import canonical batch receipts/verdicts/pivots, and preserve or invalidate derived chain state on exact replacement. |
 | `firmware_chain.py` | 641 | Prepare one immutable global findings worklist, invalidate image-owned graphs, reconstruct exact receipt-owned graph state, derive the deterministic graph artifact, and atomically complete the current snapshot. |
 | `firmware_chain_results.py` | 1097 | Parse bounded hostile chain JSON, enforce complete dispositions/evidence ownership/typed links/device-state continuity, derive stable graph identities, and publish canonical receipts and rows atomically. |
-| `firmware_dive_questions.py` | 780 | Freeze strict question/resolution contracts and stable subject fingerprints from current graph authority. |
+| `firmware_dive_questions.py` | 784 | Freeze strict question/resolution contracts, stable subject fingerprints and exact retained evidence authority from the current graph. |
 | `firmware_dive_acquisition.py` | 968 | Seal bounded probe/capture inputs, isolate execution through adapters, and verify exact acquisition evidence. |
 | `firmware_dive_results.py` | 998 | Parse and validate bounded question results, exact settlement authority and immutable observation imports. |
 | `firmware_dive.py` | 1372 | Prepare immutable question generations, gate acquisitions/results, reconstruct completion/current overlays and exact decision input. |
@@ -721,6 +720,12 @@ bind stable provenance while excluding timestamps; absolute source identities
 are rejected and source text never enters packet bytes. Packets embed no evidence
 bodies.
 
+Finding-subject packets enumerate all five canonical finding evidence variants:
+`root_cause`, `attacker_position`, `data_flow`, `impact_hypothesis` and
+`evidence_summary`. The retained finding artifact still owns the bytes; the
+packet grants exact references, not bodies. This lets a static dive answer cite
+already-reviewed chain-blocker evidence without forcing an inconclusive retry.
+
 Task 4 implements artifact-first immutable preparation through `firmware_dive.prepare`.
 It freezes complete question denominators, preserves every prior generation and
 sibling image, and repeats live source, graph, strict manifest, durable history,
@@ -1048,6 +1053,16 @@ contiguous rank, copied fact, evidence reference, exact open precondition and
 bench subject against that frozen global assignment. Wildcard bench requirements
 use each edge's carried incoming state. `audit_core/firmware_dive.py` supplies
 the independently reconstructed current decision-input boundary.
+
+The X5_PRO_OMNI audit exposed the remaining cost of this authority boundary:
+decision/report publication spent 2h31m after repeated nested graph, dive and
+review reconstruction, each reaching exact-root verification. Root scanning now
+parses the bounded ELF prefix and hashes the complete file in one file pass,
+removing the prior second payload read without weakening root agreement. Nested
+verification still scans the same root multiple times. A future optimization may
+reuse an already-verified snapshot inside one coherent read transaction, but it
+must retain the independent publication-time pass that detects source or SQL
+drift before commit.
 
 Policy remains separately hashed operator input, never an observation or payout
 promise. The worker owns result JSON only; deterministic code derives

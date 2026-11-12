@@ -23,6 +23,8 @@ MAX_ANALYST_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_JOURNAL_ENTRIES = 1000
 MAX_PACKET_BYTES = 1024 * 1024
 MAX_EXTRACT_RECORDS = 3
+_FINDING_EVIDENCE_FIELDS = (
+    'root_cause', 'attacker_position', 'data_flow', 'impact_hypothesis', 'evidence_summary')
 _STATE_VALUES = {
     'lifecycle': db.FIRMWARE_CHAIN_LIFECYCLE_STATES,
     'posture': db.FIRMWARE_CHAIN_POSTURE_STATES,
@@ -761,6 +763,8 @@ def packet_bytes(question: DiveQuestion, snapshot: firmware_chain.VerifiedFirmwa
             continue
         logical = getattr(record, 'finding_id', getattr(record, 'id', getattr(record, 'surface_id', None)))
         refs.add(RetainedRef(kind, logical, record.artifact_path, record.artifact_sha256))
+        if isinstance(record, firmware_chain.firmware_fpcheck.VerifiedFirmwareFinding):
+            evidence.update(f'finding:{record.finding_id}#{field}' for field in _FINDING_EVIDENCE_FIELDS)
         if hasattr(record, 'id'):
             evidence.add('unknown:' + record.id + '#evidence')
     ordered = tuple(sorted(refs, key=lambda r: (r.kind, r.logical_id, r.relative_path, r.sha256)))

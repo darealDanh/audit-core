@@ -182,21 +182,11 @@ def test_target_and_reference_keep_facts_without_changing_inventory(con, tmp_pat
     assert len(db.rows(con, "cba_services")) == 2
 
 
-def test_each_regular_file_is_hashed_once_and_elf_digest_is_reused(con, tmp_path, monkeypatch):
-    root = carved_tree(tmp_path)
-    hashed = []
-    original = firmware_tree._sha256
-
-    def record_hash(path):
-        hashed.append(path.relative_to(root).as_posix())
-        return original(path)
-
-    monkeypatch.setattr(firmware_tree, "_sha256", record_hash)
-    triage.run(con, root)
-    assert sorted(hashed) == ["bin/httpd", "etc/httpd.conf", "etc/init.d/S50httpd",
-                              "usr/share/banner"]
-    manifest = db.rows(con, "cba_firmware_files", where={"path": "bin/httpd"})[0]
-    assert db.rows(con, "cba_binfacts")[0]["sha256"] == manifest["sha256"]
+def test_elf_digest_is_reused_for_manifest_and_binary_facts(con,tmp_path):
+    root=carved_tree(tmp_path)
+    triage.run(con,root)
+    manifest=db.rows(con,'cba_firmware_files',where={'path':'bin/httpd'})[0]
+    assert db.rows(con,'cba_binfacts')[0]['sha256']==manifest['sha256']
 
 
 @pytest.mark.parametrize("prior", [False, True])
@@ -207,14 +197,14 @@ def test_scanner_hash_failure_preserves_all_triage_rows_and_timestamps(
         triage.run(con, root)
         (root / "bin/httpd").write_bytes(minimal_elf() + b"changed")
     before = triage_snapshot(con)
-    original = firmware_tree._sha256
+    original=firmware_tree.elf.read
 
-    def fail_last_hash(path):
-        if path.relative_to(root).as_posix() == "usr/share/banner":
-            raise OSError("file vanished while hashing")
-        return original(path)
+    def fail_last_hash(path,**kwargs):
+        if path.relative_to(root).as_posix()=='usr/share/banner':
+            raise OSError('file vanished while hashing')
+        return original(path,**kwargs)
 
-    monkeypatch.setattr(firmware_tree, "_sha256", fail_last_hash)
+    monkeypatch.setattr(firmware_tree.elf,'read',fail_last_hash)
     with pytest.raises(triage.TriageError, match="vanished while hashing"):
         triage.run(con, root)
     assert triage_snapshot(con) == before

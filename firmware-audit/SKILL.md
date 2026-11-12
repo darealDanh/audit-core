@@ -1,19 +1,12 @@
 ---
 name: firmware-audit
 description: >-
-  Runs the structured multi-stage security audit of a device firmware image over
-  the shared audit.py spine: qualify the SKU as worth the spend, acquire the latest
-  build plus a CVE-affected diff reference, triage the carved image, patch-diff and
-  sweep unfixed siblings, map the attack surface, hunt two parallel lanes, verify
-  false positives statically, compose cross-component chains, settle blockers in a
-  bounded deep dive, and end in an acquisition decision and lean report. Use for
-  router/IoT/embedded firmware audits, patch-diff hunting on device images, and
-  scan-before-buy acquisition decisions. Triggers on 'audit this firmware', 'firmware
-  security audit', 'find vulnerabilities in this firmware image', 'run the firmware
-  audit', '$firmware-audit', '/firmware-audit', and firmware stage requests like
-  qualify/acquire/triage/diff/surface/hunt/fpcheck/chain/dive/decide/firmware-report.
-  NOT for source-code application audits (use codebase-audit), single-file review, or
-  quick pattern scans.
+  Use when auditing router, IoT, or embedded firmware images; patch-diff hunting
+  device firmware; making scan-before-buy acquisition decisions; or running
+  firmware qualify, acquire, triage, diff, surface, hunt, fpcheck, chain, dive,
+  decide, or report stages. Triggers include "audit this firmware", "firmware
+  security audit", "$firmware-audit", and "/firmware-audit". Not for source-code
+  application audits, single-file review, or quick pattern scans.
 ---
 
 # Firmware Audit — Patch-Diff-Led Vulnerability Hunting on Device Images
@@ -550,8 +543,12 @@ The workflows name **capabilities**, not one client's tool IDs. Use your client'
 **Two rules hold on every client:** (1) any subagent that writes artifacts, runs SQL inserts, or hits the live instance MUST be a **writable** agent — a read-only agent silently produces nothing; (2) choose the model and reasoning effort from the *Model and effort tiering* table below — not the strongest available for everything. Retained thinking is 18.0% of measured context cost, and lower tiers emit far less of it.
 
 
-## Rationalizations to Reject
+## Common Mistakes and Red Flags
 
 | Rationalization | Required Action |
 |---|---|
-| "Each group's findings are independent" | Chains cross groups, and per-group subagents cannot see across them. Run `audit.py chain` before the audit phase exits. |
+| "The user asked for a full audit, so NO-GO is overridden" | Stop. Only a separate explicit override can cross the qualification gate. |
+| "Blocked is the best available result, so accept it" | Preserve the operator policy. Never broaden accepted completeness without the user. |
+| "The command timed out, so rerun it with a longer deadline" | Treat liveness as unknown. Never duplicate an immutable generation while the original may be alive. |
+| "Checkpointing now will slow the run down" | At 80k prompt tokens, checkpoint and restart before the next stage. Re-reading a bloated context is slower. |
+| "Each group's findings are independent" | Chains cross groups. Run `audit.py chain` before the audit phase exits. |

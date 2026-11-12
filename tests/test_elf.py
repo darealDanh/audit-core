@@ -1,3 +1,5 @@
+import hashlib
+
 import struct
 
 import pytest
@@ -183,6 +185,15 @@ def test_non_elf_and_truncated_headers_return_none(tmp_path, payload):
     path = tmp_path / "bad"
     path.write_bytes(payload)
     assert elf.read(path) is None
+
+def test_optional_digest_covers_bytes_beyond_parser_limit(tmp_path,monkeypatch):
+    payload=header_only()+b'x'*256
+    path=tmp_path/'program'
+    path.write_bytes(payload)
+    monkeypatch.setattr(elf,'MAX_READ',64)
+    digest=hashlib.sha256()
+    assert elf.read(path,digest=digest).machine=='x86-64'
+    assert digest.hexdigest()==hashlib.sha256(payload).hexdigest()
 
 
 def test_offsets_and_counts_past_eof_do_not_raise(tmp_path):

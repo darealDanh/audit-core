@@ -55,12 +55,6 @@ def _regular_files(root: pathlib.Path) -> list[pathlib.Path]:
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
 
-def _sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _kind(path: pathlib.Path, relative: str, facts: elf.ElfFacts | None) -> str:
@@ -90,10 +84,11 @@ def scan(root: str | pathlib.Path) -> tuple[FileFact, ...]:
     for path in _regular_files(root_path):
         relative = path.relative_to(root_path).as_posix()
         try:
-            facts = elf.read(path, strict_io=True)
+            sha256 = hashlib.sha256()
+            facts = elf.read(path, strict_io=True, digest=sha256)
             kind = _kind(path, relative, facts)
             size = path.stat().st_size
-            digest = _sha256(path)
+            digest = sha256.hexdigest()
         except OSError as exc:
             raise FirmwareTreeError(
                 f"Cannot read carved tree path {path}: {exc}") from exc

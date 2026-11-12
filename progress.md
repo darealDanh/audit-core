@@ -1,7 +1,7 @@
 # Project progress
 
-**Last updated:** 2026-11-11 · **Branch:** `main` at `8ecdb72` (the **firmware-audit skill split** merged by fast-forward from `9c6f3b9`); the split worktree is retired; not pushed. The firmware-audit skill split — `firmware-audit` as its own installed skill over the shared vendored core, `codebase-audit` byte-identical — is **merged into local `main` at `8ecdb72`**, nothing pushed. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. ·
-**Current verification:** The current `make all` runs on the **parallelised harness** and passes **7 gates with 1 skipped (`tests`)**: `audit.py selftest` reports **32 verbs declared, all dispatchable**, **47 tables in schema.sql / 46 under contract**, and **8 migrations** applied to both baselines; the `manifest` gate passes (**67 features / 18 stages / 24 open items**), the `eol` gate passes (**8 CRLF / 303 LF** files), and `audit.py lint-skill` is clean. The suite now runs **once per invocation**: on Python 3.12+ `tests` SKIPs and the coverage gate runs the same suite — **9,194 tests** — distributed with pytest-xdist (`-n auto --dist load`), reporting the test count and any failing test names; below 3.12 the coverage gate SKIPs and `tests` runs the suite itself. Measured: **148 installed markdown files**, 0 sentinel survivors, the real install untouched; coverage **0 unexecuted / 14,833 statements**, zero allowed, in **1,644 s** against 6,476 s serial — the identical result, which is the parity proof; read-only benchmark **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**; **wall 1,654 s (27m34s)** against **10,079 s (2h48m)** on the same machine, a **6.1x** reduction. Nothing is pushed. **Paid milestone benchmark: deferred on cost — see §7**
+**Last updated:** 2026-11-12 · **Branch:** `main`; firmware-audit runtime hardening is complete in the current tree, nothing is pushed. The separately installed `firmware-audit` skill remains merged over the shared vendored core; the skill-split and monorepo/submodule items remain closed. ·
+**Current verification:** The pre-documentation `make all` passed **7 gates with 1 skipped (`tests`)** on the parallel harness: **9,194 tests** ran once under coverage; 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files; 0 sentinel survivors; real install untouched; coverage **0 unexecuted / 14,835 statements**, zero allowed, in **1,493 s**; read-only benchmark **recall 9/19 over 45 findings, precision 39/40, $73.15 per match**; wall **1,502 s (25m02s)**. This is 152 s faster than the prior 1,654 s parallel run and 6.7x faster than the 10,079 s serial baseline. Reconciliation adds the measured nested-verifier limitation as the 25th open item; the final post-documentation `make all` is the completion gate. **Paid milestone benchmark: deferred on cost — see §7.**
 
 This file is the durable record of what has been built, what has deliberately
 *not* been built, and what is known to be unverified. It is written for an
@@ -21,15 +21,31 @@ economics without losing audit quality**. That constraint is the binding one:
 every cost win is measured, and anything that could cost recall or precision is
 benchmark-gated before it ships.
 
+The 2026-11-11 X5_PRO_OMNI audit is the first measured full-firmware runtime
+baseline for the installed skill: **12h01m04s** end to end. It reached fpcheck
+in 1h37m, then spent 7h52m in chain/dive and 2h31m in decision/report. The run
+produced useful conservative evidence, but it also exposed an empty finding
+evidence-authority packet, repeated full-root verification, finite-deadline
+retries, a 22k→400k orchestrator context without checkpointing, and operator
+authority drift. The current tree fixes packet authority, makes root hashing
+single-pass, shortens skill discovery metadata and adds compact red flags. The
+target has not been re-audited: **2x faster with materially equivalent
+findings/evidence remains the acceptance target, not a claimed result.**
+
 **Stages 0 through 3c and Stages 4a–4j are merged to local `main`** (Stage 4i
 at `02cb6c0`, from `stage4i-firmware-decide` through `8a0b2a3`). Stage 4i review
 fixes through `92562c4` are merged into local `main` at `9e4632c` (fast-forward) after the final
 post-documentation `make all` passed all eight gates; nothing is pushed. **Stage 4j
 `firmware-report` is merged into local `main` at `e2432dd`**, a fast-forward from
 `b496152` of the code-final tree `7844a9b` plus the documentation commit; its
-`make all`, measured on `7844a9b`, passed all eight gates, the feature worktree is
-retired, and the next stage is the overall Stage 4 `firmware-audit` milestone gate, which
-inherits the Asus golden, the paid milestone audit, the mutation sweep, the second indicator snapshot, the real corpus/hardware probe, Linux/alternate-interpreter execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling as prerequisites. The firmware-audit skill split (its own installed skill over the shared core) is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`); the monorepo/submodule decision is closed (resolved). Stage 4i adds one lifecycle row per
+`make all`, measured on `7844a9b`, passed all eight gates, and the feature
+worktree is retired. The immediate next stage is terminal-verifier performance
+closure against the X5 baseline; the overall Stage 4 milestone follows and
+inherits the Asus golden, paid milestone audit, mutation sweep, second indicator
+snapshot, real corpus/hardware probe, Linux/alternate-interpreter execution,
+triage upsert-only snapshots and Stage 4d orphan-scan scaling. The
+firmware-audit skill split is merged locally and the monorepo/submodule decision
+is closed. Stage 4i adds one lifecycle row per
 image and decision generation, separately hashed policy, exact current
 graph/dive authority, immutable
 global prepare/import/package publication, the bounded three-mode CLI, and one
@@ -1770,33 +1786,31 @@ An independent three-reviewer re-review of merge `02cb6c0` found Important defec
 
 ## 8. Next steps, in the order they make sense
 
-Everything below is zero-audit-cost. The five items that used to head this list
-(leading indicators, severity agreement, coverage in `bench`, re-rating, the
-parked defects) shipped as Stage 3b and are recorded in §2.
+The code optimization step is zero-audit-cost. Re-measuring X5 and running the
+milestone gates are long/paid operations that still require explicit operator
+approval.
 
-1. **Drive the overall Stage 4 `firmware-audit` milestone.** Stage 4j
-   `firmware-report` is merged into local `main` at `e2432dd` (fast-forward
-   from `b496152` of the code-final tree `7844a9b` plus the documentation
-   commit), its worktree is retired and nothing is pushed, so the milestone is the real
-   next stage: the gate stays tplink ≥ 12/19 at ≤ $45, *and* the Asus golden
-   must pass. It inherits every open prerequisite — the missing Asus golden,
-   the paid milestone audit, the mutation sweep, the second indicator snapshot,
-   the real corpus/hardware probe, Linux/alternate-interpreter execution,
-   triage's upsert-only snapshots and Stage 4d's orphan-scan scaling. The
-   monorepo/submodule decision (spec §10) is closed (resolved). The
-   firmware-audit skill split (its own installed skill over the shared vendored
-   core) is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`)
-   and no longer a prerequisite; its final `make all` passed all eight gates.
-   Triage's upsert-only snapshots and Stage 4d's retained-orphan
-   scan scaling persist, and Stage 4j adds its own source-level-only scope,
-   orphaned-artifact-after-refusal and slow-fixture limitations.
-2. **Take a second indicator snapshot** after the next audit run. The first
+1. **Close the remaining terminal-verification bottleneck, then remeasure the
+   X5_PRO_OMNI audit.** Profile decision/report verification, reuse verified
+   snapshots only inside one coherent transaction, and retain the independent
+   publication-time TOCTOU pass. The measured baseline is 12h01m04s; acceptance
+   is at least 2x faster with materially equivalent findings and evidence. A
+   paid/long rerun still requires explicit operator approval.
+2. **Drive the overall Stage 4 `firmware-audit` milestone.** Stage 4j
+   `firmware-report` and the separate installed firmware skill are merged
+   locally; nothing is pushed. The gate stays tplink ≥ 12/19 at ≤ $45, *and*
+   the Asus golden must pass. It inherits the missing Asus golden, paid
+   milestone audit, mutation sweep, second indicator snapshot, real
+   corpus/hardware probe, Linux/alternate-interpreter execution, triage's
+   upsert-only snapshots, Stage 4d retained-orphan scan scaling, Stage 4j's
+   source-level/orphan-artifact/slow-fixture limits, and nested terminal
+   verification rescans.
+3. **Take a second indicator snapshot** after the next audit run. The first
    (`docs/indicators/2026-10-07-tplink-dl110v2-1.0.11.json`) reads `absent` for
    three of four indicators, so there is nothing to compare against yet.
-3. **Decide what to do with `rerate`'s report** once a benchmark run exists to
+4. **Decide what to do with `rerate`'s report** once a benchmark run exists to
    test it against. It is advisory and stores nothing; mutating severity is
    deliberately not done.
-4. **Build the asus golden** before the Stage 4
-   milestone gate. The gate remains tplink >= 12/19 at <= $45, *and* the asus
-   golden must pass. The monorepo/submodule decision (spec §10) is closed
-   (resolved); the firmware-audit skill split is merged into local `main` at `8ecdb72`.
+5. **Build the Asus golden** before the Stage 4 milestone gate. The
+   monorepo/submodule decision is closed, and the firmware-audit skill split is
+   no longer a prerequisite.

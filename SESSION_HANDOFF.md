@@ -1,10 +1,19 @@
 # Session handoff
 
-**Written:** 2026-11-12 · **Branch:** `main`, with the **harness parallelisation** committed on top of the firmware-audit skill split merge `8ecdb72` (itself a fast-forward from `9c6f3b9`); the split worktree is retired; nothing is pushed. The current `make all` runs on the **parallelised harness**: 7 gates pass and `tests` SKIPs, because on Python 3.12+ the coverage gate runs the same suite once and reports its result — 9,194 tests; 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files, 0 sentinel survivors, real install untouched; coverage 0 unexecuted / 14,833 statements, 0 allowed (1,644 s, against 6,476 s serial — an identical result, which is the parity proof); bench recall 9/19 over 45 findings, precision 39/40, $73.15 per match; **wall 1,654 s (27m34s), against 10,079 s (2h48m) on the same machine — 6.1x**. The `separate-firmware-skill-tree` and monorepo/submodule open items are closed. Nothing is pushed ·
+**Written:** 2026-11-12 · **Branch:** `main`; firmware-audit runtime hardening is complete in the current tree, nothing is pushed. The pre-documentation `make all` passed 7 gates with `tests` skipped: 9,194 tests ran once under coverage; 32 verbs; 47 tables / 46 contracts; 8 migrations; 8 CRLF / 303 LF; 67 features / 18 stages / 24 open items; 148 installed markdown files; 0 sentinel survivors; real install untouched; coverage 0 unexecuted / 14,835 statements in 1,493 s; benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match; wall 1,502 s (25m02s), 152 s faster than the prior parallel result. This reconciliation records the nested-verifier bottleneck as the 25th open item. The firmware-audit skill split and monorepo/submodule items remain closed. ·
 **Status:** Stage 4j firmware `firmware-report` is implemented, independently reviewed per task and across the whole branch, and merged into local `main` at `e2432dd`; its full eight-gate `make all` was measured on the code-final commit `7844a9b`. Stage 4i firmware `decide` is merged into local `main` at `02cb6c0`.
 Stage 4i review fixes passed the final post-documentation `make all` (8/8 gates,
 identical counts) and are merged into local `main` at `9e4632c` (fast-forward). An independent three-reviewer re-review of merge `02cb6c0` found Important defects: a stale active generation could wedge an image; a policy A→B→A re-prepare could return B's package; case-colliding proposed-script names could wedge `check` on a case-insensitive filesystem; a shared hardware precondition was uncoverable; and matching/precedence was untested (11 surviving mutants). Minors covered FIFO/symlink loaders, a >4300-digit integer `ValueError`, unvalidated timestamps, same-second ambiguity, untested precondition locations/boundary and a thin worker brief. Fix commits `e7e6250`, `53897e9`, `a5247ee`, `888c2a5`, `b86a8e6`, `cb0cda1`, `2e450b7` and `92562c4` on `stage4i-review-fixes` add the terminal `superseded` status and the `superseded_at` and `preparation_ordinal` columns (the latest preparation wins), bring migrations to six with existing rows ranked per image, and add `tests/test_firmware_decide_matching.py`, `tests/test_firmware_decide_lifecycle.py` and `tests/test_firmware_decide_boundary.py`. Re-review of the fixes: ready to merge with 0 Critical/Important issues; its follow-ups closed in `2e450b7` and `92562c4`. Full `make all` on code-final head `92562c4` passed all eight gates: 8,682 tests; 31 verbs; 45 tables / 44 contracts; six migrations; 6 CRLF / 264 LF files; 66 features / 17 stages / 21 open items; 124 installed markdown files with zero sentinels and the real install untouched; coverage 0/13,174 unexecuted statements, zero allowed; read-only benchmark recall 9/19 over 45 findings, precision 39/40, $73.15 per match (wall 8,225 s). The final post-documentation `make all` on `9e4632c` passed all eight gates with identical counts (wall 8,291 s), and the review fixes are merged into local `main` at `9e4632c` (fast-forward); nothing is pushed. The earlier `stage4i-firmware-decide` measurements below are historical.
-The overall Stage 4 `firmware-audit` milestone gate is the next stage; it inherits the Asus golden, the paid milestone audit, the mutation sweep, the second indicator snapshot, the real corpus/hardware probe, Linux/alternate-interpreter execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling as prerequisites. The **firmware-audit skill split** — `firmware-audit` as its own installed skill over the shared vendored core, `codebase-audit` byte-identical — is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`), nothing pushed. The monorepo/submodule question is closed (resolved; submodule + `sync.sh`; spec Amendment 2026-11-10), so the restructure is unblocked. No Stage 4i review-fix prerequisite remains.
+The immediate next stage is terminal-verifier performance closure against the X5 baseline; the overall Stage 4 `firmware-audit` milestone follows and inherits the Asus golden, paid milestone audit, mutation sweep, second indicator snapshot, real corpus/hardware probe, Linux/alternate-interpreter execution, triage upsert-only snapshots and Stage 4d orphan-scan scaling. The firmware-audit skill split remains merged locally, the monorepo/submodule decision is closed, and no Stage 4i review-fix prerequisite remains.
+
+The measured X5_PRO_OMNI full audit took 12h01m04s: 1h37m through fpcheck,
+7h52m in chain/dive, and 2h31m in decision/report publication. It produced
+useful conservative evidence and used autorev in a hunt worker, but violated
+qualification, diff, operator-policy and context-checkpoint contracts. The
+current tree fixes missing finding-evidence packet authority, hashes each root
+file in the same pass used for ELF classification, shortens skill discovery
+metadata and adds explicit red flags. The target has not been re-audited; 2x
+faster with materially equivalent findings/evidence remains unmeasured.
 
 Read this first if you are picking the project up cold. It covers the rules
 you can break expensively, the state you are inheriting, and what to do next.
@@ -39,27 +48,28 @@ benchmark of recall 9/19 over 45 findings, precision 39/40, $73.15 per match,
 in 10,811 s of wall time. The feature worktree is retired and nothing is
 pushed.
 
-Next: the overall Stage 4
-`firmware-audit` milestone (tplink
-≥ 12/19 at ≤ $45 with the Asus golden passing). Preserve the
-one-row-per-image-and-generation lifecycles, exact current upstream ownership,
-latest-preparation selection with no history fallback, atomic immutable
-publication and inert proposed scripts.
-Workers own result JSON only; they never own SQL, policy, recommendation,
-payout, canonical installation, completion, severity, exploit, chain selection,
-ordering or layout authority.
+Next: profile and remove redundant nested decision/report verification while
+preserving one independent publication-time TOCTOU pass, then remeasure the
+X5_PRO_OMNI audit only with explicit approval. Its baseline is 12h01m04s;
+acceptance is at least 2x faster with materially equivalent findings and
+evidence.
 
-Preserve these open items: Asus golden, paid milestone audit, mutation sweep,
-second indicator snapshot, real corpus/hardware probe, triage upsert-only
-behavior and Stage 4d
-retained-orphan scan scaling. Stage 4j adds three: the report is source-level
-only and claims no execution; a publication refused by the second pass leaves
-an orphan content-addressed report directory; and the Stage 4j lifecycle
-fixtures rebuild a full Stage 4g–4i pipeline, so the focused Stage 4j selection
-takes roughly sixteen minutes. Operator trap: a second report generation over
-the same unchanged Stage 4i package is refused while one is active, so a
-corrected image row or a bumped style contract needs a fresh Stage 4i decision
-preparation first.
+After that, drive the overall Stage 4 `firmware-audit` milestone (tplink
+≥ 12/19 at ≤ $45 with the Asus golden passing). Preserve one-row-per-image and
+generation lifecycles, exact current upstream ownership, latest-preparation
+selection without history fallback, atomic immutable publication and inert
+proposed scripts. Workers own result JSON only; deterministic code owns SQL,
+policy, recommendation, payout, canonical installation, completion, severity,
+exploit, chain selection, ordering and layout.
+
+Preserve these open items: nested terminal verification rescans, Asus golden,
+paid milestone audit, mutation sweep, second indicator snapshot, real
+corpus/hardware probe, triage upsert-only behavior, Stage 4d retained-orphan
+scan scaling, Stage 4j source-level-only scope, orphan artifact after refused
+publication, and slow Stage 4j lifecycle fixtures. Operator trap: a second
+report generation over the same unchanged Stage 4i package is refused while
+one is active, so corrected image data or a changed style contract requires a
+fresh Stage 4i decision preparation.
 
 ---
 
@@ -1052,12 +1062,15 @@ benchmark database; it ran no new audit and did not change the deferral.
 
 Stages 0 through 3c and Stages 4a–4j are merged to local `main`; Stage 4i is
 included at `02cb6c0`, its review fixes at `9e4632c`, and Stage 4j
-`firmware-report` at `e2432dd` (fast-forward from `b496152` of the code-final
-tree `7844a9b` plus the documentation commit; worktree retired). The overall Stage 4 `firmware-audit` milestone gate is
-the next stage, inheriting the Asus golden,
-the paid milestone audit, the mutation
-sweep, the second indicator snapshot, the real corpus/hardware probe,
-Linux/alternate-interpreter execution, triage's upsert-only snapshots and Stage 4d's orphan-scan scaling. The firmware-audit skill split is merged into local `main` at `8ecdb72` (fast-forward from `9c6f3b9`); the monorepo/submodule decision is closed (resolved). Nothing is pushed. Stage 4c adds
+`firmware-report` at `e2432dd`. Immediate work is zero-audit-cost profiling and
+removal of redundant nested terminal verification while retaining the
+publication-time TOCTOU pass. A remeasurement of X5 requires explicit operator
+approval. The overall Stage 4 milestone follows, inheriting the Asus golden,
+paid milestone audit, mutation sweep, second indicator snapshot, real
+corpus/hardware probe, Linux/alternate-interpreter execution, triage upsert-only
+snapshots, Stage 4d orphan-scan scaling and terminal-verifier rescans. The
+firmware-audit skill split is merged locally, the monorepo/submodule decision is
+closed, and nothing is pushed. Stage 4c adds
 `firmware_diff.py`, the `diff` verb, image-scoped manifests, `cba_diffs` and
 `cba_diff_entries`, composite firmware keys, and the diff dispatch brief.
 Comparison stores every changed path in SQL and deterministic JSON while the

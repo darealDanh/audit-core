@@ -529,6 +529,15 @@ def test_packet_chain_authorizes_initial_evidence_without_graph_bodies(graph,tmp
     assert set(graph.chains[0].initial_evidence_refs)<=set(packet['evidence_refs'])
     assert graph.chains[0].summary not in q.packet_bytes(question,graph,()).decode()
 
+def test_packet_finding_subject_authorizes_all_finding_evidence(graph,tmp_path):
+    finding=graph.findings[0]
+    analyst=manifest(tmp_path,[entry(graph,'finding:'+finding.finding_id)])
+    question=next(x for x in derived(graph,analyst).questions if x.origin=='analyst')
+    packet=json.loads(q.packet_bytes(question,graph,()))
+    expected={f'finding:{finding.finding_id}#{field}' for field in (
+        'root_cause','attacker_position','data_flow','impact_hypothesis','evidence_summary')}
+    assert expected<=set(packet['evidence_refs'])
+
 
 @pytest.mark.parametrize('damage',['record','name','size','version','flag'])
 def test_extract_manifest_records_are_exact_bounded_and_safe(graph,damage):

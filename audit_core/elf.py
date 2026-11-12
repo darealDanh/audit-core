@@ -74,11 +74,15 @@ def _mapped_blob(blob: bytes, address: int, size: int,
     return None
 
 
-def read(path: str | pathlib.Path, *, strict_io: bool = False) -> ElfFacts | None:
-    """Read ELF facts; strict_io propagates I/O errors, never malformed data."""
+def read(path: str | pathlib.Path, *, strict_io: bool = False, digest=None) -> ElfFacts | None:
+    """Read ELF facts and optionally update a digest with every file byte."""
     try:
         with pathlib.Path(path).open("rb") as handle:
             blob = handle.read(MAX_READ + 1)
+            if digest is not None:
+                digest.update(blob)
+                while chunk := handle.read(1024 * 1024):
+                    digest.update(chunk)
     except OSError:
         if strict_io:
             raise
